@@ -13,11 +13,13 @@
 
 - **Always follow hook output faithfully.** If a hook blocks an action or provides feedback, treat it as authoritative. Do not attempt to bypass, suppress, or work around hook behavior.
 
-## Investigation Before Action
+## Exploration Before Action
 
-- **Investigate first.** Before making changes, forming conclusions, or proposing solutions, read the relevant code, configs, logs, or context. Never jump straight to implementing.
-- **Build deep understanding.** Understand what you are working on — its purpose, its dependencies, its constraints — before touching it. A shallow reading is not enough.
-- **Check assumptions at every step.** What looks obvious may not be. Verify before acting on it.
+- **You must explore before you edit.** Before touching any file, you must have read (1) the file itself, (2) at least one caller or consumer of the code you're changing, and (3) the relevant test file if one exists. If you cannot name the callers, you haven't explored enough.
+- **For unfamiliar directories, call `select_context_tool` first.** If you haven't worked in a directory this session, cognitive-cache tells you what matters before you start guessing. This is not optional for new territory.
+- **Read the test before writing the fix.** Tests encode the contract. If you change behavior without reading the test, you're guessing what the contract is. Read it, understand what's asserted, then decide if the contract or the implementation is wrong.
+- **Trace the call chain.** Before modifying a function, identify who calls it and what they expect. A grep for the function name is the minimum. If it's exported or public, understand the interface contract before changing it.
+- **State what you found before proposing changes.** When reporting to the user, lead with evidence (file paths, line numbers, actual behavior observed), then your interpretation, then your proposed action. Never skip straight to "here's the fix."
 
 ## Skepticism and Fact-Checking
 
@@ -32,6 +34,19 @@
 - **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent with `model: "sonnet"`.
 - **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
 - **Keep responses concise.** Your response becomes part of the context that gets re-sent on every future turn. Verbosity today costs money on every turn tomorrow.
+
+## Planning and TDD
+
+- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan`) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
+- **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
+- **One question at a time when clarifying.** Do not dump 5 questions on the user. Ask the most important one, get the answer, then ask the next if still needed.
+- **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
+
+## Cognitive Cache (MCP)
+
+- **Before dispatching any subagent that touches code, call `select_context_tool` first.** Pass the repo path and the subagent's task description. Include the returned file contents in the subagent's prompt. This eliminates the 3-5 turn cold-start where subagents grep/read to orient themselves.
+- **When exploring unfamiliar code in a new project directory, call `select_context_tool` before manual exploration.** It ranks files by relevance to your task using symbol overlap, dependency graph, git recency, and embeddings. One call replaces multiple grep/find/read cycles.
+- **Do not call it for tasks where you already know exactly which files to touch.** It adds value when orientation is needed, not when the path is clear.
 
 ## MCP Tool Usage
 

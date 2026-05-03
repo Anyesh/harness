@@ -309,7 +309,7 @@ deploy_codex_config() {
   local instructions_src="$REPO_ROOT/configs/codex/instructions.md.tmpl"
   local hooks_src="$REPO_ROOT/configs/codex/hooks.json"
 
-  if [[ -f "$config_src" ]]; then
+  if [[ -f "$config_src" ]] && ! head -1 "$config_src" | grep -q '^# harness does not manage'; then
     local dest="$CODEX_CONFIG_DIR/config.toml"
     if [[ "$DRY_RUN" == "true" ]]; then
       log_info "[dry-run] would deploy codex config.toml"
