@@ -110,8 +110,9 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "ccusage statusline",
-    "padding": 0
+    "command": "bash {{HOME_DIR}}/.claude/scripts/statusline.sh",
+    "padding": 0,
+    "refreshInterval": 10
   },
   "enabledPlugins": {
     "context7@claude-plugins-official": true,
