@@ -1,12 +1,11 @@
-model = "o4-mini"
-model_provider = "azure"
-model_reasoning_effort = "medium"
-
-[model_providers.azure]
-name = "Azure OpenAI"
-base_url = "{{AZURE_OPENAI_BASE_URL}}"
-env_key = "AZURE_OPENAI_API_KEY"
-wire_api = "responses"
-
-[windows]
-sandbox = "elevated"
+# harness does not manage config.toml — model/provider config is machine-specific.
+# This file exists as a reference for manual setup only.
+#
+# Required fields:
+#   model = "<your-deployment-name>"
+#   model_provider = "azure"
+#
+#   [model_providers.azure]
+#   base_url = "<your-azure-endpoint>/openai/v1"
+#   env_key = "AZURE_OPENAI_API_KEY"
+#   wire_api = "responses"
