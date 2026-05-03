@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 {{HOME_DIR}}/.codex/hooks/pre-edit-comment-guard.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/pre-bash-guard.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/cost-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/format-on-save.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/stop-sloppiness-guard.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
