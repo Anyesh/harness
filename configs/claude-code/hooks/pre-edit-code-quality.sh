@@ -10,6 +10,30 @@ if [ -z "$FILE_PATH" ]; then
     exit 0
 fi
 
+# Prose files: check for staccato style
+case "$FILE_PATH" in
+    *.md|*.mdx|*.txt|*.html)
+        CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
+        if [ -n "$CONTENT" ]; then
+            STACCATO=$(printf '%s' "$CONTENT" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=8{c++} NF>8{if(c>=4){print c" consecutive short sentences"; exit} c=0} END{if(c>=4) print c" consecutive short sentences"}' | head -1 || true)
+            if [ -n "$STACCATO" ]; then
+                cat >&2 <<EOF
+[hook:global] BLOCKED: Staccato writing style detected ($STACCATO)
+Rule: Write in natural, flowing prose. Connect related ideas with conjunctions, commas, and semicolons.
+File: $FILE_PATH
+
+Bad: "X does Y. Z handles W. A calls B. C returns D."
+Good: "X does Y while Z handles W, and when A calls B it returns D."
+
+Rewrite with connected, flowing sentences.
+EOF
+                exit 2
+            fi
+        fi
+        exit 0
+        ;;
+esac
+
 # Only check source files
 case "$FILE_PATH" in
     *.py|*.ts|*.tsx|*.js|*.jsx) ;;

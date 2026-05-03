@@ -47,6 +47,26 @@ PATTERNS='simpler approach|simpler way|simpler solution|simpler version|quicker 
 FOUND=$(printf '%s' "$LAST_TEXT" | grep -iEo "$PATTERNS" | sort -u | head -5 || true)
 
 if [ -z "$FOUND" ]; then
+    CAVEMAN_FLAG="$HOME/.claude/.caveman-active"
+    if [ -f "$CAVEMAN_FLAG" ]; then
+        TEXT_ONLY=$(printf '%s' "$LAST_TEXT" | sed 's/```[^`]*```//g')
+        WORD_COUNT=$(printf '%s' "$TEXT_ONLY" | wc -w | tr -d ' ')
+        SENTENCE_COUNT=$(printf '%s' "$TEXT_ONLY" | grep -oE '[.!?](\s|$)' | wc -l | tr -d ' ')
+        if [ "$WORD_COUNT" -gt 150 ] && [ "$SENTENCE_COUNT" -gt 6 ]; then
+            FOUND="VERBOSE CAVEMAN VIOLATION: ${WORD_COUNT} words, ${SENTENCE_COUNT} sentences (budget: 3 sentences, ~50 words)"
+        fi
+    fi
+fi
+
+if [ -z "$FOUND" ]; then
+    TEXT_ONLY=$(printf '%s' "$LAST_TEXT" | sed 's/```[^`]*```//g')
+    STACCATO=$(printf '%s' "$TEXT_ONLY" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=8{c++} NF>8{if(c>=4) print c" consecutive short sentences"; c=0} END{if(c>=4) print c" consecutive short sentences"}' | head -1 || true)
+    if [ -n "$STACCATO" ]; then
+        FOUND="STACCATO STYLE VIOLATION: $STACCATO detected. Connect ideas with commas, semicolons, conjunctions. No robot-talk."
+    fi
+fi
+
+if [ -z "$FOUND" ]; then
     exit 0
 fi
 
