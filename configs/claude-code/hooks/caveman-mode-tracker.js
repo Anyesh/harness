@@ -122,8 +122,10 @@ process.stdin.on('end', () => {
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
           additionalContext: "CAVEMAN MODE ACTIVE (" + activeMode + "). " +
+            "HARD BUDGET: max 3 sentences per response unless writing code. " +
             "Drop articles/filler/pleasantries/hedging. Fragments OK. " +
-            "Code/commits/security: write normal."
+            "Code/commits/security: write normal. " +
+            "VERBOSE = FAIL. If you write a paragraph where a fragment works, you failed."
         }
       }));
     }
