@@ -1,0 +1,25 @@
+<!-- harness-managed | source: configs/codex/instructions.md.tmpl -->
+# Codex Instructions
+
+## Code Quality Rules
+
+- No emoji characters in source code
+- No inline imports in Python
+- No unnecessary one-liner docstrings or narrative comments
+- Comments only for non-obvious WHY
+- Auto-format with available tools (ruff, prettier, gofmt, shfmt)
+
+## Behavior
+
+- Investigate before acting
+- Fact-check claims independently
+- No shortcuts or low-hanging-fruit reaching
+- One specific recommendation, not a menu of options
+- Push back when something feels wrong
+
+## Constraints
+
+- Always use `uv` for Python environments
+- Never deploy to production without explicit instruction
+- Never use `gh` CLI
+- Write natural prose (no staccato, no em dashes)

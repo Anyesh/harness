@@ -1,0 +1,74 @@
+#!/bin/bash
+set -euo pipefail
+
+SENSITIVE_PATTERNS=(
+  '/home/[a-z]'
+  '/Users/[a-z]'
+  '@[a-z]+\.[a-z]'
+  'api[_-]?key\s*[:=]'
+  'secret\s*[:=]'
+  'password\s*[:=]'
+  'token\s*[:=]\s*["\x27][^"\x27]'
+  '\.env$'
+)
+
+ALLOW_PATTERNS=(
+  '\.env\.example'
+  '\.tmpl'
+  'AZURE_OPENAI_API_KEY'
+  'env_key'
+  '\{\{.*\}\}'
+  'HOME_DIR='
+  'TOKEN.*empty'
+)
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [[ -z "$STAGED_FILES" ]]; then
+  exit 0
+fi
+
+VIOLATIONS=""
+
+while IFS= read -r file; do
+  [[ -z "$file" ]] && continue
+  [[ ! -f "$file" ]] && continue
+
+  # Skip binary files
+  if file "$file" | grep -qi binary; then
+    continue
+  fi
+
+  content=$(git show ":$file" 2>/dev/null || cat "$file")
+
+  # Check for absolute home paths (real personal paths, not templates)
+  if echo "$content" | grep -Pn '/home/[a-z]+[a-z0-9_-]*/' | grep -v '{{' | grep -v '\.tmpl' | grep -v 'HOME_DIR' | grep -v '/home/user' >/dev/null 2>&1; then
+    match=$(echo "$content" | grep -Pn '/home/[a-z]+[a-z0-9_-]*/' | grep -v '{{' | grep -v '\.tmpl' | grep -v 'HOME_DIR' | grep -v '/home/user' | head -3)
+    VIOLATIONS="${VIOLATIONS}\n[PERSONAL PATH] $file:\n$match\n"
+  fi
+
+  # Check for real email addresses (not template vars, not example.com)
+  if echo "$content" | grep -Pn '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | grep -v '{{' | grep -v 'example\.com' | grep -v 'noreply' | grep -v 'user@' >/dev/null 2>&1; then
+    match=$(echo "$content" | grep -Pn '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}' | grep -v '{{' | grep -v 'example\.com' | grep -v 'noreply' | grep -v 'user@' | head -3)
+    VIOLATIONS="${VIOLATIONS}\n[EMAIL] $file:\n$match\n"
+  fi
+
+  # Check for API keys / secrets with actual values
+  if echo "$content" | grep -Pni '(api[_-]?key|secret|password|token)\s*[:=]\s*["\x27][A-Za-z0-9+/=_-]{20,}' >/dev/null 2>&1; then
+    match=$(echo "$content" | grep -Pni '(api[_-]?key|secret|password|token)\s*[:=]\s*["\x27][A-Za-z0-9+/=_-]{20,}' | head -3)
+    VIOLATIONS="${VIOLATIONS}\n[SECRET] $file:\n$match\n"
+  fi
+
+done <<< "$STAGED_FILES"
+
+if [[ -n "$VIOLATIONS" ]]; then
+  echo "=== PRE-COMMIT: SENSITIVE DATA DETECTED ==="
+  echo ""
+  printf "$VIOLATIONS"
+  echo ""
+  echo "Fix: remove personal data, use {{TEMPLATE_VARS}} or generic placeholders."
+  echo "Override: git commit --no-verify (use with extreme caution)"
+  exit 1
+fi
+
+exit 0

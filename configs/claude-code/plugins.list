@@ -1,0 +1,23 @@
+# Plugins to install for Claude Code
+# Format: name@marketplace
+# Lines starting with # are comments, blank lines are ignored
+
+# marketplace: anthropics/claude-plugins-official
+context7@claude-plugins-official
+frontend-design@claude-plugins-official
+feature-dev@claude-plugins-official
+typescript-lsp@claude-plugins-official
+pyright-lsp@claude-plugins-official
+rust-analyzer-lsp@claude-plugins-official
+code-review@claude-plugins-official
+playwright@claude-plugins-official
+commit-commands@claude-plugins-official
+security-guidance@claude-plugins-official
+claude-md-management@claude-plugins-official
+claude-code-setup@claude-plugins-official
+superpowers@claude-plugins-official
+skill-creator@claude-plugins-official
+plugin-dev@claude-plugins-official
+
+# marketplace: JuliusBrussee/caveman
+caveman@caveman
