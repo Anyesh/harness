@@ -186,6 +186,48 @@ deploy_claude_hooks() {
   fi
 }
 
+deploy_claude_scripts() {
+  local scripts_src="$REPO_ROOT/configs/claude-code/scripts"
+  local scripts_dest="$CLAUDE_CONFIG_DIR/scripts"
+
+  if [[ ! -d "$scripts_src" ]]; then
+    return
+  fi
+
+  mkdir -p "$scripts_dest"
+
+  for script_file in "$scripts_src"/*; do
+    [[ ! -f "$script_file" ]] && continue
+    local filename
+    filename=$(basename "$script_file")
+    local dest="$scripts_dest/$filename"
+
+    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+      local src_hash dest_hash
+      src_hash=$(file_checksum "$script_file")
+      dest_hash=$(file_checksum "$dest")
+      if [[ "$src_hash" == "$dest_hash" ]]; then
+        log_skip "script $filename" "unchanged"
+        continue
+      fi
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would deploy script: $filename"
+      continue
+    fi
+
+    if [[ "$NO_BACKUP" == "false" ]]; then
+      backup_if_exists "$dest"
+    fi
+
+    cp "$script_file" "$dest"
+    chmod +x "$dest" 2>/dev/null || true
+    manifest_add "$dest" "configs/claude-code/scripts/$filename" "false"
+    log_update "script: $filename"
+  done
+}
+
 deploy_shared_skills() {
   local dest_dir="$1"
   local skills_src="$REPO_ROOT/configs/shared/skills"
@@ -498,6 +540,7 @@ if [[ "$HAS_CLAUDE" == "true" ]]; then
   deploy_claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
 
   deploy_claude_hooks
+  deploy_claude_scripts
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills"
 fi
 
