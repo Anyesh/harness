@@ -56,6 +56,13 @@
 - **Prefer web-strip's `fetch` tool over built-in WebFetch for reading web content.** Web-strip uses Mozilla Readability to extract main content and converts it to clean markdown, saving 60-90% of tokens compared to raw HTML. Pass `raw: true` when you need actual HTML structure (webdev/debugging). Reserve built-in WebFetch only when web-strip is unavailable.
 - **Use markitdown's `convert_to_markdown` for documents.** When you need to read PDFs, DOCX, XLSX, or PPTX files (local or remote), use the markitdown MCP server rather than fetching and parsing them manually, since it handles extraction and markdown conversion in a single call.
 
+## Token Optimization (RTK)
+
+- **Bash commands are auto-rewritten by RTK** when available. A PreToolUse hook transparently rewrites commands like `git status` to `rtk git status`, compressing output before it enters context.
+- **Built-in tools (Read, Grep, Glob) bypass the hook.** For file reading with compression, use `rtk read <file>` via Bash. For filtered search, use `rtk grep "pattern"` or `rtk find "*.ext" .` via Bash.
+- **Use `rtk err <cmd>`** to surface only errors from noisy build or test commands.
+- **Check savings with `rtk gain`** to see token reduction stats, `rtk discover` for missed optimization opportunities.
+
 ## Writing Style
 
 - **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences.

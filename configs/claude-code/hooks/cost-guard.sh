@@ -59,7 +59,7 @@ EOF
 fi
 
 if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
-  COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
+  COMMAND=$(printf '%s' "$INPUT" | jq -r '.command // .tool_input.command // empty' 2>/dev/null)
   [[ -z "$COMMAND" ]] && exit 0
 
   # Safe: command is piped to something that limits output

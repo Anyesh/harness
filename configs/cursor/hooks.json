@@ -22,7 +22,7 @@
     "preToolUse": [
       {
         "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
-        "matcher": "Write|StrReplace|EditNotebook",
+        "matcher": "Write|StrReplace|EditNotebook|apply_patch",
         "timeout": 5
       },
       {
@@ -31,8 +31,9 @@
         "timeout": 5
       },
       {
-        "command": "rtk hook cursor",
-        "matcher": "Shell"
+        "command": "command -v rtk >/dev/null && rtk hook cursor || exit 0",
+        "matcher": "Shell",
+        "timeout": 5
       }
     ],
     "stop": [

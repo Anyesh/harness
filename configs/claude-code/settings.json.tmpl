@@ -52,7 +52,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "rtk hook claude"
+            "command": "command -v rtk >/dev/null && rtk hook claude || exit 0",
+            "timeout": 5
           }
         ]
       }
