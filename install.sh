@@ -287,12 +287,22 @@ install_rtk() {
   fi
 
   log_info "building RTK from Anyesh/rtk fork..."
-  if cargo install --git https://github.com/Anyesh/rtk.git 2>&1 | tail -3; then
-    log_success "RTK installed from Anyesh/rtk"
-    HAS_RTK=true
+  local rtk_log
+  rtk_log=$(mktemp)
+  if cargo install --git https://github.com/Anyesh/rtk.git 2>&1 | tee "$rtk_log" | tail -3; then
+    if command -v rtk &>/dev/null; then
+      log_success "RTK installed from Anyesh/rtk ($(rtk --version 2>/dev/null || echo 'unknown'))"
+      HAS_RTK=true
+    else
+      log_error "RTK build appeared to succeed but binary not found in PATH"
+      log_error "Build output:"
+      grep -iE "error|failed|cannot|missing|not found" "$rtk_log" | tail -10 >&2
+    fi
   else
-    log_warn "RTK build failed; install manually: cargo install --git https://github.com/Anyesh/rtk.git"
+    log_error "RTK build failed. Errors:"
+    grep -iE "error|failed|cannot|missing|not found" "$rtk_log" | tail -10 >&2
   fi
+  rm -f "$rtk_log"
 }
 
 deploy_shared_skills() {
