@@ -13,7 +13,7 @@ INPUT=$(cat)
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 case "$TOOL_NAME" in
-  Read|Bash) ;;
+  Read|Bash|Shell) ;;
   *) exit 0 ;;
 esac
 
@@ -33,7 +33,8 @@ EOF
 }
 
 if [[ "$TOOL_NAME" == "Read" ]]; then
-  FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+  # Claude Code uses "file_path"; Cursor Read uses "path"
+  FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null)
   [[ -z "$FILE_PATH" || ! -f "$FILE_PATH" ]] && exit 0
 
   FILE_SIZE=$(stat -c%s "$FILE_PATH" 2>/dev/null || stat -f%z "$FILE_PATH" 2>/dev/null || echo 0)
@@ -57,7 +58,7 @@ EOF
   exit 0
 fi
 
-if [[ "$TOOL_NAME" == "Bash" ]]; then
+if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
   [[ -z "$COMMAND" ]] && exit 0
 

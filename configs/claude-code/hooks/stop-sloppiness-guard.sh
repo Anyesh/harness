@@ -7,7 +7,9 @@ set -uo pipefail
 
 INPUT=$(cat)
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null)
+# Claude Code uses session_id; Cursor uses conversation_id in common fields
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .conversation_id // "unknown"' 2>/dev/null)
+HOOK_EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 
 if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
     exit 0
@@ -99,5 +101,11 @@ Re-engage. State the real problem honestly. Commit to the real work.
 EOF
 )
 
-jq -n --arg reason "$REASON" '{decision: "block", reason: $reason}'
+if [[ "$HOOK_EVENT" == "stop" ]]; then
+    # Cursor stop hook cannot block — send a followup_message to re-engage the agent
+    jq -n --arg msg "$REASON" '{followup_message: $msg}'
+else
+    # Claude Code Stop hook blocks via decision:block
+    jq -n --arg reason "$REASON" '{decision: "block", reason: $reason}'
+fi
 exit 0
