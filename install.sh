@@ -545,24 +545,11 @@ esac
 log_section "Harness Bootstrap"
 log_info "repo: $REPO_ROOT"
 
-if [[ ! -f "$HARNESS_ENV" ]]; then
-  if [[ -f "$REPO_ROOT/.env.example" ]]; then
-    cp "$REPO_ROOT/.env.example" "$HARNESS_ENV"
-    log_warn "created $HARNESS_ENV from template"
-    log_warn "edit it with your values, then re-run"
-    exit 1
-  else
-    die "no .env.example found and $HARNESS_ENV does not exist"
-  fi
+if [[ -f "$HARNESS_ENV" ]]; then
+  log_info "using env overrides from $HARNESS_ENV"
+else
+  log_info "no $HARNESS_ENV found, using defaults (HOME_DIR=$HOME)"
 fi
-
-while IFS='=' read -r key value; do
-  [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-  key=$(echo "$key" | xargs)
-  if [[ -z "${value:-}" ]]; then
-    die "required variable $key is empty in $HARNESS_ENV"
-  fi
-done < "$HARNESS_ENV"
 
 detect_tools
 
