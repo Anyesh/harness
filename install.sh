@@ -59,7 +59,7 @@ install_claude_plugins() {
     return
   fi
 
-  local marketplaces=("anthropics/claude-plugins-official" "JuliusBrussee/caveman")
+  local marketplaces=("anthropics/claude-plugins-official" "Anyesh/caveman")
   for mp in "${marketplaces[@]}"; do
     local mp_name="${mp##*/}"
     if claude plugin marketplace list 2>/dev/null | grep -qi "$mp_name"; then
@@ -226,6 +226,58 @@ deploy_claude_scripts() {
     manifest_add "$dest" "configs/claude-code/scripts/$filename" "false"
     log_update "script: $filename"
   done
+}
+
+install_rtk() {
+  if [[ "$HAS_RTK" == "true" ]]; then
+    log_skip "rtk" "already installed ($(rtk --version 2>/dev/null || echo 'unknown version'))"
+    return
+  fi
+
+  log_info "RTK not found, attempting installation..."
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would install RTK via cargo or prebuilt binary"
+    return
+  fi
+
+  local installed=false
+
+  if command -v cargo &>/dev/null; then
+    log_info "installing RTK via cargo..."
+    if cargo install rtk-cli 2>/dev/null; then
+      installed=true
+      log_success "RTK installed via cargo"
+    else
+      log_warn "cargo install failed, trying prebuilt binary..."
+    fi
+  fi
+
+  if [[ "$installed" == "false" ]]; then
+    local arch os_name
+    arch=$(uname -m)
+    os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    local rtk_url="https://github.com/Anyesh/rtk/releases/latest/download/rtk-${os_name}-${arch}"
+    local rtk_dest="${HOME}/.local/bin/rtk"
+
+    mkdir -p "$(dirname "$rtk_dest")"
+    if curl -fsSL "$rtk_url" -o "$rtk_dest" 2>/dev/null; then
+      chmod +x "$rtk_dest"
+      installed=true
+      log_success "RTK installed to $rtk_dest"
+    else
+      log_warn "RTK binary download failed (${rtk_url}), skipping RTK installation"
+      log_warn "Install manually: cargo install rtk-cli or visit https://github.com/Anyesh/rtk"
+      return
+    fi
+  fi
+
+  if [[ "$installed" == "true" ]]; then
+    log_info "configuring RTK shell hook..."
+    rtk setup 2>/dev/null || log_warn "rtk setup failed; configure manually with 'rtk setup'"
+    HAS_RTK=true
+  fi
 }
 
 deploy_shared_skills() {
@@ -555,6 +607,9 @@ if [[ "$HAS_CODEX" == "true" ]]; then
   deploy_codex_config
   deploy_shared_skills "$CODEX_CONFIG_DIR/skills"
 fi
+
+log_section "Token Optimization"
+install_rtk
 
 manifest_finalize
 report_summary
