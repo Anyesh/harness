@@ -280,42 +280,18 @@ install_rtk() {
     return
   fi
 
-  local installed=false
-
-  if command -v cargo &>/dev/null; then
-    log_info "installing RTK via cargo..."
-    if cargo install rtk-cli 2>/dev/null; then
-      installed=true
-      log_success "RTK installed via cargo"
-    else
-      log_warn "cargo install failed, trying prebuilt binary..."
-    fi
+  if ! command -v cargo &>/dev/null; then
+    log_warn "RTK requires cargo (Rust toolchain) to build from source"
+    log_warn "Install Rust first: https://rustup.rs"
+    return
   fi
 
-  if [[ "$installed" == "false" ]]; then
-    local arch os_name
-    arch=$(uname -m)
-    os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
-
-    local rtk_url="https://github.com/Anyesh/rtk/releases/latest/download/rtk-${os_name}-${arch}"
-    local rtk_dest="${HOME}/.local/bin/rtk"
-
-    mkdir -p "$(dirname "$rtk_dest")"
-    if curl -fsSL "$rtk_url" -o "$rtk_dest" 2>/dev/null; then
-      chmod +x "$rtk_dest"
-      installed=true
-      log_success "RTK installed to $rtk_dest"
-    else
-      log_warn "RTK binary download failed (${rtk_url}), skipping RTK installation"
-      log_warn "Install manually: cargo install rtk-cli or visit https://github.com/Anyesh/rtk"
-      return
-    fi
-  fi
-
-  if [[ "$installed" == "true" ]]; then
-    log_info "configuring RTK shell hook..."
-    rtk setup 2>/dev/null || log_warn "rtk setup failed; configure manually with 'rtk setup'"
+  log_info "building RTK from Anyesh/rtk fork..."
+  if cargo install --git https://github.com/Anyesh/rtk.git 2>&1 | tail -3; then
+    log_success "RTK installed from Anyesh/rtk"
     HAS_RTK=true
+  else
+    log_warn "RTK build failed; install manually: cargo install --git https://github.com/Anyesh/rtk.git"
   fi
 }
 
