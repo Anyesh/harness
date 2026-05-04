@@ -4,22 +4,24 @@ render_template() {
   local input="$1" output="$2"
   local env_file="${HARNESS_ENV:-$HOME/.harness.env}"
 
-  if [[ ! -f "$env_file" ]]; then
-    die "env file not found: $env_file"
-  fi
-
   cp "$input" "$output"
 
-  while IFS='=' read -r key value; do
-    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-    key=$(echo "$key" | xargs)
-    value="${value#\"}"
-    value="${value%\"}"
-    # Escape & and \ for sed replacement string; delimiter is | so / is safe
-    local escaped_value="${value//\\/\\\\}"
-    escaped_value="${escaped_value//&/\\&}"
-    sed -i "s|{{${key}}}|${escaped_value}|g" "$output"
-  done < "$env_file"
+  # HOME_DIR always resolves from $HOME so it never needs manual config
+  local home_escaped="${HOME//\\/\\\\}"
+  home_escaped="${home_escaped//&/\\&}"
+  sed -i "s|{{HOME_DIR}}|${home_escaped}|g" "$output"
+
+  if [[ -f "$env_file" ]]; then
+    while IFS='=' read -r key value; do
+      [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+      key=$(echo "$key" | xargs)
+      value="${value#\"}"
+      value="${value%\"}"
+      local escaped_value="${value//\\/\\\\}"
+      escaped_value="${escaped_value//&/\\&}"
+      sed -i "s|{{${key}}}|${escaped_value}|g" "$output"
+    done < "$env_file"
+  fi
 }
 
 validate_template() {
