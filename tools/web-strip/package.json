@@ -1,0 +1,15 @@
+{
+  "name": "@harness/web-strip",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "web-strip": "./index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@mozilla/readability": "^0.5.0",
+    "jsdom": "^24.1.0",
+    "turndown": "^7.2.0",
+    "zod": "^3.25.0"
+  }
+}
