@@ -178,7 +178,7 @@ deploy_claude_hooks() {
     log_update "hook: $filename"
   done
 
-  if [[ -f "$hooks_dest/package.json" && ! -d "$hooks_dest/node_modules" ]]; then
+  if [[ "$DRY_RUN" == "false" && -f "$hooks_dest/package.json" && ! -d "$hooks_dest/node_modules" ]]; then
     if command -v npm &>/dev/null; then
       log_info "installing hook dependencies..."
       (cd "$hooks_dest" && npm install --production --silent 2>/dev/null) || true
