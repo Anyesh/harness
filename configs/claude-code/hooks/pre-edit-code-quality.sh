@@ -70,7 +70,13 @@ case "$FILE_PATH" in
     *.py)
         # Check 2: No inline imports (import inside function bodies) — skip tests
         if [ "$IS_TEST" = false ]; then
-            FOUND=$(echo "$CONTENT" | grep -nE '^\s{4,}(import\s+|from\s+\S+\s+import\s+)' | grep -vE '# noqa|# type:|TYPE_CHECKING' | head -3 || true)
+            FOUND=$(echo "$CONTENT" | awk '
+                /^[[:space:]]*if[[:space:]]+TYPE_CHECKING[[:space:]]*:/ { in_tc=1; next }
+                in_tc && /^[[:space:]]*$/ { next }
+                in_tc && !/^[[:space:]]/ { in_tc=0 }
+                in_tc { next }
+                /^[[:space:]]{4,}(import[[:space:]]|from[[:space:]]+[^[:space:]]+[[:space:]]+import[[:space:]])/ { print NR": "$0 }
+            ' | grep -vE '# noqa|# type:|TYPE_CHECKING' | head -3 || true)
             if [ -n "$FOUND" ]; then
                 cat >&2 <<EOF
 [hook:global] BLOCKED: Inline import detected (import inside function/method body)

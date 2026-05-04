@@ -61,7 +61,12 @@ if [ -z "$FOUND" ]; then
 fi
 
 if [ -z "$FOUND" ]; then
-    TEXT_ONLY=$(printf '%s' "$LAST_TEXT" | sed 's/```[^`]*```//g')
+    TEXT_ONLY=$(printf '%s' "$LAST_TEXT" \
+        | sed 's/```[^`]*```//g' \
+        | sed '/^[[:space:]]*[-*]/d' \
+        | sed '/^[[:space:]]*[0-9]\{1,\}\./d' \
+        | sed '/^[[:space:]]*#/d' \
+        | sed '/^[[:space:]]*|/d')
     STACCATO=$(printf '%s' "$TEXT_ONLY" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=8{c++} NF>8{if(c>=4) print c" consecutive short sentences"; c=0} END{if(c>=4) print c" consecutive short sentences"}' | head -1 || true)
     if [ -n "$STACCATO" ]; then
         FOUND="STACCATO STYLE VIOLATION: $STACCATO detected. Connect ideas with commas, semicolons, conjunctions. No robot-talk."

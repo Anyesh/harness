@@ -228,6 +228,45 @@ deploy_claude_scripts() {
   done
 }
 
+register_claude_mcp_servers() {
+  if ! command -v claude &>/dev/null; then
+    log_warn "claude CLI not found, skipping MCP server registration"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would register MCP servers via claude mcp add"
+    return
+  fi
+
+  local servers=(
+    "web-strip:node:$HOME/.harness/tools/web-strip/index.js"
+    "markitdown:uvx:markitdown-mcp"
+    "cognitive-cache:uvx:cognitive-cache-mcp"
+  )
+
+  for entry in "${servers[@]}"; do
+    local name cmd args
+    name="${entry%%:*}"
+    local rest="${entry#*:}"
+    cmd="${rest%%:*}"
+    args="${rest#*:}"
+
+    local existing
+    existing=$(claude mcp list 2>/dev/null | grep "^${name}:" || true)
+    if [[ -n "$existing" ]]; then
+      log_skip "mcp: $name" "already registered"
+      continue
+    fi
+
+    if claude mcp add -s user "$name" -- "$cmd" "$args" 2>/dev/null; then
+      log_success "mcp: $name registered"
+    else
+      log_warn "mcp: $name registration failed"
+    fi
+  done
+}
+
 deploy_tools() {
   local tools_src="$REPO_ROOT/tools"
   local tools_dest="$HOME/.harness/tools"
@@ -633,7 +672,7 @@ if [[ "$HAS_CLAUDE" == "true" ]]; then
 
   deploy_claude_config "CLAUDE.md.tmpl" "$CLAUDE_CONFIG_DIR/CLAUDE.md"
   deploy_claude_config "settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json"
-  deploy_claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
+  register_claude_mcp_servers
 
   deploy_claude_hooks
   deploy_claude_scripts
