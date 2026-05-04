@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" && pwd 2>/dev/null)" || SCRIPT_DIR=""
 
-if [[ ! -f "$SCRIPT_DIR/lib/common.sh" ]]; then
+if [[ -z "$SCRIPT_DIR" || ! -f "$SCRIPT_DIR/lib/common.sh" ]]; then
   HARNESS_DIR="${HARNESS_DIR:-$HOME/.harness}"
   if [[ ! -d "$HARNESS_DIR" ]]; then
     echo "[harness] Cloning repository..."
