@@ -34,3 +34,10 @@
 
 - Never deploy to production unless explicitly instructed
 - Never force-push to main/master
+
+## Token Optimization
+
+- Shell commands are auto-rewritten by the RTK hook — `git status` becomes `rtk git status` transparently
+- Use `rtk read <file>`, `rtk find`, `rtk grep` directly for non-shell operations (Read/Grep tools bypass the hook)
+- Use `rtk err <cmd>` to surface only errors from noisy commands
+- Meta commands: `rtk gain` (savings stats), `rtk discover` (missed savings), `rtk gain --history`
