@@ -452,7 +452,67 @@ deploy_cursor_config() {
     fi
   fi
 
+  deploy_cursor_mcp
   deploy_cursor_hooks
+}
+
+deploy_cursor_mcp() {
+  local src="$REPO_ROOT/configs/cursor/mcp.json.tmpl"
+  local dest="$CURSOR_CONFIG_DIR/mcp.json"
+
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  local tmp_rendered
+  tmp_rendered=$(mktemp)
+  render_template "$src" "$tmp_rendered"
+
+  if ! validate_template "$tmp_rendered"; then
+    rm -f "$tmp_rendered"
+    log_error "failed to deploy cursor mcp.json (unresolved template vars)"
+    return
+  fi
+
+  local tmp_merged
+  tmp_merged=$(mktemp)
+  if [[ -f "$dest" ]]; then
+    python3 - "$tmp_rendered" "$dest" "$tmp_merged" <<'PYEOF'
+import json, sys
+harness = json.load(open(sys.argv[1]))
+existing = json.load(open(sys.argv[2]))
+merged = existing.copy()
+merged.setdefault("mcpServers", {}).update(harness.get("mcpServers", {}))
+json.dump(merged, open(sys.argv[3], "w"), indent=2)
+open(sys.argv[3], "a").write("\n")
+PYEOF
+  else
+    cp "$tmp_rendered" "$tmp_merged"
+  fi
+  rm -f "$tmp_rendered"
+
+  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$tmp_merged")
+    dest_hash=$(file_checksum "$dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      rm -f "$tmp_merged"
+      log_skip "cursor mcp.json" "unchanged"
+      return
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    rm -f "$tmp_merged"
+    log_info "[dry-run] would deploy cursor mcp.json"
+    return
+  fi
+
+  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+  mkdir -p "$(dirname "$dest")"
+  mv "$tmp_merged" "$dest"
+  manifest_add "$dest" "configs/cursor/mcp.json.tmpl" "true"
+  log_success "cursor mcp.json deployed"
 }
 
 deploy_cursor_hooks() {
