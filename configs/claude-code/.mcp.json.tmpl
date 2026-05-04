@@ -2,7 +2,8 @@
   "mcpServers": {
     "cognitive-cache": {
       "command": "uvx",
-      "args": ["cognitive-cache-mcp"]
+      "args": ["--from", "cognitive-cache[mcp]", "cognitive-cache-mcp"]
+
     },
     "web-strip": {
       "command": "node",
