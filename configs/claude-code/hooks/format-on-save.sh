@@ -2,7 +2,9 @@
 set -euo pipefail
 
 input=$(cat)
-file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty')
+# Cursor afterFileEdit: file_path at top level
+# Claude Code PostToolUse: file_path nested under tool_input
+file_path=$(echo "$input" | jq -r '.file_path // .tool_input.file_path // empty')
 
 if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
   exit 0

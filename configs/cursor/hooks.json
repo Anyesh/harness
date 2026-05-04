@@ -1,28 +1,36 @@
 {
-  "hooks": [
-    {
-      "event": "beforeShellExecution",
-      "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
-      "timeout": 5000,
-      "failClosed": true
-    },
-    {
-      "event": "afterFileEdit",
-      "command": "bash {{HOME_DIR}}/.cursor/hooks/format-on-save.sh",
-      "timeout": 10000
-    },
-    {
-      "event": "preToolUse",
-      "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
-      "matcher": "edit|write|apply_patch",
-      "timeout": 5000,
-      "failClosed": true
-    },
-    {
-      "event": "preToolUse",
-      "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
-      "matcher": "read|bash|shell",
-      "timeout": 5000
-    }
-  ]
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
+        "timeout": 5
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/format-on-save.sh",
+        "timeout": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
+        "matcher": "Write|StrReplace|EditNotebook",
+        "timeout": 5
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "matcher": "Read|Shell",
+        "timeout": 5
+      }
+    ],
+    "stop": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-sloppiness-guard.sh",
+        "timeout": 10,
+        "loop_limit": 3
+      }
+    ]
+  }
 }

@@ -419,13 +419,18 @@ def main():
     tool_input = data.get("tool_input")
     if not isinstance(tool_input, dict):
         sys.exit(0)
-    file_path = tool_input.get("file_path")
+    # Claude Code uses "file_path"; Cursor Write uses "path"; StrReplace uses "path"
+    file_path = tool_input.get("file_path") or tool_input.get("path")
     if not isinstance(file_path, str) or not file_path:
         sys.exit(0)
 
-    content = tool_input.get("new_string")
-    if not isinstance(content, str):
-        content = tool_input.get("content")
+    # Claude Code Write/StrReplace: "new_string" or "content"
+    # Cursor Write: "contents"; Cursor StrReplace: "new_string"
+    content = (
+        tool_input.get("new_string")
+        or tool_input.get("contents")
+        or tool_input.get("content")
+    )
     if not isinstance(content, str) or not content:
         sys.exit(0)
 
