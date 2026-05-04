@@ -442,7 +442,7 @@ deploy_cursor_hooks() {
   local cursor_hooks_dir="$CURSOR_CONFIG_DIR/hooks"
   mkdir -p "$cursor_hooks_dir"
 
-  local shared_hooks=("pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh")
+  local shared_hooks=("session-start.sh" "pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh")
   for hook in "${shared_hooks[@]}"; do
     local hook_src="$REPO_ROOT/configs/claude-code/hooks/$hook"
     local hook_dest="$cursor_hooks_dir/$hook"

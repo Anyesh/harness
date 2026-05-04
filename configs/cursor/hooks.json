@@ -1,6 +1,12 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start.sh",
+        "timeout": 5
+      }
+    ],
     "beforeShellExecution": [
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
@@ -23,6 +29,10 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
         "matcher": "Read|Shell",
         "timeout": 5
+      },
+      {
+        "command": "rtk hook cursor",
+        "matcher": "Shell"
       }
     ],
     "stop": [
