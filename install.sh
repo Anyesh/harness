@@ -280,29 +280,61 @@ install_rtk() {
     return
   fi
 
-  if ! command -v cargo &>/dev/null; then
-    log_warn "RTK requires cargo (Rust toolchain) to build from source"
-    log_warn "Install Rust first: https://rustup.rs"
-    return
-  fi
+  local installed=false
+  local rtk_repo="https://github.com/Anyesh/rtk"
 
-  log_info "building RTK from Anyesh/rtk fork..."
-  local rtk_log
-  rtk_log=$(mktemp)
-  if cargo install --git https://github.com/Anyesh/rtk.git 2>&1 | tee "$rtk_log" | tail -3; then
-    if command -v rtk &>/dev/null; then
-      log_success "RTK installed from Anyesh/rtk ($(rtk --version 2>/dev/null || echo 'unknown'))"
-      HAS_RTK=true
+  if command -v cargo &>/dev/null; then
+    local rustc_ver
+    rustc_ver=$(rustc --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    local rustc_major rustc_minor
+    rustc_major=$(echo "$rustc_ver" | cut -d. -f1)
+    rustc_minor=$(echo "$rustc_ver" | cut -d. -f2)
+
+    if [[ "$rustc_major" -ge 1 && "$rustc_minor" -ge 80 ]]; then
+      log_info "building RTK from Anyesh/rtk fork (rustc $rustc_ver)..."
+      local rtk_log
+      rtk_log=$(mktemp)
+      if cargo install --git "${rtk_repo}.git" 2>&1 | tee "$rtk_log" | tail -3; then
+        if command -v rtk &>/dev/null; then
+          log_success "RTK installed from Anyesh/rtk ($(rtk --version 2>/dev/null || echo 'unknown'))"
+          installed=true
+        fi
+      fi
+      if [[ "$installed" == "false" ]]; then
+        log_warn "RTK build from source failed:"
+        grep -iE "error|failed|cannot|missing|not found" "$rtk_log" | tail -10 >&2
+        log_info "falling back to prebuilt binary..."
+      fi
+      rm -f "$rtk_log"
     else
-      log_error "RTK build appeared to succeed but binary not found in PATH"
-      log_error "Build output:"
-      grep -iE "error|failed|cannot|missing|not found" "$rtk_log" | tail -10 >&2
+      log_warn "rustc $rustc_ver is too old for RTK (needs 1.80+), trying prebuilt binary..."
     fi
   else
-    log_error "RTK build failed. Errors:"
-    grep -iE "error|failed|cannot|missing|not found" "$rtk_log" | tail -10 >&2
+    log_info "cargo not found, trying prebuilt binary..."
   fi
-  rm -f "$rtk_log"
+
+  if [[ "$installed" == "false" ]]; then
+    local arch os_name
+    arch=$(uname -m)
+    os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    local rtk_dest="${HOME}/.local/bin/rtk"
+    local rtk_url="${rtk_repo}/releases/latest/download/rtk-${os_name}-${arch}"
+
+    mkdir -p "$(dirname "$rtk_dest")"
+    if curl -fsSL "$rtk_url" -o "$rtk_dest" 2>/dev/null; then
+      chmod +x "$rtk_dest"
+      installed=true
+      log_success "RTK installed to $rtk_dest"
+    else
+      log_warn "prebuilt binary not available for ${os_name}-${arch}"
+      log_warn "Install RTK manually: update Rust (rustup update) then: cargo install --git ${rtk_repo}.git"
+    fi
+  fi
+
+  if [[ "$installed" == "true" ]]; then
+    HAS_RTK=true
+  fi
 }
 
 deploy_shared_skills() {
