@@ -10,12 +10,40 @@ if [ -z "$FILE_PATH" ]; then
     exit 0
 fi
 
-# Prose files: check for staccato style
+# Prose files: check for staccato style (markdown-aware)
 case "$FILE_PATH" in
     *.md|*.mdx|*.txt|*.html)
+        # Skip structured instruction docs where short declarative lines are expected
+        case "$FILE_PATH" in
+            */.claude/plans/*|*/plans/*.md|*/SKILL.md|*/AGENTS.md) exit 0 ;;
+        esac
         CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
         if [ -n "$CONTENT" ]; then
-            STACCATO=$(printf '%s' "$CONTENT" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=8{c++} NF>8{if(c>=4){print c" consecutive short sentences"; exit} c=0} END{if(c>=4) print c" consecutive short sentences"}' | head -1 || true)
+            # Strip markdown structure before checking prose: frontmatter, headers, bullets,
+            # numbered lists, code blocks, tables, wikilinks-only lines, blank lines, and
+            # lines that are entirely bold/italic markers so that only actual prose paragraphs
+            # are evaluated for staccato patterns.
+            STACCATO=$(printf '%s' "$CONTENT" | awk '
+                /^---/       { in_fm = !in_fm; next }
+                in_fm        { next }
+                /^```/       { in_code = !in_code; next }
+                in_code      { next }
+                /^[[:space:]]*$/              { next }
+                /^[[:space:]]*#/             { next }
+                /^[[:space:]]*[-*+] /        { next }
+                /^[[:space:]]*[0-9]+\. /     { next }
+                /^[[:space:]]*\|/            { next }
+                /^[[:space:]]*>/             { next }
+                /^[[:space:]]*\[\[/          { next }
+                /^[[:space:]]*\*\*/          { next }
+                /^[[:space:]]*!/             { next }
+                { print }
+            ' | grep -oE '[^.!?]*[.!?]' | awk '
+                { gsub(/^[[:space:]]+/,"") }
+                NF <= 6 { c++; next }
+                { if (c >= 5) { print c " consecutive short sentences"; exit } c = 0 }
+                END { if (c >= 5) print c " consecutive short sentences" }
+            ' | head -1 || true)
             if [ -n "$STACCATO" ]; then
                 cat >&2 <<EOF
 [hook:global] BLOCKED: Staccato writing style detected ($STACCATO)
