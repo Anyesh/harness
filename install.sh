@@ -228,6 +228,45 @@ deploy_claude_scripts() {
   done
 }
 
+deploy_tools() {
+  local tools_src="$REPO_ROOT/tools"
+  local tools_dest="$HOME/.harness/tools"
+
+  if [[ ! -d "$tools_src" ]]; then
+    return
+  fi
+
+  mkdir -p "$tools_dest"
+
+  for tool_dir in "$tools_src"/*/; do
+    [[ ! -d "$tool_dir" ]] && continue
+    local tool_name
+    tool_name=$(basename "$tool_dir")
+    local dest="$tools_dest/$tool_name"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would deploy tool: $tool_name"
+      continue
+    fi
+
+    mkdir -p "$dest"
+    cp "$tool_dir"/*.js "$dest/" 2>/dev/null || true
+    cp "$tool_dir"/*.json "$dest/" 2>/dev/null || true
+
+    if [[ -f "$dest/package.json" && ! -d "$dest/node_modules" ]]; then
+      if command -v npm &>/dev/null; then
+        log_info "installing $tool_name dependencies..."
+        (cd "$dest" && npm install --production --silent 2>/dev/null) || log_warn "$tool_name: npm install failed"
+      else
+        log_warn "$tool_name requires npm but npm not found"
+      fi
+    fi
+
+    chmod +x "$dest/index.js" 2>/dev/null || true
+    log_success "tool: $tool_name"
+  done
+}
+
 install_rtk() {
   if [[ "$HAS_RTK" == "true" ]]; then
     log_skip "rtk" "already installed ($(rtk --version 2>/dev/null || echo 'unknown version'))"
@@ -596,6 +635,7 @@ if [[ "$HAS_CODEX" == "true" ]]; then
 fi
 
 log_section "Token Optimization"
+deploy_tools
 install_rtk
 
 manifest_finalize
