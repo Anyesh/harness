@@ -3,10 +3,39 @@
 render_template() {
   local input="$1" output="$2"
   local env_file="${HARNESS_ENV:-$HOME/.harness.env}"
+  local repo_root="${REPO_ROOT:-$(cd "$(dirname "$input")/.." && pwd)}"
 
-  cp "$input" "$output"
+  \cp -f "$input" "$output"
 
-  # HOME_DIR always resolves from $HOME so it never needs manual config
+  # Resolve {{INCLUDE:path}} directives (relative to configs/)
+  while grep -q '{{INCLUDE:' "$output" 2>/dev/null; do
+    local tmp_include
+    tmp_include=$(mktemp)
+    local found_include=false
+
+    while IFS= read -r line; do
+      if [[ "$line" == *'{{INCLUDE:'* ]]; then
+        local include_ref="${line#*\{\{INCLUDE:}"
+        include_ref="${include_ref%%\}\}*}"
+        local full_path="$repo_root/configs/$include_ref"
+        local prefix="${line%%\{\{INCLUDE:*}"
+        local suffix="${line#*\}\}}"
+
+        [[ -n "$prefix" ]] && printf '%s\n' "$prefix"
+        if [[ -f "$full_path" ]]; then
+          cat "$full_path"
+        fi
+        [[ -n "$suffix" ]] && printf '%s\n' "$suffix"
+        found_include=true
+      else
+        printf '%s\n' "$line"
+      fi
+    done < "$output" > "$tmp_include"
+
+    \mv -f "$tmp_include" "$output"
+    [[ "$found_include" == false ]] && break
+  done
+
   local home_escaped="${HOME//\\/\\\\}"
   home_escaped="${home_escaped//&/\\&}"
   sed -i "s|{{HOME_DIR}}|${home_escaped}|g" "$output"
@@ -27,6 +56,7 @@ render_template() {
 validate_template() {
   local file="$1"
   local unresolved
+  # INCLUDE directives use mixed case so only flag ALL_CAPS unresolved vars
   unresolved=$(grep -oP '\{\{[A-Z_][A-Z0-9_]*\}\}' "$file" 2>/dev/null | sort -u || true)
 
   if [[ -n "$unresolved" ]]; then

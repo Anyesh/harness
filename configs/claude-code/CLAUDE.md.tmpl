@@ -42,6 +42,8 @@
 - **One question at a time when clarifying.** Do not dump 5 questions on the user. Ask the most important one, get the answer, then ask the next if still needed.
 - **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
 
+{{INCLUDE:shared/scope-gate.md}}
+
 ## Cognitive Cache (MCP)
 
 - **Before dispatching any subagent that touches code, call `select_context_tool` first.** Pass the repo path and the subagent's task description. Include the returned file contents in the subagent's prompt. This eliminates the 3-5 turn cold-start where subagents grep/read to orient themselves.
