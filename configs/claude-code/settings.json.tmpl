@@ -102,6 +102,12 @@
             "command": "node \"{{HOME_DIR}}/.claude/hooks/caveman-activate.js\"",
             "timeout": 5,
             "statusMessage": "Loading caveman mode..."
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/wiki-sync-detector.sh",
+            "timeout": 5,
+            "statusMessage": "Checking wiki sync status..."
           }
         ]
       }
@@ -114,6 +120,11 @@
             "command": "node \"{{HOME_DIR}}/.claude/hooks/caveman-mode-tracker.js\"",
             "timeout": 5,
             "statusMessage": "Tracking caveman mode..."
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/scope-drift-detector.sh",
+            "timeout": 5
           }
         ]
       }

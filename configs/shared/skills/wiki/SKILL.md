@@ -26,6 +26,7 @@ You never write the wiki yourself. The LLM writes and maintains all of it. You c
 /wiki query "<question>" --file            # same, but also save answer as synthesis page
 /wiki lint                                 # structural health check (orphans, stubs, contradictions)
 /wiki lint --fix                           # lint and auto-fix actionable issues
+/wiki sync                                 # sync wiki from post-commit graph changes
 /wiki status                               # quick summary of wiki state
 ```
 
@@ -699,6 +700,95 @@ Path: <vault-path>
 ```
 
 If lint has never been run, show "Last lint: never — run `/wiki lint` for a health check" instead.
+
+---
+
+## For /wiki sync
+
+Triggered automatically when a SessionStart hook detects `.wiki-sync-pending` in the repo root, or manually by the user. This bridges the gap between the git post-commit hook (which rebuilds the graph deterministically) and the wiki (which needs LLM reasoning to create pages).
+
+### Step 1 — Read the pending marker
+
+Read `.wiki-sync-pending` from the repo root. It contains:
+
+```yaml
+---
+timestamp: 2026-05-05T12:00:00Z
+commit: abc1234
+message: the commit message
+vault: /path/to/vault
+---
+file1.py
+file2.ts
+```
+
+Extract the vault path, commit SHA, and list of changed files. If no `.wiki-sync-pending` exists and the user ran this manually, check if `graphify-out/graph.json` has been modified more recently than the last wiki log entry — if so, proceed with a full diff. If neither condition is met, report "Wiki is up to date with the graph."
+
+### Step 2 — Diff graph against wiki index
+
+Read `graphify-out/graph.json` and `wiki/index.md`. Compare:
+
+- **New entities in graph not in wiki**: nodes tagged as entity types (functions, classes, modules, services, people, organizations) that have no corresponding page in `wiki/entities/`.
+- **New concepts in graph not in wiki**: nodes tagged as concept types (patterns, algorithms, protocols, abstractions) that have no corresponding page in `wiki/concepts/`.
+- **Changed entities**: nodes whose edge count or community membership changed significantly (new edges > 30% of prior edge count), suggesting the entity's role evolved.
+
+Build a sync plan listing: pages to create, pages to update, pages unaffected.
+
+### Step 3 — Present sync plan
+
+Show the user:
+
+```
+Wiki Sync Plan (commit abc1234)
+================================
+
+Create (N new pages):
+  - wiki/entities/new-module.md — 5 edges, community: "Auth Layer"
+  - wiki/concepts/retry-pattern.md — 3 edges, community: "Resilience"
+
+Update (M changed pages):
+  - wiki/entities/api-gateway.md — 4 new edges (was 6, now 10)
+
+Unchanged: K pages
+
+Proceed? [Y/n]
+```
+
+If invoked automatically via the SessionStart hook context, proceed without asking (the hook already informed the user).
+
+### Step 4 — Create and update pages
+
+For each new page:
+- Read the node's edges and community from `graph.json`
+- Read the source files referenced by the node's edges (up to 3 most connected)
+- Write a wiki page following the entity or concept template from `WIKI_SCHEMA.md`
+- Set `source_count: 1` and tag as `stub` (because graph extraction is a single source — the codebase)
+- Add a `graph-synced` tag to frontmatter so lint can distinguish graph-derived pages from manually ingested ones
+
+For each updated page:
+- Read the existing page
+- Read the new edges from `graph.json`
+- Append new relationships and update the description to reflect the entity's evolved role
+- Bump `updated` date and increment `source_count` if new source files were consulted
+
+### Step 5 — Update index and log
+
+Add all new pages to `wiki/index.md` under the appropriate section (entities or concepts).
+
+Append to `wiki/log.md`:
+
+```markdown
+
+## [YYYY-MM-DD] sync | commit: <sha> | +N pages, ~M updated
+
+- New: <list of created page names>
+- Updated: <list of updated page names>
+- Source: post-commit hook (graphify AST)
+```
+
+### Step 6 — Clean up
+
+Delete `.wiki-sync-pending` from the repo root. The sync is complete.
 
 ---
 
