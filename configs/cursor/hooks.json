@@ -5,6 +5,24 @@
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start.sh",
         "timeout": 5
+      },
+      {
+        "command": "node {{HOME_DIR}}/.cursor/hooks/humanize-activate.js",
+        "timeout": 5
+      },
+      {
+        "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-activate.js",
+        "timeout": 5
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node {{HOME_DIR}}/.cursor/hooks/humanize-mode-tracker.js",
+        "timeout": 5
+      },
+      {
+        "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-mode-tracker.js",
+        "timeout": 5
       }
     ],
     "beforeShellExecution": [
