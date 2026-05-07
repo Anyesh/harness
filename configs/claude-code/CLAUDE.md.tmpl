@@ -97,6 +97,12 @@ This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rus
 - **Comments ARE allowed (and encouraged) for non-obvious WHY.** Hidden constraints, subtle invariants, workarounds tied to a specific named bug, thread-safety rules, lock ordering, surprising behavior a reader would otherwise misunderstand, performance-critical paths with a reason. The hook allows comments that include WHY markers: `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe`, `lock ordering`, etc.
 - **Standard directives and annotations are allowed** and the hook ignores them: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
 - **If the hook blocks your Write or Edit, do not argue with it.** Fix the comment: either delete it entirely (most common), or rewrite it with an explicit WHY marker that describes something a reader would not be able to figure out from the code alone. Re-reading your comment and asking "would a senior engineer looking at this cold actually learn something they could not have learned from the code itself?" is the test.
+# ownit
+- **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
+When the user types `/ownit`, invoke the Skill tool with `skill: "ownit"` before doing anything else.
+# humanize
+- **humanize** (`~/.claude/skills/humanize/SKILL.md`) - Structure questions as digestible single/multi-choice prompts. One question at a time. Trigger: `/humanize`
+When the user types `/humanize`, invoke the Skill tool with `skill: "humanize"` before doing anything else.
 # graphify
 - **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
 When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else.
