@@ -3,7 +3,6 @@ grep_max_results = 500
 grep_max_per_file = 50
 status_max_files = 30
 status_max_untracked = 20
-passthrough_max_chars = 8000
 
 [display]
 max_width = 120
