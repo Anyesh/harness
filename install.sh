@@ -690,6 +690,73 @@ cmd_edit() {
   fi
 }
 
+setup_global_gitignore() {
+  local git_ignore_dir="$HOME/.config/git"
+  local git_ignore_file="$git_ignore_dir/ignore"
+
+  mkdir -p "$git_ignore_dir"
+
+  local harness_artifacts=(
+    ".scope.md"
+    ".scope-turn-count"
+    ".wiki-sync-pending"
+    "**/.claude/settings.local.json"
+  )
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would update global gitignore at $git_ignore_file"
+    return
+  fi
+
+  local changed=false
+  for pattern in "${harness_artifacts[@]}"; do
+    if ! grep -qxF "$pattern" "$git_ignore_file" 2>/dev/null; then
+      echo "$pattern" >> "$git_ignore_file"
+      changed=true
+    fi
+  done
+
+  if [[ "$changed" == "true" ]]; then
+    log_update "global gitignore: $git_ignore_file"
+  else
+    log_skip "global gitignore" "up to date"
+  fi
+}
+
+deploy_rtk_config() {
+  if [[ "$HAS_RTK" != "true" ]]; then
+    return
+  fi
+
+  local src="$REPO_ROOT/configs/shared/rtk-config.toml"
+  local dest="$HOME/.config/rtk/config.toml"
+
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$src")
+    dest_hash=$(file_checksum "$dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      log_skip "rtk config" "unchanged"
+      return
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would deploy rtk config"
+    return
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+  cp "$src" "$dest"
+  manifest_add "$dest" "configs/shared/rtk-config.toml" "false"
+  log_update "rtk config: $dest"
+}
+
 case "$COMMAND" in
   install) ;;
   status) cmd_status; exit $? ;;
@@ -751,9 +818,13 @@ if [[ "$HAS_CODEX" == "true" ]]; then
   deploy_shared_skills "$CODEX_CONFIG_DIR/skills"
 fi
 
+log_section "System Hygiene"
+setup_global_gitignore
+
 log_section "Token Optimization"
 deploy_tools
 install_rtk
+deploy_rtk_config
 
 manifest_finalize
 report_summary
