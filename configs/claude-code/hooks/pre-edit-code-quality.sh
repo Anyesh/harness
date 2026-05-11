@@ -10,13 +10,14 @@ if [ -z "$FILE_PATH" ]; then
     exit 0
 fi
 
-# Prose files: check for staccato style (markdown-aware)
+# Markdown exempt entirely: handovers/notes/READMEs use scannable short lines by design
 case "$FILE_PATH" in
-    *.md|*.mdx|*.txt|*.html)
-        # Skip structured instruction docs where short declarative lines are expected
-        case "$FILE_PATH" in
-            */.claude/plans/*|*/plans/*.md|*/SKILL.md|*/AGENTS.md) exit 0 ;;
-        esac
+    *.md|*.mdx) exit 0 ;;
+esac
+
+# Prose files: check for staccato style
+case "$FILE_PATH" in
+    *.txt|*.html)
         CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
         if [ -n "$CONTENT" ]; then
             # Strip markdown structure before checking prose: frontmatter, headers, bullets,
