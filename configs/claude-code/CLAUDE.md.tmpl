@@ -58,6 +58,18 @@
 - **Prefer web-strip's `fetch` tool over built-in WebFetch for reading web content.** Web-strip uses Mozilla Readability to extract main content and converts it to clean markdown, saving 60-90% of tokens compared to raw HTML. Pass `raw: true` when you need actual HTML structure (webdev/debugging). Reserve built-in WebFetch only when web-strip is unavailable.
 - **Use markitdown's `convert_to_markdown` for documents.** When you need to read PDFs, DOCX, XLSX, or PPTX files (local or remote), use the markitdown MCP server rather than fetching and parsing them manually, since it handles extraction and markdown conversion in a single call.
 
+## Second Brain (MCP)
+
+The `second-brain` MCP server provides persistent cross-session memory backed by a knowledge graph (KuzuDB with vector embeddings). Use it to store and retrieve knowledge that should survive across conversations and machines.
+
+- **Use `remember` to store facts, decisions, preferences, or context** that would be valuable in future sessions. Include enough context that the memory is useful standalone, not as a reference to "this conversation."
+- **Use `recall` to search for relevant memories** before starting work in a domain you may have prior context on. Recall uses semantic search (vector similarity), so natural language queries work well.
+- **Use `context` at the start of a session or task** to pull in all relevant memories for the current working directory or topic. This is broader than recall and gives you ambient awareness of prior decisions and knowledge.
+- **Use `associate` to link related memories, entities, or concepts.** When you discover connections between pieces of knowledge (e.g., a library choice is related to a performance constraint), create the association so future recall surfaces related context.
+- **Use `forget` to remove memories that are stale, wrong, or superseded.** Do not let outdated knowledge accumulate; actively prune when you know something has changed.
+- **Do not store ephemeral task state** (current PR, in-progress debugging steps, temporary file locations). Second-brain is for durable knowledge that remains true across sessions.
+- **Do not duplicate what belongs in code, git, or docs.** If the information is derivable from the codebase, commit history, or existing documentation, it does not belong in second-brain. Store interpretations, decisions, preferences, and context that exists nowhere else.
+
 ## Token Optimization (RTK)
 
 - **Bash commands are auto-rewritten by RTK** when available. A PreToolUse hook transparently rewrites commands like `git status` to `rtk git status`, compressing output before it enters context.
