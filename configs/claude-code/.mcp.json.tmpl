@@ -1,9 +1,14 @@
 {
   "mcpServers": {
+    "second-brain": {
+      "command": "second-brain-mcp",
+      "env": {
+        "SECOND_BRAIN_DB": "{{HOME_DIR}}/.second-brain/graph.kuzu"
+      }
+    },
     "cognitive-cache": {
       "command": "uvx",
       "args": ["--from", "cognitive-cache[mcp]", "cognitive-cache-mcp"]
-
     },
     "web-strip": {
       "command": "node",

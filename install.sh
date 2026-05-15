@@ -267,6 +267,47 @@ register_claude_mcp_servers() {
   done
 }
 
+register_second_brain_mcp() {
+  if ! command -v claude &>/dev/null; then
+    return
+  fi
+
+  local sb_bin=""
+  for candidate in \
+    "$(command -v second-brain-mcp 2>/dev/null)" \
+    "/mnt/data/second-brain/target/release/second-brain-mcp" \
+    "/opt/second-brain/bin/second-brain-mcp" \
+    "$HOME/.local/bin/second-brain-mcp" \
+    "$HOME/.cargo/bin/second-brain-mcp"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      sb_bin="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$sb_bin" ]]; then
+    log_warn "second-brain-mcp binary not found, skipping MCP registration"
+    return
+  fi
+
+  local existing
+  existing=$(claude mcp list 2>/dev/null | grep "^second-brain:" || true)
+  if [[ -n "$existing" ]]; then
+    log_skip "mcp: second-brain" "already registered"
+  elif [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would register second-brain MCP (binary: $sb_bin)"
+  else
+    local sb_db="$HOME/.second-brain/graph.kuzu"
+    if claude mcp add -s user "second-brain" \
+      -e SECOND_BRAIN_DB="$sb_db" \
+      -- "$sb_bin" 2>/dev/null; then
+      log_success "mcp: second-brain registered (binary: $sb_bin)"
+    else
+      log_warn "mcp: second-brain registration failed"
+    fi
+  fi
+}
+
 deploy_tools() {
   local tools_src="$REPO_ROOT/tools"
   local tools_dest="$HOME/.harness/tools"
@@ -800,6 +841,7 @@ if [[ "$HAS_CLAUDE" == "true" ]]; then
   deploy_claude_config "CLAUDE.md.tmpl" "$CLAUDE_CONFIG_DIR/CLAUDE.md"
   deploy_claude_config "settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json"
   register_claude_mcp_servers
+  register_second_brain_mcp
 
   deploy_claude_hooks
   deploy_claude_scripts
