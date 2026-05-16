@@ -1,6 +1,23 @@
 # harness
 
-Single-command bootstrap for AI coding tools. Configures Claude Code, Cursor, and Codex with preferred skills, hooks, plugins, and settings.
+Single-command bootstrap for AI coding tools. One repo, one install, full environment reproducible on any machine in under 30 seconds.
+
+![harness install demo](demo.gif)
+
+
+## Numbers
+
+| Metric | Count |
+|--------|-------|
+| Config templates | 80 |
+| Managed files deployed | 52 |
+| Hooks (Claude Code) | 23 |
+| Skills (shared) | 19 |
+| Plugins (Claude Code) | 15 |
+| MCP servers | 5 |
+| Modules | 8 |
+| Template variables | 5 |
+| No-op redeploy | <2s |
 
 ## Install
 
@@ -8,58 +25,152 @@ Single-command bootstrap for AI coding tools. Configures Claude Code, Cursor, an
 curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash
 ```
 
-## What it does
+First run clones the repo to `~/.harness`, detects installed tools, and deploys everything. Subsequent runs are idempotent (checksum-based skip).
 
-- **Claude Code:** installs 16 plugins from 2 marketplaces, deploys 12 hook scripts (code quality, comment guard, format-on-save, sloppiness detection, caveman mode), configures settings, MCP servers, and global CLAUDE.md
-- **Cursor:** deploys .cursorrules and shared skills
-- **Codex:** deploys config.toml, instructions, and shared skills
-- **Shared:** 15 skills (SEO suite, graphify, terminal-gif) deployed to all detected tools
+## What gets deployed
 
-## Setup
+### Claude Code
 
-1. Run the install command above (clones repo to `~/.harness`)
-2. Edit `~/.harness.env` with your personal values (email, paths)
-3. Re-run: `~/.harness/install.sh`
+```
+~/.claude/settings.json        ← permissions, hooks config, enabledMcpjsonServers
+~/.claude/.mcp.json            ← MCP server definitions (cognitive-cache, web-strip, markitdown, second-brain)
+~/.claude/CLAUDE.md            ← global instructions (exploration-first, TDD, scope gates, no AI comments)
+~/.claude/hooks/               ← 23 hook scripts (see below)
+~/.claude/skills/              ← 19 skill definitions
+~/.claude/plugins/             ← 15 plugins from 2 marketplaces
+```
+
+### Cursor
+
+```
+~/.cursor/rules/rules.mdc      ← shared rules
+~/.cursor/mcp.json             ← MCP servers (second-brain, cognitive-cache)
+```
+
+### Codex
+
+```
+~/.codex/config.toml           ← model, approval mode
+~/.codex/instructions.md       ← shared instructions
+```
+
+## Hooks
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `pre-edit-comment-guard.py` | PreToolUse (Write/Edit) | Blocks AI-generated narration comments |
+| `pre-edit-code-quality.sh` | PreToolUse (Write/Edit) | Rejects shortcut-seeking language |
+| `stop-sloppiness-guard.sh` | PostResponse | Detects lazy patterns, injects correction |
+| `cost-guard.sh` | PreToolUse (Bash) | Blocks unbounded output in main context |
+| `pre-bash-guard.sh` | PreToolUse (Bash) | Validates commands before execution |
+| `format-on-save.sh` | PostToolUse (Write/Edit) | Auto-formats written files |
+| `pre-compact.sh` | PreToolUse (Compact) | Pre-compaction hook |
+| `session-start.sh` | SessionStart | Activates modes, checks environment |
+| `session-end-ingest.sh` | SessionEnd | Triggers second-brain memory ingest |
+| `session-start-wiki.sh` | SessionStart | Wiki sync check |
+| `wiki-sync-detector.sh` | PostResponse | Detects wiki-relevant content |
+| `caveman-*.js` | Various | Caveman mode activation, config, stats |
+| `humanize-*.js` | Various | Humanize mode activation, config |
+| `ownit-*.js` | Various | Ownership mindset activation, config |
+
+## MCP Servers
+
+| Server | Transport | Purpose |
+|--------|-----------|---------|
+| `second-brain` | stdio | Personal knowledge graph (KùzuDB, BGE embeddings, 384-dim) |
+| `cognitive-cache` | stdio | Optimal file selection for LLM context |
+| `web-strip` | stdio | Clean markdown extraction from URLs (Readability) |
+| `markitdown` | stdio | PDF/DOCX/XLSX → markdown |
+| `verdant` | stdio | Cross-session tool call caching (per-project) |
+
+## Skills
+
+| Category | Skills |
+|----------|--------|
+| SEO | `seo`, `seo-audit`, `seo-page`, `seo-plan`, `seo-technical`, `seo-schema`, `seo-sitemap`, `seo-content`, `seo-images`, `seo-hreflang`, `seo-geo`, `seo-competitor-pages`, `seo-programmatic` |
+| Knowledge | `wiki`, `graphify`, `graphify-init` |
+| Workflow | `terminal-gif`, `humanize`, `ownit` |
+
+## Modules
+
+```
+claude        Claude Code: configs, plugins, hooks, skills, MCP
+cursor        Cursor: rules, mcp.json
+codex         Codex: config.toml, instructions
+second-brain  second-brain daemon + MCP server registration
+rtk           RTK CLI output compression tool
+wiki          Wiki auto-export pipeline
+watch         File watcher for auto-ingest
+lib           Shared functions (logging, template rendering, manifest)
+```
+
+## Template Variables
+
+Set in `~/.harness.env`:
+
+```bash
+USER_EMAIL=you@example.com
+GITHUB_USER=yourhandle
+DATA_ROOT=/mnt/data
+MCP_COGNITIVE_CACHE_PATH=cognitive-cache-mcp
+HOME_DIR=/home/youruser
+```
 
 ## Commands
 
-```
-~/.harness/install.sh              # Deploy configs (default)
-~/.harness/install.sh status       # Show managed file status
-~/.harness/install.sh edit <file>  # Edit repo file, auto-redeploy
-~/.harness/install.sh uninstall    # Restore from backup
-```
-
-## Flags
-
-```
---force        Redeploy even if checksums match
---dry-run      Show what would change without doing it
---no-plugins   Skip Claude Code plugin installation
---no-backup    Skip backup step
---claude-only  Only configure Claude Code
---cursor-only  Only configure Cursor
---codex-only   Only configure Codex
+```bash
+./install.sh                    # Full deploy (default)
+./install.sh --only claude      # Single module
+./install.sh --force            # Redeploy even if unchanged
+./install.sh --dry-run          # Preview without changes
+./install.sh status             # Show managed file state
+./install.sh uninstall          # Restore all backups
 ```
 
-## How it works
-
-1. Detects which tools are installed (claude CLI, ~/.cursor/, ~/.codex/)
-2. Reads personal values from `~/.harness.env`
-3. Backs up any files it will overwrite
-4. Renders templates (`{{VAR}}` syntax) and deploys configs
-5. Tracks all managed files in `~/.harness-manifest.json` (checksums)
-6. Re-running is always safe: skips unchanged files
-
-## Maintenance
+## Architecture
 
 ```
-1. Edit configs in ~/.harness/configs/
-2. Test: ~/.harness/install.sh --dry-run
-3. Deploy: ~/.harness/install.sh
-4. Commit: cd ~/.harness && git add -A && git commit
-5. Push: git push
-6. New machine: curl install, done
+~/.harness.env                  ← Personal variables (not committed)
+~/.harness-manifest.json        ← Deployed file checksums (auto-generated)
+harness/
+├── configs/
+│   ├── claude-code/            ← Templates: settings, CLAUDE.md, .mcp.json, hooks, skills
+│   ├── cursor/                 ← Templates: rules, mcp.json
+│   └── codex/                  ← Templates: config.toml, instructions
+├── modules/                    ← Deploy logic per tool (claude.sh, cursor.sh, etc.)
+├── lib/                        ← Shared: template rendering, manifest, backup, detect
+├── tools/                      ← Bundled tools (web-strip)
+└── install.sh                  ← Entrypoint
+```
+
+## Deploy Flow
+
+1. `install.sh` sources all libs and modules
+2. Detects installed tools via PATH and config dirs
+3. Reads `~/.harness.env` for template variables
+4. Per module: renders templates → checksums → skips if unchanged → backs up → deploys
+5. Writes `~/.harness-manifest.json` with file hashes
+6. Idempotent: re-run anytime, only changed files get touched
+
+## New Machine Setup
+
+```bash
+# 1. Install
+curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash
+
+# 2. Configure
+cat > ~/.harness.env << 'VARS'
+USER_EMAIL=you@example.com
+GITHUB_USER=yourhandle
+DATA_ROOT=/mnt/data
+HOME_DIR=$HOME
+VARS
+
+# 3. Deploy
+~/.harness/install.sh
+
+# 4. Verify
+claude mcp list    # Should show 5 servers connected
 ```
 
 ## Requirements
@@ -67,5 +178,7 @@ curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | ba
 - bash 4+
 - git
 - jq
-- perl (for template rendering)
-- `claude` CLI (for plugin installation; configs still deploy without it)
+- perl (template rendering)
+- `claude` CLI (for plugin/MCP registration; configs deploy without it)
+- Node.js (for web-strip)
+- Python 3.9+ with `uv`/`uvx` (for cognitive-cache, markitdown)
