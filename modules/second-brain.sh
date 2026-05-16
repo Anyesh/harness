@@ -191,8 +191,101 @@ UNIT
   fi
 }
 
+second_brain_wiki() {
+  local config_dir="$HOME/.second-brain"
+  local config_file="$config_dir/config.toml"
+  local systemd_dir="$HOME/.config/systemd/user"
+  local default_vault="$HOME/Obsidian/SecondBrain"
+
+  local cli_bin=""
+  cli_bin=$(command -v sb 2>/dev/null || command -v second-brain-cli 2>/dev/null || echo "")
+  if [[ -z "$cli_bin" ]]; then
+    log_warn "sb binary not found, skipping wiki setup"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would configure wiki vault + daily timer"
+    return
+  fi
+
+  # Resolve vault path: existing config → interactive prompt
+  local vault_path=""
+  if [[ -f "$config_file" ]] && grep -q 'vault' "$config_file" 2>/dev/null; then
+    vault_path=$(grep 'vault' "$config_file" | sed 's/.*= *"//;s/"//')
+    log_skip "wiki vault" "already configured: ${vault_path}"
+  else
+    echo ""
+    read -rp "  Obsidian vault path [${default_vault}] (or 'skip'): " input
+    input="${input:-$default_vault}"
+    if [[ "${input,,}" == "skip" || "${input,,}" == "none" ]]; then
+      log_skip "wiki vault" "skipped by user"
+      return
+    fi
+    vault_path="${input/#\~/$HOME}"
+
+    # Write config
+    mkdir -p "$config_dir"
+    if [[ -f "$config_file" ]] && grep -q '^\[wiki\]' "$config_file"; then
+      sed -i "s|^vault = .*|vault = \"${vault_path}\"|" "$config_file"
+    else
+      printf '\n[wiki]\nvault = "%s"\n' "$vault_path" >> "$config_file"
+    fi
+    log_success "wiki config: ${config_file}"
+  fi
+
+  # Init vault
+  if [[ ! -d "${vault_path}/entities" ]]; then
+    "$cli_bin" wiki init "${vault_path}" 2>/dev/null || {
+      mkdir -p "${vault_path}"/{entities,synthesis,concepts,sources}
+    }
+    log_success "wiki vault initialized: ${vault_path}"
+  else
+    log_skip "wiki vault" "already initialized"
+  fi
+
+  # Daily pipeline timer
+  local timer_file="${systemd_dir}/sb-daily-pipeline.timer"
+  if [[ -f "$timer_file" ]]; then
+    log_skip "daily timer" "already installed"
+    return
+  fi
+
+  mkdir -p "$systemd_dir"
+
+  cat > "${systemd_dir}/sb-daily-pipeline.service" <<SVC
+[Unit]
+Description=Second Brain daily pipeline
+
+[Service]
+Type=oneshot
+ExecStart=${cli_bin} daily-pipeline --vault ${vault_path}
+Environment=HOME=%h
+SVC
+
+  cat > "$timer_file" <<TMR
+[Unit]
+Description=Run second-brain daily pipeline at 23:00
+
+[Timer]
+OnCalendar=*-*-* 23:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TMR
+
+  if command -v systemctl &>/dev/null; then
+    systemctl --user daemon-reload
+    systemctl --user enable --now sb-daily-pipeline.timer 2>/dev/null &&       log_success "daily timer enabled (23:00)" ||       log_warn "could not enable daily timer"
+  else
+    log_warn "systemctl not available; timer file written but not activated"
+  fi
+}
+
 second_brain_install() {
   second_brain_binaries
+  second_brain_wiki
 }
 
 second_brain_test() {
