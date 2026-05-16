@@ -13,4 +13,9 @@ if command -v sb >/dev/null 2>&1; then
     nohup sb ingest >/dev/null 2>&1 &
 fi
 
+# Chain wiki export after ingest (non-blocking)
+if [[ -n "${WIKI_VAULT:-}" ]]; then
+    nohup sb wiki export --vault "$WIKI_VAULT" >/dev/null 2>&1 &
+fi
+
 echo '{}'
