@@ -13,6 +13,11 @@
       {
         "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-activate.js",
         "timeout": 5
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start-wiki.sh",
+        "timeout": 5,
+        "additional_context": true
       }
     ],
     "beforeSubmitPrompt": [
@@ -59,6 +64,18 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-sloppiness-guard.sh",
         "timeout": 10,
         "loop_limit": 3
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
+        "timeout": 10
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "sb ingest >/dev/null 2>&1 || true",
+        "timeout": 10
       }
     ]
   }
