@@ -48,33 +48,17 @@ PATTERNS='simpler approach|simpler way|simpler solution|simpler version|quicker 
 
 FOUND=$(printf '%s' "$LAST_TEXT" | grep -iEo "$PATTERNS" | sort -u | head -5 || true)
 
-if [ -z "$FOUND" ]; then
-    CAVEMAN_FLAG="$HOME/.claude/.caveman-active"
-    if [ -f "$CAVEMAN_FLAG" ]; then
-        TEXT_ONLY=$(printf '%s' "$LAST_TEXT" | sed 's/```[^`]*```//g')
-        WORD_COUNT=$(printf '%s' "$TEXT_ONLY" | wc -w | tr -d ' ')
-        SENTENCE_COUNT=$(printf '%s' "$TEXT_ONLY" | grep -oE '[.!?](\s|$)' | wc -l | tr -d ' ')
-        if [ "$WORD_COUNT" -gt 150 ] && [ "$SENTENCE_COUNT" -gt 6 ]; then
-            FOUND="VERBOSE CAVEMAN VIOLATION: ${WORD_COUNT} words, ${SENTENCE_COUNT} sentences (budget: 3 sentences, ~50 words)"
-        fi
-    fi
-fi
 
 if [ -z "$FOUND" ]; then
-    # Skip staccato check when caveman mode is active because caveman IS staccato by design;
-    # the verbose check above already handles the caveman-specific enforcement
-    CAVEMAN_FLAG_STACCATO="$HOME/.claude/.caveman-active"
-    if [ ! -f "$CAVEMAN_FLAG_STACCATO" ]; then
-        TEXT_ONLY=$(printf '%s' "$LAST_TEXT" \
-            | sed 's/```[^`]*```//g' \
-            | sed '/^[[:space:]]*[-*]/d' \
-            | sed '/^[[:space:]]*[0-9]\{1,\}\./d' \
-            | sed '/^[[:space:]]*#/d' \
-            | sed '/^[[:space:]]*|/d')
-        STACCATO=$(printf '%s' "$TEXT_ONLY" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=6{c++} NF>6{if(c>=5) print c" consecutive short sentences"; c=0} END{if(c>=5) print c" consecutive short sentences"}' | head -1 || true)
-        if [ -n "$STACCATO" ]; then
-            FOUND="STACCATO STYLE VIOLATION: $STACCATO detected. Connect ideas with commas, semicolons, conjunctions. No robot-talk."
-        fi
+    TEXT_ONLY=$(printf '%s' "$LAST_TEXT" \
+        | sed 's/```[^`]*```//g' \
+        | sed '/^[[:space:]]*[-*]/d' \
+        | sed '/^[[:space:]]*[0-9]\{1,\}\./d' \
+        | sed '/^[[:space:]]*#/d' \
+        | sed '/^[[:space:]]*|/d')
+    STACCATO=$(printf '%s' "$TEXT_ONLY" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=6{c++} NF>6{if(c>=5) print c" consecutive short sentences"; c=0} END{if(c>=5) print c" consecutive short sentences"}' | head -1 || true)
+    if [ -n "$STACCATO" ]; then
+        FOUND="STACCATO STYLE VIOLATION: $STACCATO detected. Connect ideas with commas, semicolons, conjunctions. No robot-talk."
     fi
 fi
 

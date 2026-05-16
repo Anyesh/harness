@@ -98,12 +98,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{HOME_DIR}}/.claude/hooks/caveman-activate.js\"",
-            "timeout": 5,
-            "statusMessage": "Loading caveman mode..."
-          },
-          {
-            "type": "command",
             "command": "node \"{{HOME_DIR}}/.claude/hooks/humanize-activate.js\"",
             "timeout": 5,
             "statusMessage": "Loading humanize mode..."
@@ -132,12 +126,6 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{HOME_DIR}}/.claude/hooks/caveman-mode-tracker.js\"",
-            "timeout": 5,
-            "statusMessage": "Tracking caveman mode..."
-          },
           {
             "type": "command",
             "command": "node \"{{HOME_DIR}}/.claude/hooks/humanize-mode-tracker.js\"",
@@ -191,16 +179,7 @@
     "claude-code-setup@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": true,
-    "caveman@caveman": true
-  },
-  "extraKnownMarketplaces": {
-    "caveman": {
-      "source": {
-        "source": "github",
-        "repo": "Anyesh/caveman"
-      }
-    }
+    "plugin-dev@claude-plugins-official": true
   },
   "effortLevel": "high",
   "skipDangerousModePermissionPrompt": true,
