@@ -202,7 +202,7 @@ claude_mcp() {
   local servers=(
     "web-strip:node:$HOME/.harness/tools/web-strip/index.js"
     "markitdown:uvx:markitdown-mcp"
-    "cognitive-cache:uvx:cognitive-cache-mcp"
+    "cognitive-cache:uvx:--from cognitive-cache[mcp] cognitive-cache-mcp"
   )
 
   for entry in "${servers[@]}"; do
@@ -219,7 +219,7 @@ claude_mcp() {
       continue
     fi
 
-    if claude mcp add -s user "$name" -- "$cmd" "$args" 2>/dev/null; then
+    if claude mcp add -s user "$name" -- "$cmd" $args 2>/dev/null; then
       log_success "mcp: $name registered"
     else
       log_warn "mcp: $name registration failed"
