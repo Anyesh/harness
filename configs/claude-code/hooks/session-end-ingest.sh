@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # SessionEnd hook: ingest conversation into second-brain
 
+
+# Recursion guard: prevent hooks from firing when invoked by background flush
+[[ -n "${CLAUDE_INVOKED_BY:-}" ]] && echo '{}' && exit 0
 SB_API="${SECOND_BRAIN_API:-http://127.0.0.1:7200}"
 
 # Verify daemon is healthy before attempting ingest
