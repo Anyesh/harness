@@ -1,6 +1,6 @@
 # harness
 
-Single-command bootstrap for AI coding tools. One repo, one install, full environment reproducible on any machine in under 30 seconds.
+Single-command bootstrap for AI coding tools. One repo, one install, full environment reproducible on any linux machine in under 30 seconds.
 
 ![harness install demo](demo.gif)
 
