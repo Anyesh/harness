@@ -3,6 +3,7 @@
 claude_check() {
     if [[ "$HAS_CLAUDE" != "true" ]]; then
         log_info "Claude Code not detected, skipping"
+        log_info "  Install: https://docs.anthropic.com/claude-code"
         return 1
     fi
     if [[ ! -d "$CLAUDE_CONFIG_DIR" ]]; then
@@ -244,5 +245,39 @@ claude_install() {
 }
 
 claude_test() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local orig_home="$HOME"
+    local orig_config="${CLAUDE_CONFIG_DIR:-}"
+    local orig_dry="$DRY_RUN"
+    local orig_force="$FORCE"
+    local orig_no_backup="$NO_BACKUP"
+    local orig_no_plugins="$NO_PLUGINS"
+
+    export HOME="$tmp_dir"
+    CLAUDE_CONFIG_DIR="$tmp_dir/.claude"
+    DRY_RUN=true
+    FORCE=true
+    NO_BACKUP=true
+    NO_PLUGINS=true
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+
+    local output
+    output=$(claude_install 2>&1)
+
+    HOME="$orig_home"
+    CLAUDE_CONFIG_DIR="$orig_config"
+    DRY_RUN="$orig_dry"
+    FORCE="$orig_force"
+    NO_BACKUP="$orig_no_backup"
+    NO_PLUGINS="$orig_no_plugins"
+    rm -rf "$tmp_dir"
+
+    if ! echo "$output" | grep -q '\[dry-run\]'; then
+        log_error "claude_test: no dry-run output produced"
+        return 1
+    fi
+
     return 0
 }

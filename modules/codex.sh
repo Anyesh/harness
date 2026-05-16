@@ -3,6 +3,7 @@
 codex_check() {
     if [[ "$HAS_CODEX" != "true" ]]; then
         log_info "Codex not detected, skipping"
+        log_info "  Install: npm install -g @openai/codex"
         return 1
     fi
     if [[ ! -d "$CODEX_CONFIG_DIR" ]]; then
@@ -88,5 +89,36 @@ codex_install() {
 }
 
 codex_test() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local orig_home="$HOME"
+    local orig_config="${CODEX_CONFIG_DIR:-}"
+    local orig_dry="$DRY_RUN"
+    local orig_force="$FORCE"
+    local orig_no_backup="$NO_BACKUP"
+
+    export HOME="$tmp_dir"
+    CODEX_CONFIG_DIR="$tmp_dir/.codex"
+    DRY_RUN=true
+    FORCE=true
+    NO_BACKUP=true
+    mkdir -p "$CODEX_CONFIG_DIR"
+
+    local output
+    output=$(codex_deploy_config 2>&1)
+
+    HOME="$orig_home"
+    CODEX_CONFIG_DIR="$orig_config"
+    DRY_RUN="$orig_dry"
+    FORCE="$orig_force"
+    NO_BACKUP="$orig_no_backup"
+    rm -rf "$tmp_dir"
+
+    if ! echo "$output" | grep -q '\[dry-run\]'; then
+        log_error "codex_test: no dry-run output produced"
+        return 1
+    fi
+
     return 0
 }
