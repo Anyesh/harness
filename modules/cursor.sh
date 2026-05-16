@@ -140,7 +140,7 @@ cursor_hooks() {
   local cursor_hooks_dir="$CURSOR_CONFIG_DIR/hooks"
   mkdir -p "$cursor_hooks_dir"
 
-  local shared_hooks=("session-start.sh" "pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" "humanize-config.js" "humanize-activate.js" "humanize-mode-tracker.js" "ownit-config.js" "ownit-activate.js" "ownit-mode-tracker.js")
+  local shared_hooks=("session-start.sh" "pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" "humanize-config.js" "humanize-activate.js" "humanize-mode-tracker.js" "ownit-config.js" "ownit-activate.js" "ownit-mode-tracker.js" "session-end-ingest.sh" "session-start-wiki.sh")
   for hook in "${shared_hooks[@]}"; do
     local hook_src="$REPO_ROOT/configs/claude-code/hooks/$hook"
     local hook_dest="$cursor_hooks_dir/$hook"
