@@ -83,3 +83,41 @@ deploy_template() {
   mv "$tmp" "$dest"
   return 0
 }
+
+validate_rendered() {
+  local file="$1"
+  local unresolved
+  unresolved=$(grep -oP '\{\{[^}]+\}\}' "$file" 2>/dev/null | sort -u || true)
+
+  if [[ -n "$unresolved" ]]; then
+    log_error "unresolved variables in rendered output ($file):"
+    echo "$unresolved" | sed 's/^/  /' >&2
+    return 1
+  fi
+  return 0
+}
+
+validate_all_templates() {
+  local templates_dir="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/configs"
+  local failed=0
+  local checked=0
+
+  while IFS= read -r tmpl; do
+    [[ -z "$tmpl" ]] && continue
+    local tmp
+    tmp=$(mktemp)
+    render_template "$tmpl" "$tmp"
+
+    checked=$((checked + 1))
+    if ! validate_rendered "$tmp"; then
+      log_error "template failed validation: $tmpl"
+      failed=$((failed + 1))
+    fi
+
+    rm -f "$tmp"
+  done < <(find "$templates_dir" -name '*.tmpl' -type f 2>/dev/null)
+
+  log_info "validated $checked template(s), $failed failure(s)"
+
+  [[ $failed -eq 0 ]]
+}

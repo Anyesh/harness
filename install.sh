@@ -228,7 +228,9 @@ case "$COMMAND" in
   status) cmd_status; exit $? ;;
   uninstall) cmd_uninstall; exit $? ;;
   edit) cmd_edit "${2:-}"; exit $? ;;
-  *) die "unknown command: $COMMAND. Use: install, status, edit, uninstall" ;;
+  watch) source "$REPO_ROOT/modules/watch.sh"; cmd_watch; exit $? ;;
+  validate) source "$REPO_ROOT/lib/template.sh"; validate_all_templates; exit $? ;;
+  *) die "unknown command: $COMMAND. Use: install, status, edit, uninstall, watch, validate" ;;
 esac
 
 log_section "Harness Bootstrap"
