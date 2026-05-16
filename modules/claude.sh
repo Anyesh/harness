@@ -236,6 +236,7 @@ claude_install() {
 
   claude_config "CLAUDE.md.tmpl" "$CLAUDE_CONFIG_DIR/CLAUDE.md"
   claude_config "settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json"
+  claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
   claude_mcp
   second_brain_mcp
 
