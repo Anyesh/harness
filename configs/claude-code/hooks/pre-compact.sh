@@ -18,4 +18,9 @@ if [ -f "$REPO_ROOT/.scope.md" ]; then
     cat "$REPO_ROOT/.scope.md"
 fi
 
+# Safety net: capture conversation state before compaction
+if command -v sb >/dev/null 2>&1; then
+    sb ingest >/dev/null 2>&1 || true
+fi
+
 exit 0
