@@ -3,6 +3,7 @@
 cursor_check() {
     if [[ "$HAS_CURSOR" != "true" ]]; then
         log_info "Cursor not detected, skipping"
+        log_info "  Install: https://cursor.sh"
         return 1
     fi
     if [[ ! -d "$CURSOR_CONFIG_DIR" ]]; then
@@ -160,5 +161,36 @@ cursor_install() {
 }
 
 cursor_test() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local orig_home="$HOME"
+    local orig_config="${CURSOR_CONFIG_DIR:-}"
+    local orig_dry="$DRY_RUN"
+    local orig_force="$FORCE"
+    local orig_no_backup="$NO_BACKUP"
+
+    export HOME="$tmp_dir"
+    CURSOR_CONFIG_DIR="$tmp_dir/.cursor"
+    DRY_RUN=true
+    FORCE=true
+    NO_BACKUP=true
+    mkdir -p "$CURSOR_CONFIG_DIR"
+
+    local output
+    output=$(cursor_install 2>&1)
+
+    HOME="$orig_home"
+    CURSOR_CONFIG_DIR="$orig_config"
+    DRY_RUN="$orig_dry"
+    FORCE="$orig_force"
+    NO_BACKUP="$orig_no_backup"
+    rm -rf "$tmp_dir"
+
+    if ! echo "$output" | grep -q '\[dry-run\]'; then
+        log_error "cursor_test: no dry-run output produced"
+        return 1
+    fi
+
     return 0
 }

@@ -3,6 +3,7 @@
 wiki_check() {
   if ! command -v sb &>/dev/null; then
     log_warn "sb command not found, wiki module requires second-brain-cli"
+    log_info "  Install: cargo install second-brain-cli"
     return 1
   fi
 
@@ -14,7 +15,8 @@ wiki_check() {
   fi
 
   if [[ -z "$vault" ]]; then
-    log_warn "WIKI_VAULT not set (set it in ~/.harness.env or environment)"
+    log_warn "WIKI_VAULT not set"
+    log_info "  Set WIKI_VAULT in ~/.harness.env"
     return 1
   fi
 
@@ -125,5 +127,36 @@ wiki_ensure_env() {
 }
 
 wiki_test() {
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
+
+  local orig_home="$HOME"
+  local orig_dry="$DRY_RUN"
+  local orig_vault="${WIKI_VAULT:-}"
+  local orig_path="$PATH"
+
+  export HOME="$tmp_dir"
+  DRY_RUN=true
+  WIKI_VAULT="$tmp_dir/test-vault"
+  echo "WIKI_VAULT=$tmp_dir/test-vault" > "$tmp_dir/.harness.env"
+
+  printf '#!/bin/sh\necho "mock sb $*"\n' > "$tmp_dir/sb"
+  chmod +x "$tmp_dir/sb"
+  export PATH="$tmp_dir:$PATH"
+
+  local output
+  output=$(wiki_install 2>&1)
+
+  HOME="$orig_home"
+  DRY_RUN="$orig_dry"
+  WIKI_VAULT="$orig_vault"
+  export PATH="$orig_path"
+  rm -rf "$tmp_dir"
+
+  if ! echo "$output" | grep -q '\[dry-run\]'; then
+      log_error "wiki_test: no dry-run output produced"
+      return 1
+  fi
+
   return 0
 }

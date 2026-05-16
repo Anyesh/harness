@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
 rtk_check() {
+    if [[ "$HAS_RTK" != "true" ]]; then
+        log_info "RTK not found (will attempt install)"
+        if ! command -v cargo &>/dev/null; then
+            log_info "  Install Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+            log_info "  Then: cargo install --git https://github.com/Anyesh/rtk.git"
+        else
+            log_info "  Install: cargo install --git https://github.com/Anyesh/rtk.git"
+        fi
+    fi
     return 0
 }
 
@@ -114,5 +123,29 @@ rtk_install() {
 }
 
 rtk_test() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local orig_home="$HOME"
+    local orig_dry="$DRY_RUN"
+    local orig_has_rtk="$HAS_RTK"
+
+    export HOME="$tmp_dir"
+    DRY_RUN=true
+    HAS_RTK=false
+
+    local output
+    output=$(rtk_install 2>&1)
+
+    HOME="$orig_home"
+    DRY_RUN="$orig_dry"
+    HAS_RTK="$orig_has_rtk"
+    rm -rf "$tmp_dir"
+
+    if ! echo "$output" | grep -q '\[dry-run\]'; then
+        log_error "rtk_test: no dry-run output produced"
+        return 1
+    fi
+
     return 0
 }

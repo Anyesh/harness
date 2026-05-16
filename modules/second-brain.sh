@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
 second_brain_check() {
+    if ! command -v sb &>/dev/null && ! command -v second-brain-cli &>/dev/null; then
+        log_info "second-brain binaries not found (will attempt install)"
+        log_info "  Manual install: cargo install second-brain-cli"
+        if ! command -v cargo &>/dev/null; then
+            log_info "  Install Rust first: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        fi
+    fi
     return 0
 }
 
@@ -189,5 +196,26 @@ second_brain_install() {
 }
 
 second_brain_test() {
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+
+    local orig_home="$HOME"
+    local orig_dry="$DRY_RUN"
+
+    export HOME="$tmp_dir"
+    DRY_RUN=true
+
+    local output
+    output=$(second_brain_install 2>&1)
+
+    HOME="$orig_home"
+    DRY_RUN="$orig_dry"
+    rm -rf "$tmp_dir"
+
+    if ! echo "$output" | grep -q '\[dry-run\]'; then
+        log_error "second_brain_test: no dry-run output produced"
+        return 1
+    fi
+
     return 0
 }
