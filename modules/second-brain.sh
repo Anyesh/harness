@@ -24,7 +24,7 @@ second_brain_binaries() {
     fi
   done
 
-  if [[ "$all_present" == "true" ]]; then
+  if [[ "$all_present" == "true" && "$FORCE" != "true" ]]; then
     log_skip "second-brain" "all binaries present"
     return
   fi
@@ -68,9 +68,14 @@ second_brain_binaries() {
 
   if [[ "$installed" == "false" ]] && command -v cargo &>/dev/null; then
     log_info "building second-brain from source..."
+    local cargo_flags=()
+    if [[ "$FORCE" == "true" ]]; then
+      cargo_flags+=(--force)
+      log_info "force-installing latest second-brain..."
+    fi
     local build_log
     build_log=$(mktemp)
-    if cargo install second-brain-cli second-brain-mcp second-brain-api 2>&1 | tee "$build_log" | tail -3; then
+    if cargo install "${cargo_flags[@]}" second-brain-cli second-brain-mcp second-brain-api 2>&1 | tee "$build_log" | tail -3; then
       if command -v second-brain-mcp &>/dev/null; then
         installed=true
         log_success "second-brain installed from source"
