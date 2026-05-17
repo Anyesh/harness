@@ -12,13 +12,11 @@ second_brain_check() {
 }
 
 second_brain_binaries() {
-  local sb_repo="https://github.com/Anyesh/second-brain"
   local binaries=("second-brain-api" "second-brain-mcp" "sb")
-  local dest_dir="${HOME}/.local/bin"
   local all_present=true
 
   for bin in "${binaries[@]}"; do
-    if ! command -v "$bin" &>/dev/null && [[ ! -x "$dest_dir/$bin" ]]; then
+    if ! command -v "$bin" &>/dev/null; then
       all_present=false
       break
     fi
@@ -30,67 +28,37 @@ second_brain_binaries() {
   fi
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would install second-brain binaries"
+    log_info "[dry-run] would install second-brain via cargo"
     return
   fi
 
-  local installed=false
+  if ! command -v cargo &>/dev/null; then
+    log_warn "cargo not found, cannot install second-brain"
+    log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+    return 1
+  fi
 
-  local arch os_name
-  arch=$(uname -m)
-  os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
+  local cargo_flags=()
+  if [[ "$FORCE" == "true" ]]; then
+    cargo_flags+=(--force)
+    log_info "force-installing latest second-brain from crates.io..."
+  fi
 
-  local tag_url="${sb_repo}/releases/latest"
-  local tag
-  tag=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$tag_url" 2>/dev/null | grep -oE '[^/]+$' || echo "")
-
-  if [[ -n "$tag" ]]; then
-    mkdir -p "$dest_dir"
-    local all_ok=true
-    for bin in "${binaries[@]}"; do
-      if command -v "$bin" &>/dev/null || [[ -x "$dest_dir/$bin" ]]; then
-        continue
-      fi
-      local url="${sb_repo}/releases/download/${tag}/${bin}-${os_name}-${arch}"
-      if curl -fsSL "$url" -o "$dest_dir/$bin" 2>/dev/null; then
-        chmod +x "$dest_dir/$bin"
-      else
-        all_ok=false
-      fi
-    done
-    if [[ "$all_ok" == "true" ]]; then
-      installed=true
-      log_success "second-brain installed from release $tag"
-    else
-      log_info "some prebuilt binaries not available, trying cargo..."
+  local build_log
+  build_log=$(mktemp)
+  if cargo install "${cargo_flags[@]}" second-brain-cli second-brain-mcp second-brain-api 2>&1 | tee "$build_log" | tail -3; then
+    if command -v sb &>/dev/null; then
+      log_success "second-brain installed from crates.io"
+      rm -f "$build_log"
+      return 0
     fi
   fi
 
-  if [[ "$installed" == "false" ]] && command -v cargo &>/dev/null; then
-    log_info "building second-brain from source..."
-    local cargo_flags=()
-    if [[ "$FORCE" == "true" ]]; then
-      cargo_flags+=(--force)
-      log_info "force-installing latest second-brain..."
-    fi
-    local build_log
-    build_log=$(mktemp)
-    if cargo install "${cargo_flags[@]}" second-brain-cli second-brain-mcp second-brain-api 2>&1 | tee "$build_log" | tail -3; then
-      if command -v second-brain-mcp &>/dev/null; then
-        installed=true
-        log_success "second-brain installed from source"
-      fi
-    fi
-    if [[ "$installed" == "false" ]]; then
-      log_warn "second-brain build failed:"
-      grep -iE "error|failed|cannot|missing" "$build_log" | tail -10 >&2
-    fi
-    rm -f "$build_log"
-  fi
-
-  if [[ "$installed" == "false" ]]; then
-    log_warn "second-brain not installed. Install Rust and run: cargo install second-brain-cli second-brain-mcp second-brain-api"
-  fi
+  log_warn "second-brain install failed:"
+  grep -iE "error|failed|cannot|missing" "$build_log" | tail -10 >&2
+  rm -f "$build_log"
+  log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+  return 1
 }
 
 second_brain_mcp() {
