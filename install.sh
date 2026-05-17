@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-MODULE_ORDER=(second-brain claude cursor codex rtk wiki)
+MODULE_ORDER=(second-brain verdant claude cursor codex rtk wiki)
 
 deploy_shared_skills() {
   local dest_dir="$1"
