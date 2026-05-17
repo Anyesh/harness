@@ -19,7 +19,7 @@ claude_plugins() {
     return
   fi
 
-  local marketplaces=("anthropics/claude-plugins-official" "Anyesh/caveman")
+  local marketplaces=("anthropics/claude-plugins-official")
   for mp in "${marketplaces[@]}"; do
     local mp_name="${mp##*/}"
     if claude plugin marketplace list 2>/dev/null | grep -qi "$mp_name"; then

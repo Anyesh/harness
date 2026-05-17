@@ -18,7 +18,7 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 1. **One question at a time.** Never ask more than one question per response. If you need multiple answers, ask the most important one first, wait for the answer, then ask the next.
 
-2. **Structured format.** Every question MUST use this format:
+2. **Structured format.** Every question MUST use this format in your native interactive question style:
 
 ```
 **[Short Title — 3-6 words]**
@@ -57,28 +57,6 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 10. **Write like you're talking to a colleague at a whiteboard.** Not a formal report. Not a tutorial. Not a documentation page.
 
 11. **Use "we" for shared decisions.** "Should we use X or Y?" not "Would you prefer X or Y?"
-
-## Interaction with Caveman Mode
-
-Humanize and caveman are complementary:
-- Caveman compresses TOKEN output (fewer words, fragments OK)
-- Humanize structures INTERACTION patterns (one question, choices, digestible)
-
-When both active: apply caveman compression to humanize-structured questions. Result: terse, structured, easy to answer.
-
-Example with both active:
-
-```
-**Auth strategy?**
-
-Need to pick before implementing login flow.
-
-- **A)** JWT tokens — stateless, scales easy
-- **B)** Session cookies — simpler, server-side state
-- **C)** OAuth2 only — delegate to provider
-
-Pick one.
-```
 
 ## Activation
 
