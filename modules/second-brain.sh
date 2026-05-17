@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 second_brain_check() {
-    if ! command -v sb &>/dev/null && ! command -v second-brain-cli &>/dev/null; then
+    if ! command -v sb &>/dev/null; then
         log_info "second-brain binaries not found (will attempt install)"
         log_info "  Manual install: cargo install second-brain-cli"
         if ! command -v cargo &>/dev/null; then
@@ -13,7 +13,7 @@ second_brain_check() {
 
 second_brain_binaries() {
   local sb_repo="https://github.com/Anyesh/second-brain"
-  local binaries=("second-brain-api" "second-brain-mcp" "second-brain-cli")
+  local binaries=("second-brain-api" "second-brain-mcp" "sb")
   local dest_dir="${HOME}/.local/bin"
   local all_present=true
 
@@ -96,8 +96,6 @@ second_brain_mcp() {
   local sb_mcp=""
   for candidate in \
     "$(command -v second-brain-mcp 2>/dev/null)" \
-    "/mnt/data/second-brain/target/release/second-brain-mcp" \
-    "/opt/second-brain/bin/second-brain-mcp" \
     "$HOME/.local/bin/second-brain-mcp" \
     "$HOME/.cargo/bin/second-brain-mcp"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then
@@ -114,8 +112,6 @@ second_brain_mcp() {
   local sb_api=""
   for candidate in \
     "$(command -v second-brain-api 2>/dev/null)" \
-    "/mnt/data/second-brain/target/release/second-brain-api" \
-    "/opt/second-brain/bin/second-brain-api" \
     "$HOME/.local/bin/second-brain-api" \
     "$HOME/.cargo/bin/second-brain-api"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then

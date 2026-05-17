@@ -111,7 +111,7 @@ Set in `~/.harness.env`:
 ```bash
 USER_EMAIL=you@example.com
 GITHUB_USER=yourhandle
-DATA_ROOT=/mnt/data
+DATA_ROOT=/path/to/data
 MCP_COGNITIVE_CACHE_PATH=cognitive-cache-mcp
 HOME_DIR=/home/youruser
 ```
@@ -162,7 +162,7 @@ curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | ba
 cat > ~/.harness.env << 'VARS'
 USER_EMAIL=you@example.com
 GITHUB_USER=yourhandle
-DATA_ROOT=/mnt/data
+DATA_ROOT=/path/to/data
 HOME_DIR=$HOME
 VARS
 
