@@ -40,6 +40,7 @@
 - **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan`) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
 - **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
 - **One question at a time when clarifying.** Do not dump 5 questions on the user. Ask the most important one, get the answer, then ask the next if still needed.
+- **Always use the AskUserQuestion tool for questions.** When you need user input, decisions, or preferences, use the built-in AskUserQuestion tool which renders structured single-select or multi-select choice prompts in the UI. Never dump questions as plain text in your response. Format: short header, 1-2 sentence description, 2-4 concrete options with rationale. Label single vs multi-select. Include "Other" only when the answer space is genuinely unbounded.
 - **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
 
 {{INCLUDE:shared/scope-gate.md}}
