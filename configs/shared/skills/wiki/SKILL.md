@@ -10,44 +10,98 @@ trigger: /wiki
 
 # /wiki
 
-Turn any collection of sources into a persistent, compounding knowledge base maintained entirely by the LLM. Based on Andrej Karpathy's LLM Wiki pattern: instead of re-deriving knowledge from raw documents on every query (like RAG), the LLM incrementally builds and maintains structured wiki pages where cross-references already exist, contradictions are already flagged, and synthesis already reflects everything you've read. The wiki keeps getting richer with every source you add and every question you ask.
+A persistent, compounding knowledge base maintained by the LLM during development sessions. Based on Andrej Karpathy's LLM Wiki pattern: instead of re-deriving knowledge on every query, the LLM incrementally builds and maintains structured wiki pages where cross-references exist, contradictions are flagged, and synthesis reflects everything explored. The wiki gets richer with every session.
 
-You never write the wiki yourself. The LLM writes and maintains all of it. You curate sources, direct the analysis, and ask the right questions. Open Obsidian on one side and Claude on the other — Claude makes edits, you browse the results in real time via the graph view.
+The human never writes the wiki. The LLM writes and maintains all of it. The human curates what matters, directs analysis, and browses results in Obsidian.
 
 ## Usage
 
 ```
-/wiki init <vault-path>                    # create vault structure + schema
-/wiki ingest <url>                         # fetch URL, save to raw/, update wiki pages
-/wiki ingest <file-path>                   # ingest local file (PDF, DOCX, markdown, text)
-/wiki ingest --batch <dir>                 # ingest all files in directory (autonomous mode)
-/wiki ingest --text "..."                  # ingest inline text directly
-/wiki query "<question>"                   # search wiki, synthesize answer with citations
-/wiki query "<question>" --file            # same, but also save answer as synthesis page
-/wiki lint                                 # structural health check (orphans, stubs, contradictions)
-/wiki lint --fix                           # lint and auto-fix actionable issues
-/wiki sync                                 # sync wiki from post-commit graph changes
-/wiki status                               # quick summary of wiki state
+/wiki init <vault-path>              # create vault structure + schema
+/wiki log                            # write devlog entry for current session
+/wiki plan <title>                   # capture a planning session / PRD
+/wiki decide <title>                 # record an architecture/design decision
+/wiki spike <title>                  # document an exploration that was tried
+/wiki concept <title>                # create/update a concept page
+/wiki ingest <url-or-path>           # ingest external source into wiki
+/wiki ingest --batch <dir>           # batch ingest directory
+/wiki query "<question>"             # search wiki, synthesize answer
+/wiki query "<question>" --file      # same + save as synthesis page
+/wiki lint                           # structural health check
+/wiki lint --fix                     # lint and auto-fix safe issues
+/wiki status                         # quick summary of wiki state
+/wiki sync                           # sync from graphify graph changes
 ```
-
-## What You Must Do When Invoked
-
-Parse the subcommand from the user's input and dispatch to the appropriate section below. If no subcommand is given, show the usage block above and ask what they'd like to do.
-
-Before any operation, resolve the vault path using the resolution order defined in the Vault Path Resolution section. If no vault can be found and the subcommand is not `init`, stop with: "No wiki vault found. Run `/wiki init <vault-path>` first."
-
----
 
 ## Vault Path Resolution
 
 Find the vault in this order (first match wins):
 
-1. **Explicit path** in the command: `/wiki ingest <source> --vault <path>`
-2. **`.wiki-vault` file** in the current working directory (contains one line: the absolute vault path)
-3. **`WIKI_VAULT_PATH` environment variable**
-4. **Error**: No vault found
+1. Explicit `--vault <path>` argument
+2. `.wiki-vault` file in current working directory (one line: absolute vault path)
+3. `WIKI_VAULT` environment variable
+4. Error: no vault found
 
-Once resolved, verify the path contains `WIKI_SCHEMA.md`. If not, stop with an error.
+Once resolved, verify path contains `WIKI_SCHEMA.md`.
+
+## Per-Project Organization
+
+The wiki is organized by project. Each project the user works on gets its own section:
+
+```
+<vault>/wiki/
+├── projects/
+│   ├── <project-slug>/
+│   │   ├── overview.md        # what the project is, current state
+│   │   ├── devlog.md          # append-only session log
+│   │   ├── decisions/         # ADRs (architecture decision records)
+│   │   ├── plans/             # planning docs, PRDs, specs
+│   │   ├── spikes/            # explorations, prototypes, things tried
+│   │   └── concepts/          # project-specific concepts
+│   └── ...
+├── concepts/                  # cross-project concepts
+├── synthesis/                 # cross-project analyses, filed queries
+├── sources/                   # external source summaries
+├── raw/                       # immutable source copies
+│   └── assets/
+├── index.md                   # master catalog
+├── log.md                     # chronological activity log
+└── WIKI_SCHEMA.md             # conventions (written by /wiki init)
+```
+
+**Project slug** is derived from the git repo name or directory basename (kebab-case). The LLM determines the current project from `git rev-parse --show-toplevel` or `$PWD`.
+
+---
+
+## Proactive Wiki Maintenance (Continuous Mode)
+
+The LLM should update the wiki proactively during sessions when significant work happens. This is not triggered by `/wiki` — it happens naturally as part of the workflow. Specifically:
+
+**Write to the wiki when:**
+- A planning session produces a concrete plan or PRD
+- An architecture/design decision is made (especially with tradeoffs discussed)
+- A spike or exploration is completed (whether it succeeded or was abandoned)
+- A brainstorming session produces ideas worth remembering
+- A concept is explained or discussed in depth for the first time
+- Scope is defined and rationale captured
+
+**Do NOT write to the wiki for:**
+- Routine code changes (bug fixes, refactors) unless they reveal something surprising
+- Debugging steps (unless the root cause is non-obvious and worth documenting)
+- Session transcripts or play-by-play narration
+- AI-generated summaries of what was just done
+- File listings, command outputs, or other raw data
+
+**Quality bar:** Before writing a wiki page, ask: "Would a human reading this in Obsidian three months from now find it useful for understanding what was explored, decided, or learned?" If no, don't write it.
+
+**Anti-bloat rules:**
+- No "In this session we..." framing
+- No timestamps in prose (frontmatter only)
+- No attribution to "Claude" or "the AI" — write as if a knowledgeable colleague documented it
+- No hedging ("it might be worth considering...") — be direct
+- No listing things that are obvious from the code itself
+- Maximum 2 paragraphs per section unless the content genuinely requires more
+- Prefer structured lists over prose when listing facts, tradeoffs, or options
 
 ---
 
@@ -55,143 +109,125 @@ Once resolved, verify the path contains `WIKI_SCHEMA.md`. If not, stop with an e
 
 ### Step 1 — Validate path
 
-Check if `<vault-path>` exists as a directory. If it doesn't exist, create it. If it already contains `WIKI_SCHEMA.md`, warn: "This directory already has a wiki. Re-initializing will overwrite the schema but preserve all existing content. Continue?" Wait for confirmation before proceeding.
+Check if `<vault-path>` exists. Create if not. If it already contains `WIKI_SCHEMA.md`, warn and ask to confirm re-init.
 
-### Step 2 — Create directory structure
+### Step 2 — Create structure
 
-```bash
-mkdir -p "<vault-path>/raw/assets"
-mkdir -p "<vault-path>/wiki/entities"
-mkdir -p "<vault-path>/wiki/concepts"
-mkdir -p "<vault-path>/wiki/sources"
-mkdir -p "<vault-path>/wiki/synthesis"
-mkdir -p "<vault-path>/graphify-out"
+```
+mkdir -p <vault-path>/wiki/projects
+mkdir -p <vault-path>/wiki/concepts
+mkdir -p <vault-path>/wiki/synthesis
+mkdir -p <vault-path>/wiki/sources
+mkdir -p <vault-path>/raw/assets
 ```
 
 ### Step 3 — Write WIKI_SCHEMA.md
 
-Write the following to `<vault-path>/WIKI_SCHEMA.md`, substituting the vault name from the directory basename and the current date:
+Write to `<vault-path>/WIKI_SCHEMA.md`:
 
 ```markdown
 ---
-vault_name: "<basename of vault-path>"
+vault_name: "<basename>"
 created: "YYYY-MM-DD"
-version: 1
+version: 2
 ---
 
 # Wiki Schema
 
-This file defines how the wiki is structured. The LLM reads it at the start of every operation. You and the LLM co-evolve this over time as you figure out what works for your domain.
+LLM-maintained knowledge wiki. The LLM reads this at the start of every operation.
 
 ## Page Types
 
-### Entity
-People, organizations, tools, libraries, projects, or other named things.
-- Directory: `wiki/entities/`
-- Filename: kebab-case of entity name (e.g., `andrej-karpathy.md`)
-- Required frontmatter: type, created, updated, aliases, tags, source_count
-- Required sections: Overview, Key Facts, Sources, Backlinks
+### Devlog Entry (append-only per project)
+- Location: `wiki/projects/<slug>/devlog.md`
+- Format: H2 dated entries, newest first
+- Content: what was worked on, key outcomes, links to decisions/plans/spikes created
+
+### Decision (ADR)
+- Location: `wiki/projects/<slug>/decisions/<title>.md`
+- Frontmatter: type, status (proposed|accepted|superseded), created, updated, tags
+- Sections: Context, Decision, Consequences, Alternatives Considered
+
+### Plan / PRD
+- Location: `wiki/projects/<slug>/plans/<title>.md`
+- Frontmatter: type, status (draft|active|completed|abandoned), created, updated, tags
+- Sections: Goal, Background, Approach, Scope, Open Questions
+
+### Spike / Exploration
+- Location: `wiki/projects/<slug>/spikes/<title>.md`
+- Frontmatter: type, outcome (success|abandoned|partial), created, tags
+- Sections: Question, What Was Tried, Findings, Conclusion
 
 ### Concept
-Ideas, methods, patterns, principles, techniques, or other abstract knowledge.
-- Directory: `wiki/concepts/`
-- Filename: kebab-case of concept name
-- Required frontmatter: type, created, updated, tags, source_count
-- Required sections: Definition, Explanation, Related Concepts, Sources, Backlinks
+- Location: `wiki/concepts/<title>.md` (cross-project) or `wiki/projects/<slug>/concepts/<title>.md` (project-specific)
+- Frontmatter: type, created, updated, tags, source_count
+- Sections: Definition, Explanation, Related Concepts, Sources
 
 ### Source Summary
-One per ingested source. Summarizes what was ingested and what it contributed to the wiki.
-- Directory: `wiki/sources/`
-- Filename: kebab-case of source title or URL slug
-- Required frontmatter: type, created, source_url, source_type, author, tags
-- Required sections: Summary, Key Claims, Entities Mentioned, Concepts Discussed, Raw Source
+- Location: `wiki/sources/<title>.md`
+- Frontmatter: type, created, source_url, source_type, author, tags
+- Sections: Summary, Key Claims, Entities Mentioned, Concepts Discussed
 
 ### Synthesis
-Cross-cutting analyses or filed query answers. These are answers that were valuable enough to persist.
-- Directory: `wiki/synthesis/`
-- Filename: kebab-case of synthesis title or question
-- Required frontmatter: type, created, updated, query, tags, source_count
-- Required sections: Question, Answer, Evidence, Sources
+- Location: `wiki/synthesis/<title>.md`
+- Frontmatter: type, created, query, tags, source_count
+- Sections: Question, Answer, Evidence, Sources
 
 ## Frontmatter Conventions
 
-All pages use YAML frontmatter compatible with Obsidian's properties panel:
-- `type`: one of entity, concept, source, synthesis
-- `created`: ISO 8601 date (YYYY-MM-DD)
-- `updated`: ISO 8601 date, bumped on every edit
-- `tags`: list of Obsidian tags (without #)
-- `source_count`: number of distinct raw sources that informed this page
-- `aliases`: list of alternative names (enables Obsidian alias resolution)
+- `type`: devlog, decision, plan, spike, concept, source, synthesis
+- `created` / `updated`: YYYY-MM-DD
+- `tags`: YAML list, no # prefix
+- `status`: lifecycle state (varies by type)
+- `source_count`: number of sources informing this page
+- `project`: project slug (for cross-referencing)
 
-## Linking Rules
+## Linking
 
 - Use Obsidian wikilinks: `[[Page Name]]`
-- Use display aliases when the filename differs from the display text: `[[kebab-name|Display Name]]`
-- Every entity or concept mentioned in prose MUST be wikilinked on first occurrence in each section
-- Every page MUST have a `## Sources` section listing raw source paths that informed it
-- Every page MUST have a `## Backlinks` section maintained by the LLM listing pages that link here
+- Display aliases: `[[kebab-name|Display Name]]`
+- Wikilink entities and concepts on first mention per section
+- Every page has a `## Sources` or `## References` section
 
-## Tags
+## Quality
 
-Tags live in frontmatter as a YAML list (Obsidian renders them in the tag pane and search):
-- Domain tags chosen per-wiki: e.g., ai, ml, engineering, business, health
-- Type tags added automatically: entity, concept, source, synthesis
-- Status tags reflecting page maturity:
-  - `stub`: source_count < 2 (needs more coverage)
-  - `review`: flagged for verification during lint
-  - `mature`: source_count >= 3 (well-sourced)
-
-## Quality Thresholds
-
-- Pages with source_count < 2 are tagged `stub`
-- Pages with source_count >= 3 are tagged `mature`
-- Pages not updated in 90 days are flagged as potentially stale during lint
-- Contradictions between pages are flagged during lint with both claims cited
+- Pages with source_count < 2 are `stub`
+- Pages with source_count >= 3 are `mature`
+- Pages not updated in 90 days are flagged stale in lint
+- Contradictions noted explicitly with both claims cited
 ```
 
 ### Step 4 — Write index.md
-
-Write the following to `<vault-path>/wiki/index.md`:
 
 ```markdown
 ---
 type: index
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-total_sources: 0
-total_entities: 0
-total_concepts: 0
-total_syntheses: 0
 ---
 
 # Wiki Index
 
-> Start here. This catalog is the LLM's primary retrieval mechanism — it reads this file to find relevant pages before answering any question.
+Master catalog. The LLM reads this first to find relevant pages.
 
-## Sources (chronological, newest first)
+## Projects
 
-_No sources ingested yet. Run `/wiki ingest <source>` to add content._
+_No projects yet._
 
-## Entities (alphabetical)
-
-_No entities yet._
-
-## Concepts (alphabetical)
+## Concepts
 
 _No concepts yet._
+
+## Sources
+
+_No sources yet._
 
 ## Syntheses
 
 _No syntheses yet._
-
-## Recent Activity
-
-See [[log]] for full timeline.
 ```
 
 ### Step 5 — Write log.md
-
-Write the following to `<vault-path>/wiki/log.md`:
 
 ```markdown
 ---
@@ -201,208 +237,198 @@ created: YYYY-MM-DD
 
 # Activity Log
 
-Chronological record of wiki operations. Each entry uses a parseable prefix for unix tool compatibility:
-`grep "^## \[" log.md | tail -5` gives you the last 5 entries.
+Append-only. `grep "^## \[" log.md | tail -5` for recent entries.
 ```
 
 ### Step 6 — Write .wiki-vault breadcrumb
 
-Write the absolute path of `<vault-path>` to `.wiki-vault` in the current working directory. This is a single line, no trailing newline, so that subsequent `/wiki` invocations in this directory can find the vault automatically.
+Write vault path to `.wiki-vault` in current working directory.
 
-### Step 7 — Write .obsidian/app.json
-
-```bash
-mkdir -p "<vault-path>/.obsidian"
-```
-
-Write to `<vault-path>/.obsidian/app.json`:
-```json
-{
-  "useMarkdownLinks": false,
-  "newLinkFormat": "shortest",
-  "attachmentFolderPath": "raw/assets"
-}
-```
-
-### Step 8 — Check for existing content
-
-If the vault path contains `.md` files outside of `wiki/` and `raw/` (excluding WIKI_SCHEMA.md), report how many existing markdown files were found and ask whether to ingest them as sources. If yes, copy them to raw/ and queue for batch ingest. If no, proceed.
-
-### Step 9 — Report
+### Step 7 — Report
 
 ```
 Wiki initialized at <vault-path>
 
-  WIKI_SCHEMA.md     — conventions and structure (edit to customize)
-  wiki/index.md      — content catalog
-  wiki/log.md        — activity timeline
+  WIKI_SCHEMA.md    — conventions (edit to customize)
+  wiki/index.md     — content catalog
+  wiki/log.md       — activity timeline
 
-Open <vault-path> as a vault in Obsidian, then:
-  /wiki ingest <url-or-file>     — add your first source
+Open in Obsidian and start working. The wiki grows as you do.
 ```
 
 ---
 
-## For /wiki ingest
+## For /wiki log
 
-### Step 1 — Resolve vault and read state
+Append a devlog entry to the current project's `wiki/projects/<slug>/devlog.md`.
 
-Resolve vault path per the Vault Path Resolution section, then read these files to understand current state:
+### Step 1 — Determine project
 
-- `WIKI_SCHEMA.md` (conventions — read once per session, skip if already read this session)
-- `wiki/index.md` (current catalog — always read, since this is how you know what exists)
-- `wiki/log.md` (read last 20 lines only, for continuity context)
+Get project slug from `basename $(git rev-parse --show-toplevel 2>/dev/null || echo $PWD)` converted to kebab-case.
 
-### Step 2 — Detect source type and fetch
+### Step 2 — Ensure project directory exists
 
-| Source Input | Detection | Fetch Method |
-|-------------|-----------|-------------|
-| URL (web page) | starts with `http://` or `https://` | `mcp__web-strip__fetch` with the URL |
-| URL (PDF) | URL ends in `.pdf` | `mcp__markitdown__convert_to_markdown` with the URL |
-| Local PDF/DOCX/XLSX/PPTX | file path with document extension | `mcp__markitdown__convert_to_markdown` with file path |
-| Local markdown/text | file path with `.md` or `.txt` extension | Read tool directly |
-| `--text "..."` flag | inline text after flag | Use the text as-is |
-| `--batch <dir>` | directory path | Enumerate all supported files, process each |
+If `wiki/projects/<slug>/` doesn't exist, create it with subdirectories (decisions/, plans/, spikes/, concepts/) and add an `overview.md` stub. Add the project to `wiki/index.md` under `## Projects`.
 
-If fetch fails (404, timeout, unsupported format), report the error and stop without creating partial wiki entries for failed fetches.
+### Step 3 — Write devlog entry
 
-### Step 3 — Save immutable copy to raw/
+Read existing `devlog.md` (or create if first entry). Prepend a new H2 entry:
 
-Determine a filename using the pattern `YYYY-MM-DD_<slug>.<ext>` where the slug comes from the source title (if available), the URL (if a URL source), or the original filename. Save to `<vault-path>/raw/`.
+```markdown
+## [YYYY-MM-DD] <Brief title of what was done>
 
-Write YAML frontmatter at the top of the raw file:
+<2-4 bullet points of key outcomes, decisions made, or things learned. Link to any decision/plan/spike pages created this session.>
+```
 
-```yaml
+### Step 4 — Append to wiki/log.md
+
+```markdown
+
+## [YYYY-MM-DD] devlog | <project-slug> | <brief title>
+```
+
 ---
-source_url: "<original URL or file path>"
-captured_at: "YYYY-MM-DDTHH:MM:SSZ"
-source_type: "url|pdf|docx|text|clipboard"
-author: "<if known from the source content>"
-title: "<extracted or inferred title>"
----
-```
 
-The raw file is NEVER modified after creation — it is the immutable record of what was ingested.
+## For /wiki plan <title>
 
-### Step 4 — Analyze content and plan page updates
+Create a plan/PRD page for the current project.
 
-Read the fetched content carefully and identify:
+### Step 1 — Resolve project and vault
 
-- **Title**: the source's title or a descriptive name
-- **Author**: if stated or inferable from the content
-- **Entities mentioned**: proper nouns — people, organizations, tools, projects, libraries, specific systems
-- **Concepts discussed**: ideas, methods, patterns, principles, techniques — abstract knowledge worth its own page
-- **Key claims**: factual assertions, findings, opinions, or conclusions that should be captured
+### Step 2 — Write plan page
 
-Then cross-reference against `wiki/index.md` to determine which pages already exist and which need to be created.
-
-**Present the plan to the user:**
-
-```
-Source: "<title>" (<source type>)
-Saved:  raw/YYYY-MM-DD_<slug>.md
-
-Plan:
-  CREATE  wiki/sources/<slug>.md              (source summary)
-  CREATE  wiki/entities/<entity-1>.md         (new entity)
-  CREATE  wiki/concepts/<concept-1>.md        (new concept)
-  UPDATE  wiki/entities/<existing-entity>.md  (add source, update facts)
-  UPDATE  wiki/concepts/<existing-concept>.md (add source, expand explanation)
-  UPDATE  wiki/index.md                       (catalog update)
-  APPEND  wiki/log.md                         (activity entry)
-
-N pages will be touched. Proceed?
-```
-
-Wait for confirmation, since the user may want to redirect emphasis ("Skip entity X" or "Also create a page for Y"). Adjust the plan accordingly before executing.
-
-**Exception**: In `--batch` mode, skip confirmation and execute autonomously for each source, showing a progress line per source instead.
-
-### Step 5 — Create source summary page
-
-Write `wiki/sources/<slug>.md` following this structure:
+Write to `wiki/projects/<slug>/plans/<title-kebab>.md`:
 
 ```markdown
 ---
-type: source
-created: YYYY-MM-DD
-source_url: "<url or path>"
-source_type: url|pdf|docx|text|clipboard
-author: "<author>"
-tags:
-  - source
-  - <domain tags inferred from content>
----
-
-# <Source Title>
-
-## Summary
-
-<2-3 paragraph summary capturing the main points, written in flowing prose with [[wikilinks]] to entities and concepts mentioned>
-
-## Key Claims
-
-- <Claim 1, with [[wikilinks]] to relevant entities/concepts>
-- <Claim 2>
-- <Claim 3>
-
-## Entities Mentioned
-
-- [[Entity Name]] — <role or context in this source>
-
-## Concepts Discussed
-
-- [[Concept Name]] — <how the source discusses this concept>
-
-## Raw Source
-
-`raw/YYYY-MM-DD_<slug>.md`
-```
-
-### Step 6 — Create or update entity pages
-
-For each entity in the plan:
-
-**If creating a new entity page**, write `wiki/entities/<kebab-name>.md`:
-
-```markdown
----
-type: entity
+type: plan
+status: active
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-aliases:
-  - <alternative names if any>
 tags:
-  - entity
-  - <domain tags>
-  - stub
-source_count: 1
+  - plan
+  - <project-slug>
+project: <project-slug>
 ---
 
-# <Entity Name>
+# <Title>
 
-## Overview
+## Goal
 
-<1-2 paragraph description based on what this source tells us>
+<What this plan aims to achieve, in 1-2 sentences>
 
-## Key Facts
+## Background
 
-- <Fact from this source, with [[wikilinks]]>
+<Why this work is needed, what prompted it>
 
-## Sources
+## Approach
 
-- `raw/YYYY-MM-DD_<slug>.md` — <what this source says about the entity>
+<How it will be done — architecture, key decisions, implementation strategy>
 
-## Backlinks
+## Scope
 
-- [[<Source Summary Page>]]
+<What's in and what's out>
+
+## Open Questions
+
+- <Unresolved questions that need answers>
 ```
 
-**If updating an existing entity page**, read the current page first, then apply these changes: bump `updated` to today's date, increment `source_count`, add new facts to `## Key Facts` without duplicating existing ones (but noting if a new source reinforces or contradicts an existing fact), add the raw source path to `## Sources` with a note about what it contributes, add backlinks from the new source summary page, and if `source_count` reaches 3, replace the `stub` tag with `mature`.
+Fill the content from the current session context (the planning discussion that just happened). Do not fabricate — only include what was actually discussed.
 
-### Step 7 — Create or update concept pages
+### Step 3 — Update devlog and log
 
-Same pattern as entities. **If creating a new concept page**, write `wiki/concepts/<kebab-name>.md`:
+Add a devlog entry noting the plan was created. Append to log.md.
+
+---
+
+## For /wiki decide <title>
+
+Create an architecture decision record.
+
+Write to `wiki/projects/<slug>/decisions/<title-kebab>.md`:
+
+```markdown
+---
+type: decision
+status: accepted
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+tags:
+  - decision
+  - <project-slug>
+project: <project-slug>
+---
+
+# <Title>
+
+## Context
+
+<What situation prompted this decision>
+
+## Decision
+
+<What was decided, stated directly>
+
+## Consequences
+
+<What follows from this decision — tradeoffs accepted, constraints introduced>
+
+## Alternatives Considered
+
+- **<Alternative A>** — <why not chosen>
+- **<Alternative B>** — <why not chosen>
+```
+
+Fill from session context. Update devlog and log.
+
+---
+
+## For /wiki spike <title>
+
+Document an exploration or prototype attempt.
+
+Write to `wiki/projects/<slug>/spikes/<title-kebab>.md`:
+
+```markdown
+---
+type: spike
+outcome: <success|abandoned|partial>
+created: YYYY-MM-DD
+tags:
+  - spike
+  - <project-slug>
+project: <project-slug>
+---
+
+# <Title>
+
+## Question
+
+<What was being investigated>
+
+## What Was Tried
+
+<What approaches were attempted, in order>
+
+## Findings
+
+<What was learned — facts discovered, not opinions>
+
+## Conclusion
+
+<The takeaway: what to do next, or why this was abandoned>
+```
+
+Fill from session context. Update devlog and log.
+
+---
+
+## For /wiki concept <title>
+
+Create or update a concept page. If `--project` is given or the concept is clearly project-specific, put it in the project directory. Otherwise use the cross-project `wiki/concepts/` directory.
+
+**Creating:**
 
 ```markdown
 ---
@@ -420,415 +446,173 @@ source_count: 1
 
 ## Definition
 
-<1-2 sentence crisp definition>
+<Crisp 1-2 sentence definition>
 
 ## Explanation
 
-<Detailed explanation from this source, written in flowing prose with [[wikilinks]] to related entities and concepts>
+<Detailed explanation with [[wikilinks]] to related concepts>
 
 ## Related Concepts
 
-- [[Related Concept]] — <nature of the relationship>
+- [[Related]] — <nature of relationship>
 
 ## Sources
 
-- `raw/YYYY-MM-DD_<slug>.md` — <what this source says about the concept>
-
-## Backlinks
-
-- [[<Source Summary Page>]]
+- <What informed this page>
 ```
 
-**If updating an existing concept page**, read it first and then: bump `updated` and increment `source_count`, enrich the `## Explanation` section by weaving in new information from this source (rather than appending a separate block), add new `## Related Concepts` entries if the source reveals new connections, add the raw source to `## Sources`, update backlinks, note contradictions explicitly with both claims cited rather than silently overwriting, and update the status tag if the threshold for `mature` is crossed.
-
-### Step 8 — Update index.md
-
-Read the current `wiki/index.md` and apply these updates: add the new source to `## Sources` at the top (newest first) as `- [[<Source Title>]] (YYYY-MM-DD) — <one-line description>`, add new entities to `## Entities` in alphabetical order, add new concepts to `## Concepts` in alphabetical order, bump the frontmatter counts (`total_sources`, `total_entities`, `total_concepts`), and bump the `updated` date.
-
-### Step 9 — Append to log.md
-
-Append an entry to `wiki/log.md`:
-
-```markdown
-
-## [YYYY-MM-DD] ingest | <Source Title>
-
-- Source: `raw/YYYY-MM-DD_<slug>.md`
-- Created: <N> pages (<list of page names>)
-- Updated: <N> pages (<list of page names>)
-- Total pages touched: <N>
-```
-
-### Step 10 — Report
-
-```
-Ingested: "<Source Title>"
-  Created: N source summaries, N entities, N concepts
-  Updated: N entities, N concepts
-  Total: N pages touched
-
-Wiki now: X sources, Y entities, Z concepts
-```
+**Updating:** Read existing page, weave in new information, bump counts, note contradictions.
 
 ---
 
-## For /wiki ingest --batch
+## For /wiki ingest <source>
 
-When `--batch <dir>` is given, enumerate all supported files in the directory and ingest each one sequentially without per-source confirmation.
+Ingest an external source (URL, PDF, file) into the wiki.
 
-```bash
-find "<dir>" -maxdepth 1 -type f \( -name "*.md" -o -name "*.txt" -o -name "*.pdf" -o -name "*.docx" -o -name "*.html" \) | sort
-```
+### Step 1 — Resolve vault, read index and log
 
-For each file, run the full ingest flow (Steps 2-10) but skip the confirmation prompt in Step 4, printing a progress line instead:
+### Step 2 — Fetch source
 
-```
-[1/12] Ingesting: article-title.md ... 8 pages touched
-[2/12] Ingesting: research-paper.pdf ... 11 pages touched
-...
-```
+| Input | Method |
+|-------|--------|
+| URL (web page) | `mcp__web-strip__fetch` |
+| URL (PDF) | `mcp__markitdown__convert_to_markdown` |
+| Local PDF/DOCX/XLSX | `mcp__markitdown__convert_to_markdown` |
+| Local markdown/text | Read tool |
+| `--text "..."` | Use as-is |
 
-After all files are processed, show a summary:
+### Step 3 — Save to raw/
 
-```
-Batch ingest complete: 12 sources processed
-  Created: N source summaries, N entities, N concepts
-  Updated: N entities, N concepts
-  Total unique pages touched: N
+Save as `raw/YYYY-MM-DD_<slug>.<ext>` with frontmatter (source_url, captured_at, source_type, author, title). Never modify after creation.
 
-Wiki now: X sources, Y entities, Z concepts
-```
+### Step 4 — Analyze and plan updates
+
+Identify: title, author, entities, concepts, key claims. Cross-reference against index. Present plan to user (unless `--batch`).
+
+### Step 5 — Create source summary page
+
+Write to `wiki/sources/<slug>.md` with Summary, Key Claims, Entities, Concepts sections.
+
+### Step 6 — Create/update entity and concept pages
+
+For each entity or concept identified: create new pages or update existing ones following the templates above.
+
+### Step 7 — Update index.md and log.md
+
+### Step 8 — Report results
 
 ---
 
-## For /wiki query
+## For /wiki query "<question>"
 
-### Step 1 — Resolve vault and read state
+### Step 1 — Read index.md to find relevant pages
 
-Resolve vault path, then read `WIKI_SCHEMA.md` (if not already read this session) and `wiki/index.md`.
+### Step 2 — Read the most relevant pages (up to 5)
 
-### Step 2 — Identify relevant pages
+### Step 3 — Synthesize answer with `[[wikilink]]` citations
 
-Extract key terms from the question and scan `wiki/index.md` for matching entries by looking for those terms in page titles and descriptions. This index-based retrieval is the primary mechanism and works well up to ~100 sources.
+If `--file` flag given, also save the answer as `wiki/synthesis/<question-slug>.md` and update index.
 
-If index scanning yields fewer than 3 matches, supplement with a broader search:
+### Step 4 — Suggest follow-ups
 
-```bash
-grep -rl "<key terms>" "<vault-path>/wiki/" --include="*.md" | head -20
-```
-
-If `<vault-path>/graphify-out/graph.json` exists, you may also load it and traverse for structurally related nodes, but this is optional and secondary to index-based retrieval.
-
-### Step 3 — Read relevant pages
-
-Read the 3-8 most relevant pages identified in Step 2, prioritizing in this order: concept pages matching question terms first (since these contain synthesized knowledge), then entity pages, then existing synthesis pages on related questions, and finally source summary pages discussing the topic.
-
-### Step 4 — Synthesize answer
-
-Write the answer in the conversation using information from the wiki pages, citing sources with wikilinks:
-
-```
-Based on the wiki:
-
-<answer text, using [[wikilinks]] when referencing wiki pages>
-
-Pages consulted:
-- [[Page 1]] (type, N sources)
-- [[Page 2]] (type, N sources)
-```
-
-If the wiki lacks enough information to answer confidently, say so: "The wiki doesn't have enough coverage on X. Consider ingesting sources about Y to build this area up."
-
-### Step 5 — Optionally file as synthesis page
-
-If the `--file` flag was given, or if the answer is substantive enough to be worth preserving, write it as a synthesis page in `wiki/synthesis/<question-slug>.md`:
-
-```markdown
----
-type: synthesis
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-query: "<original question>"
-tags:
-  - synthesis
-  - <domain tags>
-source_count: <number of raw sources cited transitively>
----
-
-# <Question as Title>
-
-## Question
-
-<Original question>
-
-## Answer
-
-<The synthesized answer with [[wikilinks]]>
-
-## Evidence
-
-- [[Page 1]] — <what it contributed to the answer>
-- [[Page 2]] — <what it contributed>
-
-## Sources (raw)
-
-- `raw/<source1>.md`
-- `raw/<source2>.md`
-```
-
-Then update `wiki/index.md` (add to Syntheses section, bump `total_syntheses`) and append to `wiki/log.md`.
-
-If the `--file` flag was not given, ask: "This answer synthesizes multiple pages — file it as a synthesis page so it compounds in the wiki? [y/N]"
+If the query reveals gaps, suggest: sources to ingest, pages to create, or questions to investigate.
 
 ---
 
 ## For /wiki lint
 
-### Step 1 — Resolve vault and read state
+Health-check the wiki and report issues.
 
-Resolve vault path, then read `WIKI_SCHEMA.md` and `wiki/index.md`.
+### Checks
 
-### Step 2 — Enumerate all wiki pages
+1. **Orphan pages**: no incoming links besides index
+2. **Stubs**: source_count < 2
+3. **Broken wikilinks**: links to non-existent pages
+4. **Missing cross-references**: entities/concepts mentioned in prose but not wikilinked
+5. **Stale pages**: not updated in 90+ days
+6. **Index consistency**: pages on disk not listed in index.md
+7. **Empty projects**: project directories with no content beyond overview stub
+8. **Bloat detection**: pages with excessive AI-style prose (hedging, narration, attribution)
 
-```bash
-find "<vault-path>/wiki" -name "*.md" -type f | sort
-```
-
-Build a list of all pages with their types (from frontmatter or directory).
-
-### Step 3 — Run structural checks
-
-Perform these checks by reading pages and analyzing their content:
-
-**Orphan pages** — pages that no other page links to beyond index.md. For each page, grep its name across all other wiki pages to count incoming wikilinks; a page is orphaned if it has zero inlinks from non-index pages.
-
-**Broken wikilinks** — extract all `[[...]]` patterns from wiki pages and check that each target exists as a file, accounting for aliases in frontmatter.
-
-**Stubs** — pages where `source_count` in frontmatter is less than 2, indicating they need more source coverage to be reliable.
-
-**Stale pages** — pages where `updated` in frontmatter is more than 90 days old, which may contain outdated information that newer sources have superseded.
-
-**Missing cross-references** — read entity and concept pages looking for mentions of other entities or concepts in the prose text that are NOT wikilinked, representing missed connections that should be added.
-
-**Contradictions** — look for pages that discuss the same topic but make conflicting claims, which requires reading and comparing content across related pages.
-
-**Index consistency** — verify that every page in wiki/ appears in index.md and every entry in index.md points to an existing page.
-
-### Step 4 — Run graphify (optional)
-
-If graphify is installed and the wiki has 20+ pages, run it on the wiki directory for deeper structural analysis that reveals community structure, god nodes, and surprising connections:
-
-```bash
-/graphify "<vault-path>/wiki" --no-viz
-```
-
-If graphify is not installed, skip this step and rely entirely on the direct checks from Step 3.
-
-### Step 5 — Generate health report
-
-Compute a health score (0-100) starting at 100 and subtracting: 5 per orphan page, 3 per stub page, 2 per broken wikilink, 1 per stale page, and 5 per index inconsistency, with a floor of 0.
-
-Present the report:
+### Output format
 
 ```
-Wiki Lint Report
-================
+Wiki Health: NN/100
 
-Health: NN/100
-
-## Orphan Pages (no incoming links besides index)
-- wiki/entities/minor-entity.md — consider linking from [[Related Concept]]
-
-## Stubs (< 2 sources)
-- wiki/concepts/some-concept.md (1 source) — needs more coverage
-
-## Broken Wikilinks
-- wiki/sources/article.md links to [[Nonexistent Page]] — create it or fix the link
-
-## Missing Cross-References
-- [[Concept A]] mentions "Entity B" in prose but doesn't wikilink it
-
-## Stale Pages (not updated in 90+ days)
-- wiki/entities/old-entity.md (last updated: YYYY-MM-DD)
-
-## Index Consistency
-- wiki/concepts/new-concept.md exists but is not listed in index.md
+## Issues Found
+- <category>: <count> (<list or examples>)
 
 ## Suggested Actions
-- Ingest more sources covering: <list of stub topics>
-- Create pages for: <concepts mentioned but lacking their own page>
-- Investigate: "<suggested question that crosses multiple wiki areas>"
+- <actionable fix>
 ```
 
-### Step 6 — Offer fixes
-
-If `--fix` was given, automatically apply safe fixes: add missing entries to index.md, add missing wikilinks for entities and concepts mentioned in prose, and update backlinks sections across all pages. For destructive or judgment-call fixes (deleting orphans, resolving contradictions), present them individually and wait for confirmation.
-
-If `--fix` was not given, ask: "Want me to auto-fix the safe issues (index updates, missing wikilinks, backlinks)?"
-
-Append a lint entry to log.md:
-
-```markdown
-
-## [YYYY-MM-DD] lint | Health: NN/100
-
-- Orphans: N
-- Stubs: N
-- Broken links: N
-- Stale: N
-- Fixed: N issues (if --fix was applied)
-```
+If `--fix` given: auto-fix safe issues (index updates, missing wikilinks). Ask for confirmation on destructive fixes.
 
 ---
 
 ## For /wiki status
 
-Quick read-only summary that resolves the vault, reads index.md frontmatter and the tail of log.md, then displays:
+Quick read-only summary:
 
 ```
 Wiki: <vault_name>
 Path: <vault-path>
 
-  Sources:    N
-  Entities:   N
+  Projects:   N (<list>)
   Concepts:   N
+  Sources:    N
   Syntheses:  N
+  Decisions:  N (across all projects)
+  Plans:      N
+  Spikes:     N
 
-  Stubs: N pages need more coverage
-  Last ingest: YYYY-MM-DD (<source title>)
-  Last lint: YYYY-MM-DD (health: NN/100)
+  Stubs: N pages need coverage
+  Last activity: YYYY-MM-DD (<description>)
 ```
-
-If lint has never been run, show "Last lint: never — run `/wiki lint` for a health check" instead.
 
 ---
 
 ## For /wiki sync
 
-Triggered automatically when a SessionStart hook detects `.wiki-sync-pending` in the repo root, or manually by the user. This bridges the gap between the git post-commit hook (which rebuilds the graph deterministically) and the wiki (which needs LLM reasoning to create pages).
+Triggered when `.wiki-sync-pending` exists (from post-commit graphify hook) or manually.
 
-### Step 1 — Read the pending marker
+### Step 1 — Read pending marker or diff graph vs index
 
-Read `.wiki-sync-pending` from the repo root. It contains:
+### Step 2 — Identify new/changed nodes that deserve wiki pages
 
-```yaml
+Only create pages for nodes that represent meaningful entities or concepts (not every file path or function name). Apply the same quality bar as continuous mode.
+
+### Step 3 — Create/update pages following templates
+
+### Step 4 — Update index and log, delete pending marker
+
 ---
-timestamp: 2026-05-05T12:00:00Z
-commit: abc1234
-message: the commit message
-vault: /path/to/vault
----
-file1.py
-file2.ts
-```
 
-Extract the vault path, commit SHA, and list of changed files. If no `.wiki-sync-pending` exists and the user ran this manually, check if `graphify-out/graph.json` has been modified more recently than the last wiki log entry — if so, proceed with a full diff. If neither condition is met, report "Wiki is up to date with the graph."
+## Second-Brain Integration
 
-### Step 2 — Diff graph against wiki index
+The wiki can READ from second-brain (via MCP `recall` and `context` tools) to inform page content — pulling in prior decisions, context from past sessions, or knowledge accumulated over time. This helps write richer pages without requiring the user to re-explain history.
 
-Read `graphify-out/graph.json` and `wiki/index.md`. Compare:
+The wiki NEVER writes to second-brain. They are separate systems:
+- Second-brain = machine memory (vector search, graph DB, for LLM recall)
+- Wiki = human-readable knowledge (markdown in Obsidian, for humans to browse)
 
-- **New entities in graph not in wiki**: nodes tagged as entity types (functions, classes, modules, services, people, organizations) that have no corresponding page in `wiki/entities/`.
-- **New concepts in graph not in wiki**: nodes tagged as concept types (patterns, algorithms, protocols, abstractions) that have no corresponding page in `wiki/concepts/`.
-- **Changed entities**: nodes whose edge count or community membership changed significantly (new edges > 30% of prior edge count), suggesting the entity's role evolved.
-
-Build a sync plan listing: pages to create, pages to update, pages unaffected.
-
-### Step 3 — Present sync plan
-
-Show the user:
-
-```
-Wiki Sync Plan (commit abc1234)
-================================
-
-Create (N new pages):
-  - wiki/entities/new-module.md — 5 edges, community: "Auth Layer"
-  - wiki/concepts/retry-pattern.md — 3 edges, community: "Resilience"
-
-Update (M changed pages):
-  - wiki/entities/api-gateway.md — 4 new edges (was 6, now 10)
-
-Unchanged: K pages
-
-Proceed? [Y/n]
-```
-
-If invoked automatically via the SessionStart hook context, proceed without asking (the hook already informed the user).
-
-### Step 4 — Create and update pages
-
-For each new page:
-- Read the node's edges and community from `graph.json`
-- Read the source files referenced by the node's edges (up to 3 most connected)
-- Write a wiki page following the entity or concept template from `WIKI_SCHEMA.md`
-- Set `source_count: 1` and tag as `stub` (because graph extraction is a single source — the codebase)
-- Add a `graph-synced` tag to frontmatter so lint can distinguish graph-derived pages from manually ingested ones
-
-For each updated page:
-- Read the existing page
-- Read the new edges from `graph.json`
-- Append new relationships and update the description to reflect the entity's evolved role
-- Bump `updated` date and increment `source_count` if new source files were consulted
-
-### Step 5 — Update index and log
-
-Add all new pages to `wiki/index.md` under the appropriate section (entities or concepts).
-
-Append to `wiki/log.md`:
-
-```markdown
-
-## [YYYY-MM-DD] sync | commit: <sha> | +N pages, ~M updated
-
-- New: <list of created page names>
-- Updated: <list of updated page names>
-- Source: post-commit hook (graphify AST)
-```
-
-### Step 6 — Clean up
-
-Delete `.wiki-sync-pending` from the repo root. The sync is complete.
+When writing a wiki page, you may `recall` from second-brain to fill in context you don't have in the current conversation, but always verify recalled information against the codebase before committing it to a wiki page.
 
 ---
 
 ## Multi-Session Continuity
 
-The wiki is the persistent artifact while conversation context is ephemeral, so follow these rules to ensure continuity across sessions:
-
-- **Always read `wiki/index.md` before any operation** because this is how you discover what the wiki currently contains — never rely on conversation memory for wiki state.
-- **Always read `WIKI_SCHEMA.md` at the start of the first wiki operation in a session** since it tells you the conventions for this specific wiki. You may cache it for the rest of the session.
-- **Read the last 20 entries of `wiki/log.md`** before ingest or query operations to understand recent activity and avoid re-ingesting sources that were recently processed.
-- **The wiki files are the source of truth.** If a previous conversation created pages, they exist on disk — read them rather than relying on any memory of what was done.
+- Always read `wiki/index.md` before any operation
+- Read `WIKI_SCHEMA.md` at the start of first wiki operation per session
+- Read last 20 entries of `wiki/log.md` for context
+- Wiki files on disk are the source of truth, not conversation memory
 
 ---
 
 ## Honesty Rules
 
-- Never invent claims that aren't in the sources — if a source doesn't say something, don't add it to the wiki.
-- Always cite which raw source informed a fact, since every claim on a wiki page must trace back to a `raw/` file.
-- When sources contradict each other, note both claims with their source citations rather than silently picking one.
-- Mark uncertain information explicitly: if you're not sure whether two names refer to the same entity, create separate pages and note the potential connection rather than merging them.
-- Prefer creating a stub page over guessing content, because a page with `source_count: 1` and accurate content is always better than one padded with fabricated details.
-- Do not hallucinate connections between concepts — if two things aren't connected in any source, don't create a "Related Concepts" link between them.
-
----
-
-## Page Naming Conventions
-
-- All filenames use kebab-case: `attention-mechanism.md`, `andrej-karpathy.md`
-- If two entities share a name, disambiguate with a suffix: `python-language.md` vs `python-comedy.md`
-- Source summary filenames derive from the source title or URL slug: `attention-is-all-you-need.md`
-- Synthesis filenames derive from the question: `how-does-self-attention-compare-to-convolution.md`
-- Keep filenames under 60 characters, abbreviating if necessary while maintaining clarity
-- The wikilink display name can differ from the filename: `[[attention-mechanism|Attention Mechanism]]`
-
----
-
-## When Things Go Wrong
-
-**Duplicate pages detected**: If you discover two pages for the same entity or concept (e.g., created by different ingest sessions with slightly different names), merge them by combining content into one page, redirecting the other's backlinks, deleting the duplicate, and updating index.md.
-
-**Source re-ingested**: If the user ingests a source that's already in `raw/` (same URL or filename), warn: "This source was already ingested on YYYY-MM-DD. Re-ingest to capture updates?" If yes, create a new raw file with today's date and update existing wiki pages with any new information from the fresh copy.
-
-**Large wiki (100+ sources)**: When index.md exceeds 500 lines, suggest splitting into `wiki/index-sources.md`, `wiki/index-entities.md`, and `wiki/index-concepts.md`, with index.md serving as a hub linking to each sub-index and the retrieval logic updated accordingly.
+- Never invent claims not supported by sources or session context
+- Cite what informed each fact
+- Note contradictions explicitly with both claims
+- Prefer stubs over fabricated content
+- Do not hallucinate connections between concepts

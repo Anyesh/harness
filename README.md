@@ -66,10 +66,9 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 | `format-on-save.sh` | PostToolUse (Write/Edit) | Auto-formats written files |
 | `pre-compact.sh` | PreToolUse (Compact) | Pre-compaction hook |
 | `session-start.sh` | SessionStart | Activates modes, checks environment |
-| `session-end-ingest.sh` | SessionEnd | Triggers second-brain memory ingest |
-| `session-start-wiki.sh` | SessionStart | Wiki sync check |
-| `wiki-sync-detector.sh` | PostResponse | Detects wiki-relevant content |
-| `caveman-*.js` | Various | Caveman mode activation, config, stats |
+| `session-end-ingest.sh` | SessionEnd | Ingests session into second-brain (machine memory) |
+| `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
+| `wiki-sync-detector.sh` | SessionStart | Detects pending graph→wiki sync |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
 
@@ -88,7 +87,7 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 | Category | Skills |
 |----------|--------|
 | SEO | `seo`, `seo-audit`, `seo-page`, `seo-plan`, `seo-technical`, `seo-schema`, `seo-sitemap`, `seo-content`, `seo-images`, `seo-hreflang`, `seo-geo`, `seo-competitor-pages`, `seo-programmatic` |
-| Knowledge | `wiki`, `graphify`, `graphify-init` |
+| Knowledge | `wiki` (Karpathy-pattern LLM wiki), `graphify`, `graphify-init` |
 | Workflow | `terminal-gif`, `humanize`, `ownit` |
 
 ## Modules
@@ -99,9 +98,38 @@ cursor        Cursor: rules, mcp.json
 codex         Codex: config.toml, instructions
 second-brain  second-brain daemon + MCP server registration
 rtk           RTK CLI output compression tool
-wiki          Wiki auto-export pipeline
+wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
 lib           Shared functions (logging, template rendering, manifest)
+```
+
+## Wiki (Knowledge Base)
+
+The harness deploys an LLM-maintained wiki based on Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern. The LLM builds and maintains structured Obsidian pages as you work; you never write the wiki yourself.
+
+**Setup:** Set `WIKI_VAULT` in `~/.harness.env` to your Obsidian vault path. The wiki module creates the structure on install.
+
+**How it works:**
+- Every session, the LLM sees wiki context (project devlog, index) via session-start hook
+- CLAUDE.md instructs the LLM to proactively write wiki pages when plans, decisions, spikes, or concepts emerge
+- Pages are organized per-project: `wiki/projects/<slug>/` with devlog, decisions/, plans/, spikes/
+- Pre-compact hook reminds the LLM to capture anything valuable before context compression
+- `/wiki` skill provides full operations: ingest external sources, query, lint, sync from graphify
+
+**What gets captured:** plans, PRDs, architecture decisions (ADRs), exploration spikes, concepts, devlogs. Not captured: routine fixes, debugging transcripts, AI bloat.
+
+**Vault structure:**
+```
+$WIKI_VAULT/
+├── wiki/
+│   ├── projects/<slug>/    ← per-project knowledge
+│   ├── concepts/           ← cross-project concepts
+│   ├── synthesis/          ← filed query answers
+│   ├── sources/            ← external source summaries
+│   ├── index.md            ← master catalog
+│   └── log.md             ← activity timeline
+├── raw/                    ← immutable source copies
+└── WIKI_SCHEMA.md          ← conventions
 ```
 
 ## Template Variables

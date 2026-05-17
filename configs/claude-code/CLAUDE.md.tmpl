@@ -114,7 +114,7 @@ This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rus
 - **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
 When the user types `/ownit`, invoke the Skill tool with `skill: "ownit"` before doing anything else.
 # humanize
-- **humanize** (`~/.claude/skills/humanize/SKILL.md`) - Structure questions as digestible single/multi-choice prompts. One question at a time. Trigger: `/humanize`
+- **humanize** (`~/.claude/skills/humanize/SKILL.md`) - Structure questions as digestible single/multi-choice interactive prompts. One question at a time. Trigger: `/humanize`
 When the user types `/humanize`, invoke the Skill tool with `skill: "humanize"` before doing anything else.
 # graphify
 - **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
@@ -124,3 +124,100 @@ When the user types `/graphify-init`, invoke the Skill tool with `skill: "graphi
 # wiki
 - **wiki** (`~/.claude/skills/wiki/SKILL.md`) - LLM-maintained knowledge wiki (Karpathy pattern). Ingest sources, query with citations, lint for quality. Trigger: `/wiki`
 When the user types `/wiki`, invoke the Skill tool with `skill: "wiki"` before doing anything else.
+
+## Wiki Maintenance (Proactive)
+
+You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`. This happens as part of your natural workflow, not only when `/wiki` is invoked. The wiki captures knowledge that would otherwise vanish with the conversation.
+
+### When to Write
+
+- A planning session produces a concrete plan or PRD
+- An architecture or design decision is made (especially with tradeoffs)
+- A spike or exploration is completed (whether it succeeded or was abandoned)
+- A brainstorming session produces ideas worth remembering
+- A concept is discussed in depth for the first time
+- Scope is defined with rationale
+
+### When NOT to Write
+
+- Routine bug fixes or refactors (unless the root cause is surprising)
+- Debugging steps (unless the finding is non-obvious)
+- Session transcripts or play-by-play narration
+- Summaries of what was just done
+- File listings, command outputs, raw data
+- Anything obvious from reading the code
+
+### Where Pages Go
+
+Determine project slug: `basename $(git rev-parse --show-toplevel)` in kebab-case.
+
+```
+$WIKI_VAULT/wiki/projects/<slug>/devlog.md      — append dated entries
+$WIKI_VAULT/wiki/projects/<slug>/plans/         — PRDs, specs
+$WIKI_VAULT/wiki/projects/<slug>/decisions/     — ADRs
+$WIKI_VAULT/wiki/projects/<slug>/spikes/        — explorations
+$WIKI_VAULT/wiki/projects/<slug>/concepts/      — project-specific concepts
+$WIKI_VAULT/wiki/concepts/                      — cross-project concepts
+```
+
+Create the project directory and subdirectories if they don't exist.
+
+### Page Formats
+
+**Devlog** (append to existing file, newest entry first):
+```
+## [YYYY-MM-DD] Brief title
+- Key outcome or decision
+- Link to [[decision]] or [[plan]] page if created
+```
+
+**Decision** (new file per decision):
+```
+---
+type: decision
+status: accepted
+created: YYYY-MM-DD
+project: <slug>
+---
+# Title
+## Context — ## Decision — ## Consequences — ## Alternatives Considered
+```
+
+**Plan** (new file per plan):
+```
+---
+type: plan
+status: active
+created: YYYY-MM-DD
+project: <slug>
+---
+# Title
+## Goal — ## Background — ## Approach — ## Scope — ## Open Questions
+```
+
+**Spike** (new file per exploration):
+```
+---
+type: spike
+outcome: success|abandoned|partial
+created: YYYY-MM-DD
+project: <slug>
+---
+# Title
+## Question — ## What Was Tried — ## Findings — ## Conclusion
+```
+
+### Anti-Bloat Rules
+
+- No "In this session we..." framing
+- No timestamps in prose (frontmatter only)
+- No attribution to "Claude" or "the AI"
+- No hedging ("it might be worth considering...")
+- No listing things obvious from the code
+- Maximum 2 paragraphs per section
+- Prefer lists for facts and tradeoffs
+- Write as a knowledgeable colleague documenting for future reference
+
+### After Writing
+
+Update `$WIKI_VAULT/wiki/index.md` (add project and page entries) and append to `$WIKI_VAULT/wiki/log.md`.

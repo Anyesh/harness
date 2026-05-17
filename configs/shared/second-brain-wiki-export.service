@@ -1,8 +1,0 @@
-[Unit]
-Description=Second Brain wiki export to Obsidian
-After=second-brain.service
-
-[Service]
-Type=oneshot
-Environment=WIKI_VAULT=%h/Obsidian/SecondBrain
-ExecStart=%h/.cargo/bin/sb wiki export --vault ${WIKI_VAULT}

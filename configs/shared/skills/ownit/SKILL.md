@@ -72,7 +72,6 @@ When `/ownit` is active, you operate under these beliefs:
 
 ## Interaction with Other Modes
 
-- **With caveman:** Communication stays terse. Work quality goes UP. Caveman compresses output, ownit raises the bar on what's in the output.
 - **With humanize:** Questions stay structured. But you also proactively flag concerns and edge cases you noticed, as separate follow-up questions.
 
 ## Activation
