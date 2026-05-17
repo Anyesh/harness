@@ -14,7 +14,7 @@ rtk_check() {
 }
 
 rtk_binary() {
-  if [[ "$HAS_RTK" == "true" ]]; then
+  if [[ "$HAS_RTK" == "true" && "$FORCE" != "true" ]]; then
     log_skip "rtk" "already installed ($(rtk --version 2>/dev/null || echo 'unknown version'))"
     return
   fi
@@ -37,10 +37,14 @@ rtk_binary() {
     rustc_minor=$(echo "$rustc_ver" | cut -d. -f2)
 
     if [[ "$rustc_major" -ge 1 && "$rustc_minor" -ge 80 ]]; then
+      local cargo_flags=()
+      if [[ "$FORCE" == "true" ]]; then
+        cargo_flags+=(--force)
+      fi
       log_info "building RTK from Anyesh/rtk fork (rustc $rustc_ver)..."
       local rtk_log
       rtk_log=$(mktemp)
-      if cargo install --git "${rtk_repo}.git" 2>&1 | tee "$rtk_log" | tail -3; then
+      if cargo install "${cargo_flags[@]}" --git "${rtk_repo}.git" 2>&1 | tee "$rtk_log" | tail -3; then
         if command -v rtk &>/dev/null; then
           log_success "RTK installed from Anyesh/rtk ($(rtk --version 2>/dev/null || echo 'unknown'))"
           installed=true
