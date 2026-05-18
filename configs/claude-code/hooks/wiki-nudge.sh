@@ -19,7 +19,7 @@ fi
 TURNS=$(cat "$MARKER" 2>/dev/null || echo "1")
 TURNS=$((TURNS + 1))
 
-if [ "$TURNS" -lt 8 ]; then
+if [ "$TURNS" -lt 5 ]; then
     echo "$TURNS" > "$MARKER"
     exit 0
 fi
@@ -35,7 +35,7 @@ fi
 
 cat <<EOF
 {
-  "message": "WIKI REMINDER: You are ${TURNS} turns into this session. If plans, decisions, spikes, brainstorming outcomes, or concepts emerged during this conversation, write them to the wiki NOW. Use the Write tool to create pages at ${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/. Check CLAUDE.md for page formats (devlog, decisions/, plans/, spikes/). Do not wait until session end."
+  "message": "WIKI: You are ${TURNS} turns in and have not written any wiki pages. Write a devlog entry at ${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md summarizing work so far. If you made plans, decisions, or ran spikes, create pages in the corresponding subdirectory. Do this now, before your next task response."
 }
 EOF
 
