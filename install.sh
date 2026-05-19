@@ -189,8 +189,8 @@ cmd_status() {
 
 cmd_uninstall() {
   log_section "Harness Uninstall"
-  log_info "restoring from latest backup..."
-  restore_latest
+  log_info "reverting managed files to pre-harness state..."
+  restore_originals
   log_info "removing manifest..."
   rm -f "$HARNESS_MANIFEST"
   log_success "uninstall complete"
