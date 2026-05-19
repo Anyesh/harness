@@ -21,7 +21,7 @@ STATE_FILE="$STATE_DIR/${SESSION_ID}.count"
 FIRED=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
 if ! [[ "$FIRED" =~ ^[0-9]+$ ]]; then FIRED=0; fi
 
-if [ "$FIRED" -ge 2 ]; then
+if [ "$FIRED" -ge 1 ]; then
     exit 0
 fi
 
@@ -58,5 +58,5 @@ After writing wiki pages, update ${WIKI_VAULT}/wiki/index.md and append to ${WIK
 EOF
 )
 
-jq -n --arg msg "$MSG" '{followup_message: $msg}'
+jq -n --arg msg "$MSG" '{decision: "block", reason: $msg}'
 exit 0
