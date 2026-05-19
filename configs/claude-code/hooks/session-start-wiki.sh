@@ -37,5 +37,5 @@ python3 -c "
 import json, sys
 content = sys.stdin.read()
 msg = 'WIKI: project=${PROJECT_SLUG} vault=${WIKI_VAULT}\nProactively maintain the wiki per CLAUDE.md instructions. Write plans, decisions, spikes, and devlog entries as you work. Use /wiki for full operations (ingest, query, lint).\n\n' + content
-print(json.dumps({'message': msg}))
+print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': msg}}))
 " <<< "$CONTEXT"
