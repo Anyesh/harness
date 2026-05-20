@@ -27,8 +27,8 @@ fi
 
 WIKI_PATH="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}"
 
-CODE_EDITS=$(grep -c '"tool_use"' "$TRANSCRIPT" 2>/dev/null | head -1 || echo 0)
-if [ "$CODE_EDITS" -lt 5 ]; then
+CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|Bash|NotebookEdit)"' || echo 0)
+if [ "$CODE_EDITS" -lt 3 ]; then
     exit 0
 fi
 
