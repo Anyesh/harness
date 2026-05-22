@@ -140,6 +140,21 @@ cursor_hooks() {
     return
   fi
 
+  local cursor_hooks_dir="$CURSOR_CONFIG_DIR/hooks"
+  [[ "$DRY_RUN" == "false" ]] && mkdir -p "$cursor_hooks_dir"
+
+  # WHY: deploy scripts before hooks.json so a live Cursor session reading
+  # hooks.json never finds a command pointing at a script that does not
+  # exist yet.
+  deploy_hooks_from "$REPO_ROOT/configs/shared/hooks" "$cursor_hooks_dir" "configs/shared/hooks"
+
+  if [[ "$DRY_RUN" == "false" && -f "$cursor_hooks_dir/package.json" && ! -d "$cursor_hooks_dir/node_modules" ]]; then
+    if command -v npm &>/dev/null; then
+      log_info "installing cursor hook dependencies..."
+      (cd "$cursor_hooks_dir" && npm install --production --silent 2>/dev/null) || true
+    fi
+  fi
+
   if [[ "$DRY_RUN" == "true" ]]; then
     log_info "[dry-run] would deploy cursor hooks.json"
   else
@@ -150,18 +165,6 @@ cursor_hooks() {
       log_success "cursor hooks.json deployed"
     else
       log_error "failed to deploy cursor hooks.json"
-    fi
-  fi
-
-  local cursor_hooks_dir="$CURSOR_CONFIG_DIR/hooks"
-  [[ "$DRY_RUN" == "false" ]] && mkdir -p "$cursor_hooks_dir"
-
-  deploy_hooks_from "$REPO_ROOT/configs/shared/hooks" "$cursor_hooks_dir" "configs/shared/hooks"
-
-  if [[ "$DRY_RUN" == "false" && -f "$cursor_hooks_dir/package.json" && ! -d "$cursor_hooks_dir/node_modules" ]]; then
-    if command -v npm &>/dev/null; then
-      log_info "installing cursor hook dependencies..."
-      (cd "$cursor_hooks_dir" && npm install --production --silent 2>/dev/null) || true
     fi
   fi
 }
