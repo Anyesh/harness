@@ -45,23 +45,26 @@
         "additional_context": true
       }
     ],
-    "beforeShellExecution": [
+    "preToolUse": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
+        "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
+        "matcher": "Write",
         "timeout": 5
       },
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "matcher": "Read|Shell",
         "timeout": 5
       },
       {
         "command": "command -v rtk >/dev/null && rtk hook cursor || exit 0",
+        "matcher": "Shell",
         "timeout": 5
       }
     ],
-    "beforeReadFile": [
+    "beforeShellExecution": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
         "timeout": 5
       }
     ],
@@ -80,9 +83,17 @@
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-wiki-enforce.sh",
         "timeout": 10
-      },
+      }
+    ],
+    "sessionEnd": [
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
+        "timeout": 10
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "sb ingest >/dev/null 2>&1 || true",
         "timeout": 10
       }
     ]
