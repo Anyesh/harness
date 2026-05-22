@@ -7,14 +7,35 @@ render_template() {
 
   \cp -f "$input" "$output"
 
-  # Resolve {{INCLUDE:path}} directives (relative to configs/)
-  while grep -q '{{INCLUDE:' "$output" 2>/dev/null; do
+  # Resolve {{INCLUDE:path}} (literal) and {{INCLUDE_BODY:path}} (strip YAML
+  # frontmatter) directives. Paths are relative to configs/. INCLUDE_BODY
+  # exists so .mdc rule files can be shared between Cursor (needs frontmatter)
+  # and Claude's CLAUDE.md (must not contain frontmatter).
+  while grep -qE '\{\{INCLUDE(_BODY)?:' "$output" 2>/dev/null; do
     local tmp_include
     tmp_include=$(mktemp)
     local found_include=false
 
     while IFS= read -r line; do
-      if [[ "$line" == *'{{INCLUDE:'* ]]; then
+      if [[ "$line" == *'{{INCLUDE_BODY:'* ]]; then
+        local include_ref="${line#*\{\{INCLUDE_BODY:}"
+        include_ref="${include_ref%%\}\}*}"
+        local full_path="$repo_root/configs/$include_ref"
+        local prefix="${line%%\{\{INCLUDE_BODY:*}"
+        local suffix="${line#*\}\}}"
+
+        [[ -n "$prefix" ]] && printf '%s\n' "$prefix"
+        if [[ -f "$full_path" ]]; then
+          awk 'BEGIN{in_fm=0; past_fm=0}
+               NR==1 && /^---[[:space:]]*$/ {in_fm=1; next}
+               in_fm && /^---[[:space:]]*$/ {in_fm=0; past_fm=1; next}
+               in_fm {next}
+               past_fm==0 && NR==1 {past_fm=1}
+               {print}' "$full_path"
+        fi
+        [[ -n "$suffix" ]] && printf '%s\n' "$suffix"
+        found_include=true
+      elif [[ "$line" == *'{{INCLUDE:'* ]]; then
         local include_ref="${line#*\{\{INCLUDE:}"
         include_ref="${include_ref%%\}\}*}"
         local full_path="$repo_root/configs/$include_ref"

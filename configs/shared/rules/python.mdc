@@ -1,0 +1,9 @@
+---
+description: Tooling conventions: Python via uv, no GitHub CLI.
+alwaysApply: true
+---
+
+## Tooling Constraints
+
+- **No GitHub CLI (`gh`)**: Do not use `gh` for any task. It is not available and not trusted. Use the GitHub API directly or other means if GitHub interaction is needed.
+- **Always use `uv` for Python environments.** Never use system-level Python (`pip install`, `python3 -m venv`, etc.). Always create a project-local `uv venv` and install packages into it. If a venv already exists, use it; otherwise create one before doing any Python work.

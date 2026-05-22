@@ -1,0 +1,11 @@
+---
+description: RTK token-optimization shortcuts. Applies whenever shell or read-heavy work happens.
+alwaysApply: true
+---
+
+## Token Optimization (RTK)
+
+- **Bash commands are auto-rewritten by RTK** when available. A PreToolUse hook transparently rewrites commands like `git status` to `rtk git status`, compressing output before it enters context.
+- **Built-in tools (Read, Grep, Glob) bypass the hook.** For file reading with compression, use `rtk read <file>` via Bash. For filtered search, use `rtk grep "pattern"` or `rtk find "*.ext" .` via Bash.
+- **Use `rtk err <cmd>`** to surface only errors from noisy build or test commands.
+- **Check savings with `rtk gain`** to see token reduction stats, `rtk discover` for missed optimization opportunities.
