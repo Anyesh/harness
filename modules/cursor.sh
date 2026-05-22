@@ -13,7 +13,7 @@ cursor_check() {
 }
 
 cursor_rules() {
-  local src_dir="$REPO_ROOT/configs/cursor/rules"
+  local src_dir="$REPO_ROOT/configs/shared/rules"
   local dest_dir="$CURSOR_CONFIG_DIR/rules"
 
   if [[ ! -d "$src_dir" ]]; then
@@ -68,7 +68,7 @@ cursor_rules() {
 
     [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
     mv "$tmp_render" "$dest"
-    manifest_add "$dest" "configs/cursor/rules/$filename" "true"
+    manifest_add "$dest" "configs/shared/rules/$filename" "true"
     log_update "cursor rule: $filename"
   done
 }

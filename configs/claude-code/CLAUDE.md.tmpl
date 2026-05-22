@@ -1,17 +1,8 @@
 # Global Claude Code Instructions
 
-## Tooling Constraints
+{{INCLUDE_BODY:shared/rules/python.mdc}}
 
-- **No GitHub CLI (`gh`)**: Do not use `gh` for any task. It is not available and not trusted. Use the GitHub API directly or other means if GitHub interaction is needed.
-- **Always use `uv` for Python environments.** Never use system-level Python (`pip install`, `python3 -m venv`, etc.). Always create a project-local `uv venv` and install packages into it. If a venv already exists, use it; otherwise create one before doing any Python work.
-
-## Deployment Safety
-
-- **Never deploy to production** unless the user explicitly and clearly instructs it in the current message. "Deploy" or "push" in a general sense is not sufficient — the user must specifically say production.
-
-## Hooks
-
-- **Always follow hook output faithfully.** If a hook blocks an action or provides feedback, treat it as authoritative. Do not attempt to bypass, suppress, or work around hook behavior.
+{{INCLUDE_BODY:shared/rules/core.mdc}}
 
 ## Exploration Before Action
 
@@ -20,12 +11,6 @@
 - **Read the test before writing the fix.** Tests encode the contract. If you change behavior without reading the test, you're guessing what the contract is. Read it, understand what's asserted, then decide if the contract or the implementation is wrong.
 - **Trace the call chain.** Before modifying a function, identify who calls it and what they expect. A grep for the function name is the minimum. If it's exported or public, understand the interface contract before changing it.
 - **State what you found before proposing changes.** When reporting to the user, lead with evidence (file paths, line numbers, actual behavior observed), then your interpretation, then your proposed action. Never skip straight to "here's the fix."
-
-## Skepticism and Fact-Checking
-
-- **Maintain healthy doubt.** Do not take user statements at face value when they involve technical facts, system state, or code behavior. Investigate independently.
-- **Fact-check claims.** If the user says "X is broken" or "Y is configured this way", verify it yourself rather than accepting it as ground truth.
-- **Back every finding with evidence.** When reporting conclusions, cite what you found — file paths, line numbers, command output, docs. Never assert without support.
 
 ## Context Cost Awareness
 
@@ -39,11 +24,10 @@
 
 - **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan`) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
 - **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
-- **One question at a time when clarifying.** Do not dump 5 questions on the user. Ask the most important one, get the answer, then ask the next if still needed.
 - **Always use the AskUserQuestion tool for questions.** When you need user input, decisions, or preferences, use the built-in AskUserQuestion tool which renders structured single-select or multi-select choice prompts in the UI. Never dump questions as plain text in your response. Format: short header, 1-2 sentence description, 2-4 concrete options with rationale. Label single vs multi-select. Include "Other" only when the answer space is genuinely unbounded.
 - **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
 
-{{INCLUDE:shared/scope-gate.md}}
+{{INCLUDE_BODY:shared/rules/scope-gate.mdc}}
 
 ## Cognitive Cache (MCP)
 
@@ -61,28 +45,38 @@
 
 ## Second Brain (MCP)
 
-The `second-brain` MCP server provides persistent cross-session memory backed by a knowledge graph (KuzuDB with vector embeddings). Use it to store and retrieve knowledge that should survive across conversations and machines.
+Persistent cross-session memory via the `second-brain` MCP server (KuzuDB + vector embeddings). The auto-watcher already ingests every Claude Code transcript, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
 
-- **Use `remember` to store facts, decisions, preferences, or context** that would be valuable in future sessions. Include enough context that the memory is useful standalone, not as a reference to "this conversation."
-- **Use `recall` to search for relevant memories** before starting work in a domain you may have prior context on. Recall uses semantic search (vector similarity), so natural language queries work well.
-- **Use `context` at the start of a session or task** to pull in all relevant memories for the current working directory or topic. This is broader than recall and gives you ambient awareness of prior decisions and knowledge.
-- **Use `associate` to link related memories, entities, or concepts.** When you discover connections between pieces of knowledge (e.g., a library choice is related to a performance constraint), create the association so future recall surfaces related context.
-- **Use `forget` to remove memories that are stale, wrong, or superseded.** Do not let outdated knowledge accumulate; actively prune when you know something has changed.
-- **Do not store ephemeral task state** (current PR, in-progress debugging steps, temporary file locations). Second-brain is for durable knowledge that remains true across sessions.
-- **Do not duplicate what belongs in code, git, or docs.** If the information is derivable from the codebase, commit history, or existing documentation, it does not belong in second-brain. Store interpretations, decisions, preferences, and context that exists nowhere else.
+### Call `recall` BEFORE answering when the prompt matches any of these patterns
 
-## Token Optimization (RTK)
+- Status questions: "how is X going", "where are we with Y", "did we finish Z"
+- Memory probes: "have we done X before", "did we try Z", "what did we decide about"
+- Cold-start on a project or directory you have not touched this session
+- Resuming work after time away ("back to X", "picking up Y")
 
-- **Bash commands are auto-rewritten by RTK** when available. A PreToolUse hook transparently rewrites commands like `git status` to `rtk git status`, compressing output before it enters context.
-- **Built-in tools (Read, Grep, Glob) bypass the hook.** For file reading with compression, use `rtk read <file>` via Bash. For filtered search, use `rtk grep "pattern"` or `rtk find "*.ext" .` via Bash.
-- **Use `rtk err <cmd>`** to surface only errors from noisy build or test commands.
-- **Check savings with `rtk gain`** to see token reduction stats, `rtk discover` for missed optimization opportunities.
+Use the user's prompt verbatim as the recall query. If the top result scores >0.5, treat it as authoritative prior context and lead your answer with it. If nothing relevant comes back, say so and proceed from current evidence.
 
-## Writing Style
+### Skip recall entirely for
 
-- **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences.
-- **No double dashes or em dashes.** Do not use `--` or `—` in prose. Restructure with colons, commas, or parentheses instead.
-- **Write like a human.** The writing should read like a person wrote it, not like an AI generated it.
+- Edits to a file the user named explicitly
+- Math, syntax, formatting, or pure code-mechanics questions
+- Anything you have direct evidence for in the working directory or current conversation
+
+### Write via `remember` ONLY when the content is non-derivable from transcripts
+
+- A decision with a non-obvious reason ("we picked X over Y because Z")
+- A surprise or gotcha future-you would otherwise re-discover
+- An explicit user preference ("don't do X", "always do Y")
+
+Do NOT call `remember` to summarize what was just done. The watcher captures transcripts automatically; an additional `remember` write must add interpretation that the transcript itself does not carry, or it is noise that pollutes future recall.
+
+### Other tools
+
+- **`context`**: broader than recall, pulls ambient memories for the current working directory. Use when starting work in an unfamiliar project tree and `recall` returned nothing specific.
+- **`associate`**: link related memories when you discover a non-obvious connection (a library choice tied to a performance constraint, a decision tied to its triggering incident).
+- **`forget`**: prune memories that are stale, wrong, or superseded. Do not let outdated knowledge accumulate.
+
+{{INCLUDE_BODY:shared/rules/token-optimization.mdc}}
 
 ## Using Up-to-Date Information
 
@@ -92,8 +86,6 @@ The `second-brain` MCP server provides persistent cross-session memory backed by
 
 - **You are not constrained by human development timelines. Implement the full solution.** Do not split work into "phases" to seem manageable, do not leave TODOs for "later", do not stop halfway because a human would need a break. If the task is to build it, build all of it. The self-limiting behavior of producing partial implementations and asking permission to continue is not helpful. When given a task, execute it completely.
 - **Think big. No shortcuts, no low-hanging-fruit reaching.** When a project is ambitious, treat it as ambitious. If the honest answer to a problem is a significant piece of work or a rewrite, say so directly. Do not propose workarounds that dodge the hard problem and dress them up as architectural choices. Shortcuts now become debt that blocks the real target.
-- **Be specific with one recommendation, not a menu.** When recommending a path forward, say "to achieve X we have to do Y." Do not offer "we could do A or B" as a way to avoid committing. One path, chosen deliberately, with reasoning. If you are genuinely uncertain between two paths, say you are uncertain and explain why, then pick one as your current best guess rather than handing the choice to the user.
-- **Push back when something feels wrong.** It is expected and welcome to say no to an idea, including one the user proposed, if it feels wrong. Pushback is where brainstorming starts and big problems get broken into small pieces. Agreeing with the user when you disagree is a disservice.
 - **Do not minimize hard work to make it sound easy.** Never frame a genuinely difficult change as "small" or "mechanical" unless it really is. Respect the actual scope of what is being proposed.
 - **Do not use tiers, phases, or rankings as a way to defer hard problems.** If something is foundational and has to happen, say so. Ranking problems into "tier 1, tier 2, tier 3" is often just deferral disguised as prioritization.
 - **Shortcut-seeking language is a HARD NO.** Phrases like "simpler approach", "simpler way", "simpler solution", "quick fix", "quick and dirty", "good enough for now", "let me just", "let's just", "for now I'll", "hack together", "band-aid", "workaround for now", "low-hanging fruit", "easy way out", "minimal change", "stub out for now", "naive approach", "poor man's", "punt on", "for simplicity", "throw-away version" are red flags. A Stop hook actively scans your last response for these phrases and will inject a correction back into your context. Do not try to work around that signal. Take every correction as a real instruction to stop, name the hard problem you were dodging, and commit to the real work. "Simpler" is only a virtue when the original was genuinely over-engineered, not when the original is genuinely hard.
@@ -111,6 +103,7 @@ This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rus
 - **Comments ARE allowed (and encouraged) for non-obvious WHY.** Hidden constraints, subtle invariants, workarounds tied to a specific named bug, thread-safety rules, lock ordering, surprising behavior a reader would otherwise misunderstand, performance-critical paths with a reason. The hook allows comments that include WHY markers: `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe`, `lock ordering`, etc.
 - **Standard directives and annotations are allowed** and the hook ignores them: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
 - **If the hook blocks your Write or Edit, do not argue with it.** Fix the comment: either delete it entirely (most common), or rewrite it with an explicit WHY marker that describes something a reader would not be able to figure out from the code alone. Re-reading your comment and asking "would a senior engineer looking at this cold actually learn something they could not have learned from the code itself?" is the test.
+
 # ownit
 - **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
 When the user types `/ownit`, invoke the Skill tool with `skill: "ownit"` before doing anything else.
