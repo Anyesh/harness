@@ -6,7 +6,7 @@ alwaysApply: true
 ## Context Cost Awareness
 
 - **You are an autoregressive model. Every turn re-sends the full conversation as input.** Large tool outputs (file reads, command output, logs) land in context and inflate the cost of every subsequent turn permanently until compaction. This compounds fast on expensive models.
-- **Delegate read-heavy and output-heavy work to subagents.** When a task involves reading large files, parsing logs, running commands that produce significant output, or any grunt work a cheaper model handles equally well: spawn a subagent. The subagent gets a fresh, tiny context, does the work, and returns only what matters.
-- **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent.
+- **Delegate read-heavy and output-heavy work to subagents.** When a task involves reading large files, parsing logs, running commands that produce significant output, or any grunt work a cheaper model handles equally well: spawn a subagent (Claude Code: pass `model: "sonnet"` for the cheaper model; Cursor: use a subagent worktree). The subagent gets a fresh, tiny context, does the work, and returns only what matters.
+- **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent with the cheaper model.
 - **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
 - **Keep responses concise.** Your response becomes part of the context that gets re-sent on every future turn. Verbosity today costs money on every turn tomorrow.
