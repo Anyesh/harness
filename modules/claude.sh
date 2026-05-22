@@ -208,6 +208,7 @@ claude_install() {
   claude_hooks
   claude_scripts
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills"
+  deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands"
 }
 
 claude_test() {

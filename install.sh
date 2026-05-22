@@ -102,6 +102,44 @@ deploy_hooks_from() {
   done
 }
 
+deploy_shared_commands() {
+  local dest_dir="$1"
+  local cmds_src="$REPO_ROOT/configs/shared/commands"
+
+  if [[ ! -d "$cmds_src" ]]; then
+    return
+  fi
+
+  mkdir -p "$dest_dir"
+
+  for cmd_file in "$cmds_src"/*.md; do
+    [[ ! -f "$cmd_file" ]] && continue
+    local filename
+    filename=$(basename "$cmd_file")
+    local dest="$dest_dir/$filename"
+
+    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+      local src_hash dest_hash
+      src_hash=$(file_checksum "$cmd_file")
+      dest_hash=$(file_checksum "$dest")
+      if [[ "$src_hash" == "$dest_hash" ]]; then
+        log_skip "command $filename" "unchanged"
+        continue
+      fi
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would deploy command: $filename"
+      continue
+    fi
+
+    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+    cp "$cmd_file" "$dest"
+    manifest_add "$dest" "configs/shared/commands/$filename" "false"
+    log_update "command: $filename"
+  done
+}
+
 deploy_shared_skills() {
   local dest_dir="$1"
   local skills_src="$REPO_ROOT/configs/shared/skills"

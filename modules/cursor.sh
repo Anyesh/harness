@@ -171,6 +171,7 @@ cursor_install() {
   cursor_mcp
   cursor_hooks
   deploy_shared_skills "$CURSOR_CONFIG_DIR/skills"
+  deploy_shared_commands "$CURSOR_CONFIG_DIR/commands"
 }
 
 cursor_test() {
