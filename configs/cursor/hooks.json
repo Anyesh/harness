@@ -28,6 +28,11 @@
       {
         "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-mode-tracker.js",
         "timeout": 5
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/wiki-nudge.sh",
+        "timeout": 5,
+        "additional_context": true
       }
     ],
     "beforeShellExecution": [
@@ -61,6 +66,10 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-sloppiness-guard.sh",
         "timeout": 10,
         "loop_limit": 3
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-wiki-enforce.sh",
+        "timeout": 10
       },
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
