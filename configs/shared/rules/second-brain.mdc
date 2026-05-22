@@ -1,0 +1,37 @@
+---
+description: Second Brain MCP. Recall before answering for status/memory probes; remember only non-derivable knowledge.
+alwaysApply: true
+---
+
+## Second Brain (MCP)
+
+Persistent cross-session memory via the `second-brain` MCP server (KuzuDB + vector embeddings). The auto-watcher ingests your transcripts, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
+
+### Call `recall` BEFORE answering when the prompt matches any of these patterns
+
+- Status questions: "how is X going", "where are we with Y", "did we finish Z"
+- Memory probes: "have we done X before", "did we try Z", "what did we decide about"
+- Cold-start on a project or directory you have not touched this session
+- Resuming work after time away ("back to X", "picking up Y")
+
+Use the user's prompt verbatim as the recall query. If the top result scores >0.5, treat it as authoritative prior context and lead your answer with it. If nothing relevant comes back, say so and proceed from current evidence.
+
+### Skip recall entirely for
+
+- Edits to a file the user named explicitly
+- Math, syntax, formatting, or pure code-mechanics questions
+- Anything you have direct evidence for in the working directory or current conversation
+
+### Write via `remember` ONLY when the content is non-derivable from transcripts
+
+- A decision with a non-obvious reason ("we picked X over Y because Z")
+- A surprise or gotcha future-you would otherwise re-discover
+- An explicit user preference ("don't do X", "always do Y")
+
+Do NOT call `remember` to summarize what was just done. The watcher captures transcripts automatically; an additional `remember` write must add interpretation that the transcript itself does not carry, or it is noise that pollutes future recall.
+
+### Other tools
+
+- **`context`**: broader than recall, pulls ambient memories for the current working directory. Use when starting work in an unfamiliar project tree and `recall` returned nothing specific.
+- **`associate`**: link related memories when you discover a non-obvious connection (a library choice tied to a performance constraint, a decision tied to its triggering incident).
+- **`forget`**: prune memories that are stale, wrong, or superseded. Do not let outdated knowledge accumulate.

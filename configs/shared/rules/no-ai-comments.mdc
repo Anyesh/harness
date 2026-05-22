@@ -1,0 +1,18 @@
+---
+description: No AI-narrative comments in any language. Comments are for non-obvious WHY only.
+alwaysApply: true
+---
+
+## No AI Comments (All Languages)
+
+This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rust, Ruby, Shell, Lua, C, C++, Java, Kotlin, Scala, Swift, PHP, SQL, Dart, and anything else). A pre-edit hook enforces it on file writes and will block the action if you violate these rules.
+
+- **Do not write narrative comments that restate what the code does.** Bad: `// Set the user`, `# increment counter`, `# Create the payload`, `// Loop through items`, `# Return the result`. The code already says that. Delete the comment.
+- **Do not write one-line docstrings or doc-comments on trivial functions.** Bad: `"""Get the user."""`, `/** Returns the count */`, `/// Returns the result`. If the function name is clear, the docstring is token noise.
+- **Do not write "this code is here because of context Y" comments.** Bad: `# added for the payment flow`, `// used by the new dashboard`, `// handles the case from issue #123`, `# introduced for the auth refactor`, `# called from the ETL job`. That belongs in the PR description and the commit message. It rots in source.
+- **Do not leave change-history comments.** Bad: `# was: old_value = 5`, `// removed the legacy path`, `// renamed from oldFunc`, `# previously: return None`, `# updated to support Y`, `# fix for bug #45`, `# new logic: …`. Use git for history.
+- **Do not write section banner or decorative comments.** Bad: `# ==================== Helpers ====================`, `// ---- Main ----`. Use function boundaries, modules, or file structure instead.
+- **Do not paraphrase function signatures in JSDoc / Javadoc / Rust doc-comments.** `/** Get user by id */` above `function getUserById` is worthless. Either add real content (constraints, error modes, thread safety, examples) or delete it.
+- **Comments ARE allowed (and encouraged) for non-obvious WHY.** Hidden constraints, subtle invariants, workarounds tied to a specific named bug, thread-safety rules, lock ordering, surprising behavior a reader would otherwise misunderstand, performance-critical paths with a reason. The hook allows comments that include WHY markers: `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe`, `lock ordering`, etc.
+- **Standard directives and annotations are allowed** and the hook ignores them: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
+- **If the hook blocks your Write or Edit, do not argue with it.** Fix the comment: either delete it entirely (most common), or rewrite it with an explicit WHY marker that describes something a reader would not be able to figure out from the code alone. Re-reading your comment and asking "would a senior engineer looking at this cold actually learn something they could not have learned from the code itself?" is the test.
