@@ -7,15 +7,23 @@ set -uo pipefail
 
 INPUT=$(cat)
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-# Claude Code uses session_id; Cursor uses conversation_id in common fields
-SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // .conversation_id // "unknown"' 2>/dev/null)
+CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
+SESSION_ID_CLAUDE=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
 HOOK_EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
+
+if [ -n "$CONVERSATION_ID" ]; then
+    SESSION_ID="$CONVERSATION_ID"
+    STATE_DIR="$HOME/.cursor/state/sloppiness"
+elif [ -n "$SESSION_ID_CLAUDE" ]; then
+    SESSION_ID="$SESSION_ID_CLAUDE"
+    STATE_DIR="$HOME/.claude/state/sloppiness"
+else
+    exit 0
+fi
 
 if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
     exit 0
 fi
-
-STATE_DIR="$HOME/.claude/state/sloppiness"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 STATE_FILE="$STATE_DIR/${SESSION_ID}.count"
 COUNT=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
