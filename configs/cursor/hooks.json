@@ -61,9 +61,7 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-sloppiness-guard.sh",
         "timeout": 10,
         "loop_limit": 3
-      }
-    ],
-    "sessionEnd": [
+      },
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
         "timeout": 10
