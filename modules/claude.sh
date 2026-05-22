@@ -97,46 +97,11 @@ claude_config() {
 }
 
 claude_hooks() {
-  local hooks_src="$REPO_ROOT/configs/claude-code/hooks"
   local hooks_dest="$CLAUDE_CONFIG_DIR/hooks"
-
-  if [[ ! -d "$hooks_src" ]]; then
-    log_warn "hooks directory not found: $hooks_src"
-    return
-  fi
-
   mkdir -p "$hooks_dest"
 
-  for hook_file in "$hooks_src"/*; do
-    [[ ! -f "$hook_file" ]] && continue
-    local filename
-    filename=$(basename "$hook_file")
-    local dest="$hooks_dest/$filename"
-
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$hook_file")
-      dest_hash=$(file_checksum "$dest")
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        log_skip "hook $filename" "unchanged"
-        continue
-      fi
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy hook: $filename"
-      continue
-    fi
-
-    if [[ "$NO_BACKUP" == "false" ]]; then
-      backup_if_exists "$dest"
-    fi
-
-    cp "$hook_file" "$dest"
-    chmod +x "$dest" 2>/dev/null || true
-    manifest_add "$dest" "configs/claude-code/hooks/$filename" "false"
-    log_update "hook: $filename"
-  done
+  deploy_hooks_from "$REPO_ROOT/configs/shared/hooks" "$hooks_dest" "configs/shared/hooks"
+  deploy_hooks_from "$REPO_ROOT/configs/claude-code/hooks" "$hooks_dest" "configs/claude-code/hooks"
 
   if [[ "$DRY_RUN" == "false" && -f "$hooks_dest/package.json" && ! -d "$hooks_dest/node_modules" ]]; then
     if command -v npm &>/dev/null; then

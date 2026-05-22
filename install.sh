@@ -54,6 +54,54 @@ done
 
 MODULE_ORDER=(second-brain verdant claude cursor codex rtk wiki)
 
+HOOK_SKIP_FILES=("install-graphify-wiki-hook.sh" "post-commit-graphify-wiki.sh")
+
+deploy_hooks_from() {
+  local src_dir="$1"
+  local dest_dir="$2"
+  local manifest_prefix="$3"
+
+  if [[ ! -d "$src_dir" ]]; then
+    return
+  fi
+
+  for hook_file in "$src_dir"/*; do
+    [[ ! -f "$hook_file" ]] && continue
+    local filename
+    filename=$(basename "$hook_file")
+
+    local skip=false
+    for skipname in "${HOOK_SKIP_FILES[@]}"; do
+      [[ "$filename" == "$skipname" ]] && skip=true && break
+    done
+    [[ "$skip" == "true" ]] && continue
+
+    local dest="$dest_dir/$filename"
+
+    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+      local src_hash dest_hash
+      src_hash=$(file_checksum "$hook_file")
+      dest_hash=$(file_checksum "$dest")
+      if [[ "$src_hash" == "$dest_hash" ]]; then
+        log_skip "hook $filename" "unchanged"
+        continue
+      fi
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would deploy hook: $filename"
+      continue
+    fi
+
+    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+
+    cp "$hook_file" "$dest"
+    chmod +x "$dest" 2>/dev/null || true
+    manifest_add "$dest" "$manifest_prefix/$filename" "false"
+    log_update "hook: $filename"
+  done
+}
+
 deploy_shared_skills() {
   local dest_dir="$1"
   local skills_src="$REPO_ROOT/configs/shared/skills"

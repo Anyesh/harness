@@ -1,0 +1,10 @@
+---
+description: Python tooling conventions for the harness. Applies to Python files.
+globs: ["**/*.py"]
+---
+
+# Python Conventions
+
+- Always use `uv` for environments (never system pip)
+- Create project-local `uv venv` for any Python work; if one already exists, use it
+- No `gh` CLI usage anywhere in the codebase

@@ -34,29 +34,26 @@
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
         "timeout": 5
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "timeout": 5
+      },
+      {
+        "command": "command -v rtk >/dev/null && rtk hook cursor || exit 0",
+        "timeout": 5
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "timeout": 5
       }
     ],
     "afterFileEdit": [
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/format-on-save.sh",
         "timeout": 10
-      }
-    ],
-    "preToolUse": [
-      {
-        "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
-        "matcher": "Write|StrReplace|EditNotebook|apply_patch",
-        "timeout": 5
-      },
-      {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
-        "matcher": "Read|Shell",
-        "timeout": 5
-      },
-      {
-        "command": "command -v rtk >/dev/null && rtk hook cursor || exit 0",
-        "matcher": "Shell",
-        "timeout": 5
       }
     ],
     "stop": [
@@ -69,12 +66,6 @@
     "sessionEnd": [
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
-        "timeout": 10
-      }
-    ],
-    "preCompact": [
-      {
-        "command": "sb ingest >/dev/null 2>&1 || true",
         "timeout": 10
       }
     ]
