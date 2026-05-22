@@ -1,0 +1,6 @@
+---
+description: Scope gate. Before any multi-file feature or substantial change, write a .scope.md in the repo root that answers three questions.
+alwaysApply: true
+---
+
+{{INCLUDE:shared/scope-gate.md}}

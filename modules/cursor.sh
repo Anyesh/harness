@@ -12,48 +12,65 @@ cursor_check() {
     return 0
 }
 
-cursor_config() {
-  local src="$REPO_ROOT/configs/cursor/rules.tmpl"
-  local dest="$CURSOR_CONFIG_DIR/.cursorrules"
+cursor_rules() {
+  local src_dir="$REPO_ROOT/configs/cursor/rules"
+  local dest_dir="$CURSOR_CONFIG_DIR/rules"
 
-  if [[ -f "$src" ]]; then
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local tmp_check
-      tmp_check=$(mktemp)
-      render_template "$src" "$tmp_check"
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$tmp_check")
-      dest_hash=$(file_checksum "$dest")
-      rm -f "$tmp_check"
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        log_skip "cursor rules" "unchanged"
-      else
-        if [[ "$DRY_RUN" == "false" ]]; then
-          [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-          if deploy_template "$src" "$dest"; then
-            manifest_add "$dest" "configs/cursor/rules.tmpl" "true"
-            log_success "cursor rules deployed"
-          else
-            log_error "failed to deploy cursor rules"
-          fi
-        else
-          log_info "[dry-run] would deploy cursor rules"
-        fi
-      fi
+  if [[ ! -d "$src_dir" ]]; then
+    log_warn "cursor rules source missing: $src_dir"
+    return
+  fi
+
+  mkdir -p "$dest_dir"
+
+  local legacy="$CURSOR_CONFIG_DIR/.cursorrules"
+  if [[ -f "$legacy" ]] && manifest_is_managed "$legacy"; then
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would remove legacy $legacy (Cursor Agent mode ignores it)"
     else
-      if [[ "$DRY_RUN" == "false" ]]; then
-        [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-        if deploy_template "$src" "$dest"; then
-          manifest_add "$dest" "configs/cursor/rules.tmpl" "true"
-          log_success "cursor rules deployed"
-        else
-          log_error "failed to deploy cursor rules"
-        fi
-      else
-        log_info "[dry-run] would deploy cursor rules"
-      fi
+      rm -f "$legacy"
+      log_info "removed legacy: $legacy"
     fi
   fi
+
+  for src in "$src_dir"/*.mdc; do
+    [[ ! -f "$src" ]] && continue
+    local filename
+    filename=$(basename "$src")
+    local dest="$dest_dir/$filename"
+
+    local tmp_render
+    tmp_render=$(mktemp)
+    render_template "$src" "$tmp_render"
+
+    if ! validate_template "$tmp_render"; then
+      rm -f "$tmp_render"
+      log_error "cursor rule failed validation: $filename"
+      continue
+    fi
+
+    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+      local src_hash dest_hash
+      src_hash=$(file_checksum "$tmp_render")
+      dest_hash=$(file_checksum "$dest")
+      if [[ "$src_hash" == "$dest_hash" ]]; then
+        rm -f "$tmp_render"
+        log_skip "cursor rule $filename" "unchanged"
+        continue
+      fi
+    fi
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      rm -f "$tmp_render"
+      log_info "[dry-run] would deploy cursor rule: $filename"
+      continue
+    fi
+
+    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+    mv "$tmp_render" "$dest"
+    manifest_add "$dest" "configs/cursor/rules/$filename" "true"
+    log_update "cursor rule: $filename"
+  done
 }
 
 cursor_mcp() {
@@ -125,39 +142,35 @@ cursor_hooks() {
 
   if [[ "$DRY_RUN" == "true" ]]; then
     log_info "[dry-run] would deploy cursor hooks.json"
-    return
-  fi
-
-  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$hooks_dest"
-
-  if deploy_template "$hooks_src" "$hooks_dest"; then
-    manifest_add "$hooks_dest" "configs/cursor/hooks.json" "true"
-    log_success "cursor hooks.json deployed"
   else
-    log_error "failed to deploy cursor hooks.json"
+    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$hooks_dest"
+
+    if deploy_template "$hooks_src" "$hooks_dest"; then
+      manifest_add "$hooks_dest" "configs/cursor/hooks.json" "true"
+      log_success "cursor hooks.json deployed"
+    else
+      log_error "failed to deploy cursor hooks.json"
+    fi
   fi
 
   local cursor_hooks_dir="$CURSOR_CONFIG_DIR/hooks"
-  mkdir -p "$cursor_hooks_dir"
+  [[ "$DRY_RUN" == "false" ]] && mkdir -p "$cursor_hooks_dir"
 
-  local shared_hooks=("session-start.sh" "pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" "humanize-config.js" "humanize-activate.js" "humanize-mode-tracker.js" "ownit-config.js" "ownit-activate.js" "ownit-mode-tracker.js" "session-end-ingest.sh" "session-start-wiki.sh")
-  for hook in "${shared_hooks[@]}"; do
-    local hook_src="$REPO_ROOT/configs/claude-code/hooks/$hook"
-    local hook_dest="$cursor_hooks_dir/$hook"
-    if [[ -f "$hook_src" ]]; then
-      cp "$hook_src" "$hook_dest"
-      chmod +x "$hook_dest" 2>/dev/null || true
-      manifest_add "$hook_dest" "configs/claude-code/hooks/$hook" "false"
-      log_update "cursor hook: $hook"
+  deploy_hooks_from "$REPO_ROOT/configs/shared/hooks" "$cursor_hooks_dir" "configs/shared/hooks"
+
+  if [[ "$DRY_RUN" == "false" && -f "$cursor_hooks_dir/package.json" && ! -d "$cursor_hooks_dir/node_modules" ]]; then
+    if command -v npm &>/dev/null; then
+      log_info "installing cursor hook dependencies..."
+      (cd "$cursor_hooks_dir" && npm install --production --silent 2>/dev/null) || true
     fi
-  done
+  fi
 }
 
 cursor_install() {
-  cursor_config
+  cursor_rules
   cursor_mcp
   cursor_hooks
-  deploy_shared_skills "$CURSOR_CONFIG_DIR/skills-cursor"
+  deploy_shared_skills "$CURSOR_CONFIG_DIR/skills"
 }
 
 cursor_test() {

@@ -1,5 +1,9 @@
-<!-- harness-managed | source: configs/cursor/rules.tmpl -->
-# Cursor Rules
+---
+description: Core harness conventions for code quality, writing style, behavior, and safety. Applies to every conversation.
+alwaysApply: true
+---
+
+# Core Harness Rules
 
 ## Code Quality
 
@@ -27,21 +31,8 @@
 - One question at a time. Never dump multiple questions in one response.
 - When asking questions, use the built-in structured choice/prompt tool if available. Render single-select or multi-select prompts with: short header, 1-2 sentence context, 2-4 concrete options with rationale. Never dump questions as plain text when a structured UI tool exists.
 
-## Python
-
-- Always use `uv` for environments (never system pip)
-- No `gh` CLI usage
-
 ## Safety
 
 - Never deploy to production unless explicitly instructed
 - Never force-push to main/master
-
-{{INCLUDE:shared/scope-gate.md}}
-
-## Token Optimization
-
-- Shell commands are auto-rewritten by the RTK hook — `git status` becomes `rtk git status` transparently
-- Use `rtk read <file>`, `rtk find`, `rtk grep` directly for non-shell operations (Read/Grep tools bypass the hook)
-- Use `rtk err <cmd>` to surface only errors from noisy commands
-- Meta commands: `rtk gain` (savings stats), `rtk discover` (missed savings), `rtk gain --history`
+- Never skip pre-commit hooks unless the user explicitly asks
