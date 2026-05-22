@@ -1,0 +1,10 @@
+---
+description: Cognitive Cache MCP. Call select_context_tool before subagents and before exploring unfamiliar directories.
+alwaysApply: true
+---
+
+## Cognitive Cache (MCP)
+
+- **Before dispatching any subagent that touches code, call `select_context_tool` first.** Pass the repo path and the subagent's task description. Include the returned file contents in the subagent's prompt. This eliminates the 3-5 turn cold-start where subagents grep/read to orient themselves.
+- **When exploring unfamiliar code in a new project directory, call `select_context_tool` before manual exploration.** It ranks files by relevance to your task using symbol overlap, dependency graph, git recency, and embeddings. One call replaces multiple grep/find/read cycles.
+- **Do not call it for tasks where you already know exactly which files to touch.** It adds value when orientation is needed, not when the path is clear.

@@ -6,105 +6,27 @@
 
 {{INCLUDE_BODY:shared/rules/commits.mdc}}
 
-## Exploration Before Action
+{{INCLUDE_BODY:shared/rules/exploration.mdc}}
 
-- **You must explore before you edit.** Before touching any file, you must have read (1) the file itself, (2) at least one caller or consumer of the code you're changing, and (3) the relevant test file if one exists. If you cannot name the callers, you haven't explored enough.
-- **For unfamiliar directories, call `select_context_tool` first.** If you haven't worked in a directory this session, cognitive-cache tells you what matters before you start guessing. This is not optional for new territory.
-- **Read the test before writing the fix.** Tests encode the contract. If you change behavior without reading the test, you're guessing what the contract is. Read it, understand what's asserted, then decide if the contract or the implementation is wrong.
-- **Trace the call chain.** Before modifying a function, identify who calls it and what they expect. A grep for the function name is the minimum. If it's exported or public, understand the interface contract before changing it.
-- **State what you found before proposing changes.** When reporting to the user, lead with evidence (file paths, line numbers, actual behavior observed), then your interpretation, then your proposed action. Never skip straight to "here's the fix."
+{{INCLUDE_BODY:shared/rules/context-cost.mdc}}
 
-## Context Cost Awareness
-
-- **You are an autoregressive model. Every turn re-sends the full conversation as input.** Large tool outputs (file reads, command output, logs) land in context and inflate the cost of every subsequent turn permanently until compaction. This compounds fast on expensive models.
-- **Delegate read-heavy and output-heavy work to subagents.** When a task involves reading large files, parsing logs, running commands that produce significant output, or any grunt work that Sonnet handles equally well: spawn a subagent. The subagent gets a fresh, tiny context (cheap), does the work, and returns only what matters.
-- **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent with `model: "sonnet"`.
-- **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
-- **Keep responses concise.** Your response becomes part of the context that gets re-sent on every future turn. Verbosity today costs money on every turn tomorrow.
-
-## Planning and TDD
-
-- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan`) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
-- **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
-- **Always use the AskUserQuestion tool for questions.** When you need user input, decisions, or preferences, use the built-in AskUserQuestion tool which renders structured single-select or multi-select choice prompts in the UI. Never dump questions as plain text in your response. Format: short header, 1-2 sentence description, 2-4 concrete options with rationale. Label single vs multi-select. Include "Other" only when the answer space is genuinely unbounded.
-- **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
+{{INCLUDE_BODY:shared/rules/planning.mdc}}
 
 {{INCLUDE_BODY:shared/rules/scope-gate.mdc}}
 
-## Cognitive Cache (MCP)
+{{INCLUDE_BODY:shared/rules/cognitive-cache.mdc}}
 
-- **Before dispatching any subagent that touches code, call `select_context_tool` first.** Pass the repo path and the subagent's task description. Include the returned file contents in the subagent's prompt. This eliminates the 3-5 turn cold-start where subagents grep/read to orient themselves.
-- **When exploring unfamiliar code in a new project directory, call `select_context_tool` before manual exploration.** It ranks files by relevance to your task using symbol overlap, dependency graph, git recency, and embeddings. One call replaces multiple grep/find/read cycles.
-- **Do not call it for tasks where you already know exactly which files to touch.** It adds value when orientation is needed, not when the path is clear.
+{{INCLUDE_BODY:shared/rules/mcp-usage.mdc}}
 
-## MCP Tool Usage
-
-- **Chain MCP tools together in workflows.** When a task spans multiple domains (analytics, browser testing, code, PRs), combine available MCP tools in a single conversation rather than treating each as an isolated capability.
-- **Playwright: prefer `browser_run_code` for multi-step browser workflows.** Write one async function that handles the entire interaction instead of sequential click-snapshot-click-snapshot loops. It is faster and more reliable.
-- When using browser tools for verification and taking screenshots, those screenshots should be organized in proper directories and gitignore them so that they do not clutter the repository. For example, you could create a `screenshots/` directory at the root of the project and add it to `.gitignore`.
-- **Prefer web-strip's `fetch` tool over built-in WebFetch for reading web content.** Web-strip uses Mozilla Readability to extract main content and converts it to clean markdown, saving 60-90% of tokens compared to raw HTML. Pass `raw: true` when you need actual HTML structure (webdev/debugging). Reserve built-in WebFetch only when web-strip is unavailable.
-- **Use markitdown's `convert_to_markdown` for documents.** When you need to read PDFs, DOCX, XLSX, or PPTX files (local or remote), use the markitdown MCP server rather than fetching and parsing them manually, since it handles extraction and markdown conversion in a single call.
-
-## Second Brain (MCP)
-
-Persistent cross-session memory via the `second-brain` MCP server (KuzuDB + vector embeddings). The auto-watcher already ingests every Claude Code transcript, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
-
-### Call `recall` BEFORE answering when the prompt matches any of these patterns
-
-- Status questions: "how is X going", "where are we with Y", "did we finish Z"
-- Memory probes: "have we done X before", "did we try Z", "what did we decide about"
-- Cold-start on a project or directory you have not touched this session
-- Resuming work after time away ("back to X", "picking up Y")
-
-Use the user's prompt verbatim as the recall query. If the top result scores >0.5, treat it as authoritative prior context and lead your answer with it. If nothing relevant comes back, say so and proceed from current evidence.
-
-### Skip recall entirely for
-
-- Edits to a file the user named explicitly
-- Math, syntax, formatting, or pure code-mechanics questions
-- Anything you have direct evidence for in the working directory or current conversation
-
-### Write via `remember` ONLY when the content is non-derivable from transcripts
-
-- A decision with a non-obvious reason ("we picked X over Y because Z")
-- A surprise or gotcha future-you would otherwise re-discover
-- An explicit user preference ("don't do X", "always do Y")
-
-Do NOT call `remember` to summarize what was just done. The watcher captures transcripts automatically; an additional `remember` write must add interpretation that the transcript itself does not carry, or it is noise that pollutes future recall.
-
-### Other tools
-
-- **`context`**: broader than recall, pulls ambient memories for the current working directory. Use when starting work in an unfamiliar project tree and `recall` returned nothing specific.
-- **`associate`**: link related memories when you discover a non-obvious connection (a library choice tied to a performance constraint, a decision tied to its triggering incident).
-- **`forget`**: prune memories that are stale, wrong, or superseded. Do not let outdated knowledge accumulate.
+{{INCLUDE_BODY:shared/rules/second-brain.mdc}}
 
 {{INCLUDE_BODY:shared/rules/token-optimization.mdc}}
 
-## Using Up-to-Date Information
+{{INCLUDE_BODY:shared/rules/up-to-date-info.mdc}}
 
-- **Always look up the latest documentation** when working with libraries, frameworks, APIs, CLIs, or cloud services — even familiar ones. Training data may be stale. Use Context7 or web search to verify current behavior, API signatures, and best practices before relying on memory.
+{{INCLUDE_BODY:shared/rules/work-style.mdc}}
 
-## Work Style and Collaboration
-
-- **You are not constrained by human development timelines. Implement the full solution.** Do not split work into "phases" to seem manageable, do not leave TODOs for "later", do not stop halfway because a human would need a break. If the task is to build it, build all of it. The self-limiting behavior of producing partial implementations and asking permission to continue is not helpful. When given a task, execute it completely.
-- **Think big. No shortcuts, no low-hanging-fruit reaching.** When a project is ambitious, treat it as ambitious. If the honest answer to a problem is a significant piece of work or a rewrite, say so directly. Do not propose workarounds that dodge the hard problem and dress them up as architectural choices. Shortcuts now become debt that blocks the real target.
-- **Do not minimize hard work to make it sound easy.** Never frame a genuinely difficult change as "small" or "mechanical" unless it really is. Respect the actual scope of what is being proposed.
-- **Do not use tiers, phases, or rankings as a way to defer hard problems.** If something is foundational and has to happen, say so. Ranking problems into "tier 1, tier 2, tier 3" is often just deferral disguised as prioritization.
-- **Shortcut-seeking language is a HARD NO.** Phrases like "simpler approach", "simpler way", "simpler solution", "quick fix", "quick and dirty", "good enough for now", "let me just", "let's just", "for now I'll", "hack together", "band-aid", "workaround for now", "low-hanging fruit", "easy way out", "minimal change", "stub out for now", "naive approach", "poor man's", "punt on", "for simplicity", "throw-away version" are red flags. A Stop hook actively scans your last response for these phrases and will inject a correction back into your context. Do not try to work around that signal. Take every correction as a real instruction to stop, name the hard problem you were dodging, and commit to the real work. "Simpler" is only a virtue when the original was genuinely over-engineered, not when the original is genuinely hard.
-
-## No AI Comments (All Languages)
-
-This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rust, Ruby, Shell, Lua, C, C++, Java, Kotlin, Scala, Swift, PHP, SQL, Dart, and anything else). A `PreToolUse` hook enforces it on every Write and Edit and will block the action if you violate these rules.
-
-- **Do not write narrative comments that restate what the code does.** Bad: `// Set the user`, `# increment counter`, `# Create the payload`, `// Loop through items`, `# Return the result`. The code already says that. Delete the comment.
-- **Do not write one-line docstrings or doc-comments on trivial functions.** Bad: `"""Get the user."""`, `/** Returns the count */`, `/// Returns the result`. If the function name is clear, the docstring is token noise.
-- **Do not write "this code is here because of context Y" comments.** Bad: `# added for the payment flow`, `// used by the new dashboard`, `// handles the case from issue #123`, `# introduced for the auth refactor`, `# called from the ETL job`. That belongs in the PR description and the commit message. It rots in source.
-- **Do not leave change-history comments.** Bad: `# was: old_value = 5`, `// removed the legacy path`, `// renamed from oldFunc`, `# previously: return None`, `# updated to support Y`, `# fix for bug #45`, `# new logic: …`. Use git for history.
-- **Do not write section banner or decorative comments.** Bad: `# ==================== Helpers ====================`, `// ---- Main ----`. Use function boundaries, modules, or file structure instead.
-- **Do not paraphrase function signatures in JSDoc / Javadoc / Rust doc-comments.** `/** Get user by id */` above `function getUserById` is worthless. Either add real content (constraints, error modes, thread safety, examples) or delete it.
-- **Comments ARE allowed (and encouraged) for non-obvious WHY.** Hidden constraints, subtle invariants, workarounds tied to a specific named bug, thread-safety rules, lock ordering, surprising behavior a reader would otherwise misunderstand, performance-critical paths with a reason. The hook allows comments that include WHY markers: `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe`, `lock ordering`, etc.
-- **Standard directives and annotations are allowed** and the hook ignores them: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
-- **If the hook blocks your Write or Edit, do not argue with it.** Fix the comment: either delete it entirely (most common), or rewrite it with an explicit WHY marker that describes something a reader would not be able to figure out from the code alone. Re-reading your comment and asking "would a senior engineer looking at this cold actually learn something they could not have learned from the code itself?" is the test.
+{{INCLUDE_BODY:shared/rules/no-ai-comments.mdc}}
 
 # ownit
 - **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
@@ -121,99 +43,4 @@ When the user types `/graphify-init`, invoke the Skill tool with `skill: "graphi
 - **wiki** (`~/.claude/skills/wiki/SKILL.md`) - LLM-maintained knowledge wiki (Karpathy pattern). Ingest sources, query with citations, lint for quality. Trigger: `/wiki`
 When the user types `/wiki`, invoke the Skill tool with `skill: "wiki"` before doing anything else.
 
-## Wiki Maintenance (Proactive)
-
-You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`. This happens as part of your natural workflow, not only when `/wiki` is invoked. The wiki captures knowledge that would otherwise vanish with the conversation.
-
-### When to Write
-
-- A planning session produces a concrete plan or PRD
-- An architecture or design decision is made (especially with tradeoffs)
-- A spike or exploration is completed (whether it succeeded or was abandoned)
-- A brainstorming session produces ideas worth remembering
-- A concept is discussed in depth for the first time
-- Scope is defined with rationale
-
-### When NOT to Write
-
-- Routine bug fixes or refactors (unless the root cause is surprising)
-- Debugging steps (unless the finding is non-obvious)
-- Session transcripts or play-by-play narration
-- Summaries of what was just done
-- File listings, command outputs, raw data
-- Anything obvious from reading the code
-
-### Where Pages Go
-
-Determine project slug: `basename $(git rev-parse --show-toplevel)` in kebab-case.
-
-```
-$WIKI_VAULT/wiki/projects/<slug>/devlog.md      — append dated entries
-$WIKI_VAULT/wiki/projects/<slug>/plans/         — PRDs, specs
-$WIKI_VAULT/wiki/projects/<slug>/decisions/     — ADRs
-$WIKI_VAULT/wiki/projects/<slug>/spikes/        — explorations
-$WIKI_VAULT/wiki/projects/<slug>/concepts/      — project-specific concepts
-$WIKI_VAULT/wiki/concepts/                      — cross-project concepts
-```
-
-Create the project directory and subdirectories if they don't exist.
-
-### Page Formats
-
-**Devlog** (append to existing file, newest entry first):
-```
-## [YYYY-MM-DD] Brief title
-- Key outcome or decision
-- Link to [[decision]] or [[plan]] page if created
-```
-
-**Decision** (new file per decision):
-```
----
-type: decision
-status: accepted
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Context — ## Decision — ## Consequences — ## Alternatives Considered
-```
-
-**Plan** (new file per plan):
-```
----
-type: plan
-status: active
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Goal — ## Background — ## Approach — ## Scope — ## Open Questions
-```
-
-**Spike** (new file per exploration):
-```
----
-type: spike
-outcome: success|abandoned|partial
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Question — ## What Was Tried — ## Findings — ## Conclusion
-```
-
-### Anti-Bloat Rules
-
-- No "In this session we..." framing
-- No timestamps in prose (frontmatter only)
-- No attribution to "Claude" or "the AI"
-- No hedging ("it might be worth considering...")
-- No listing things obvious from the code
-- Maximum 2 paragraphs per section
-- Prefer lists for facts and tradeoffs
-- Write as a knowledgeable colleague documenting for future reference
-
-### After Writing
-
-Update `$WIKI_VAULT/wiki/index.md` (add project and page entries) and append to `$WIKI_VAULT/wiki/log.md`.
+{{INCLUDE_BODY:shared/rules/wiki-maintenance.mdc}}

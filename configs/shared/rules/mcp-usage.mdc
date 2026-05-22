@@ -1,0 +1,12 @@
+---
+description: MCP tool usage. Chain tools, prefer browser_run_code for multi-step Playwright, use web-strip for web pages, markitdown for docs.
+alwaysApply: true
+---
+
+## MCP Tool Usage
+
+- **Chain MCP tools together in workflows.** When a task spans multiple domains (analytics, browser testing, code, PRs), combine available MCP tools in a single conversation rather than treating each as an isolated capability.
+- **Playwright: prefer `browser_run_code` for multi-step browser workflows.** Write one async function that handles the entire interaction instead of sequential click-snapshot-click-snapshot loops. It is faster and more reliable.
+- **Browser tools and screenshots:** When using browser tools for verification and taking screenshots, organize them in a proper directory and gitignore it. For example, create `screenshots/` at the repo root and add it to `.gitignore`.
+- **Prefer web-strip's `fetch` tool over built-in WebFetch for reading web content.** Web-strip uses Mozilla Readability to extract main content and converts it to clean markdown, saving 60-90% of tokens compared to raw HTML. Pass `raw: true` when you need actual HTML structure (webdev/debugging). Reserve built-in WebFetch only when web-strip is unavailable.
+- **Use markitdown's `convert_to_markdown` for documents.** When you need to read PDFs, DOCX, XLSX, or PPTX files (local or remote), use the markitdown MCP server rather than fetching and parsing them manually.
