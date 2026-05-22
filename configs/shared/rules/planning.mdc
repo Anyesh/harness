@@ -5,6 +5,6 @@ alwaysApply: true
 
 ## Planning and TDD
 
-- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, plan before implementing. Use your editor's built-in planning mode if it has one. Think, write the plan, get user approval, then execute.
+- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan` in Claude Code, or the equivalent planning mode in Cursor) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
 - **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
 - **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
