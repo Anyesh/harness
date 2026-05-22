@@ -1,0 +1,12 @@
+---
+description: Git commit message rules. No co-authors, short and meaningful messages only.
+alwaysApply: true
+---
+
+## Commits
+
+- **Never add `Co-Authored-By:` trailers, "Generated with Claude Code" footers, or any agent attribution to commit messages.** The work goes through a strict review process that rejects on sight any commit that looks collaborative or AI-generated. The author of the commit is the user; do not credit the assistant.
+- **Keep commit messages short and meaningful.** One subject line that names what changed and why, in the imperative mood. A short body (one or two sentences) only if the subject is not self-explanatory. Long multi-paragraph bodies, bullet lists of every file touched, and exhaustive rationale dumps are rejected.
+- **No marketing language.** Do not write "comprehensive", "robust", "elegant", "production-ready". State the change plainly.
+- **Match the repository's existing style.** Before writing a message, look at `git log --oneline -10` and mirror the convention (length, prefix style, tone).
+- **One commit per working unit.** A test + its implementation, a single fix, a single refactor. Do not bundle unrelated changes into one commit, even if it would mean fewer messages.
