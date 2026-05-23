@@ -1,10 +1,30 @@
 ---
-description: Cognitive Cache MCP. Call select_context_tool before subagents and before exploring unfamiliar directories.
+description: Cognitive Cache MCP. Trigger rules, anti-trigger rules, and result handling for select_context_tool.
 alwaysApply: true
 ---
 
 ## Cognitive Cache (MCP)
 
-- **Before dispatching any subagent that touches code, call `select_context_tool` first.** Pass the repo path and the subagent's task description. Include the returned file contents in the subagent's prompt. This eliminates the 3-5 turn cold-start where subagents grep/read to orient themselves.
-- **When exploring unfamiliar code in a new project directory, call `select_context_tool` before manual exploration.** It ranks files by relevance to your task using symbol overlap, dependency graph, git recency, and embeddings. One call replaces multiple grep/find/read cycles.
-- **Do not call it for tasks where you already know exactly which files to touch.** It adds value when orientation is needed, not when the path is clear.
+`select_context_tool` is useful for cold-start orientation in unfamiliar code, not as a context oracle. Benchmark recall is ~35%, so it misses the right files most of the time; the win is starting closer to the answer than blind grep.
+
+**CALL it when any of:**
+- You have not touched this repo this session and need orientation.
+- The task spans 3+ files you cannot name yet.
+- You are about to spawn a subagent. Pass repo path plus the subagent's task; include returned contents in the subagent's prompt to skip its grep/read cold-start.
+- You are about to run a third exploratory grep/find/rg call to locate something.
+
+**DO NOT call it when any of:**
+- You can name the file you would grep for. Read it directly.
+- You have already read the relevant files this session.
+- The task is a single-file edit at a known path, or a purely mechanical change (rename, type fix, syntax).
+
+**How to phrase the `task` argument:**
+- Mention symbol names verbatim if you have them. Symbol overlap is the dominant signal (weight 0.45).
+- Mention file basenames if you have hunches. Path-stem matching is wired in.
+- Precise wording beats vague: "users get 401 after OIDC callback when session token is present" beats "fix auth bug".
+- Multiple targeted queries beat one big vague query. The index is cached per repo path, so follow-up calls are fast.
+
+**How to read the response:**
+- The response includes file *contents*. Use them directly. Do NOT call Read on a file the tool just returned.
+- Check `used_fallback`. If true, nothing cleared the internal confidence floor; treat the ranking as best-effort and verify with grep.
+- If `signals.symbol_overlap` is 0.0 across all returned files, the tool guessed; do not trust the order.
