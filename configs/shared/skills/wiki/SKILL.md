@@ -30,7 +30,6 @@ The human never writes the wiki. The LLM writes and maintains all of it. The hum
 /wiki lint                           # structural health check
 /wiki lint --fix                     # lint and auto-fix safe issues
 /wiki status                         # quick summary of wiki state
-/wiki sync                           # sync from graphify graph changes
 ```
 
 ## Vault Path Resolution
@@ -569,22 +568,6 @@ Path: <vault-path>
   Stubs: N pages need coverage
   Last activity: YYYY-MM-DD (<description>)
 ```
-
----
-
-## For /wiki sync
-
-Triggered when `.wiki-sync-pending` exists (from post-commit graphify hook) or manually.
-
-### Step 1 — Read pending marker or diff graph vs index
-
-### Step 2 — Identify new/changed nodes that deserve wiki pages
-
-Only create pages for nodes that represent meaningful entities or concepts (not every file path or function name). Apply the same quality bar as continuous mode.
-
-### Step 3 — Create/update pages following templates
-
-### Step 4 — Update index and log, delete pending marker
 
 ---
 
