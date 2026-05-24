@@ -18,11 +18,6 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start-wiki.sh",
         "timeout": 5,
         "additional_context": true
-      },
-      {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/wiki-sync-detector.sh",
-        "timeout": 5,
-        "additional_context": true
       }
     ],
     "beforeSubmitPrompt": [

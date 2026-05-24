@@ -219,7 +219,6 @@ setup_global_gitignore() {
   local harness_artifacts=(
     ".scope.md"
     ".scope-turn-count"
-    ".wiki-sync-pending"
     "**/.claude/settings.local.json"
   )
 
