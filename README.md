@@ -68,7 +68,6 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 | `session-start.sh` | SessionStart | Activates modes, checks environment |
 | `session-end-ingest.sh` | SessionEnd | Ingests session into second-brain (machine memory) |
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
-| `wiki-sync-detector.sh` | SessionStart | Detects pending graph→wiki sync |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
 
