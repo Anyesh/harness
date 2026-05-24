@@ -87,7 +87,7 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 | Category | Skills |
 |----------|--------|
 | SEO | `seo`, `seo-audit`, `seo-page`, `seo-plan`, `seo-technical`, `seo-schema`, `seo-sitemap`, `seo-content`, `seo-images`, `seo-hreflang`, `seo-geo`, `seo-competitor-pages`, `seo-programmatic` |
-| Knowledge | `wiki` (Karpathy-pattern LLM wiki), `graphify`, `graphify-init` |
+| Knowledge | `wiki` (Karpathy-pattern LLM wiki) |
 | Workflow | `terminal-gif`, `humanize`, `ownit` |
 
 ## Modules
@@ -114,7 +114,7 @@ The harness deploys an LLM-maintained wiki based on Andrej Karpathy's [LLM Wiki]
 - CLAUDE.md instructs the LLM to proactively write wiki pages when plans, decisions, spikes, or concepts emerge
 - Pages are organized per-project: `wiki/projects/<slug>/` with devlog, decisions/, plans/, spikes/
 - Pre-compact hook reminds the LLM to capture anything valuable before context compression
-- `/wiki` skill provides full operations: ingest external sources, query, lint, sync from graphify
+- `/wiki` skill provides full operations: ingest external sources, query, lint
 
 **What gets captured:** plans, PRDs, architecture decisions (ADRs), exploration spikes, concepts, devlogs. Not captured: routine fixes, debugging transcripts, AI bloat.
 
