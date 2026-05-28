@@ -1,6 +1,6 @@
 ---
 name: humanize
-description: "Structure all questions and decisions as digestible single/multi-choice prompts instead of wall-of-text dumps. One question at a time with title + description."
+description: "Structure questions as single/multi-choice prompts (one at a time, title + description) and strip AI-tell rhetorical tics (load-bearing, honest framing, is what [verb]s, fundamentally, marketing-LLM vocabulary) from both chat and any prose written to files."
 trigger: /humanize
 ---
 
@@ -57,6 +57,28 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 10. **Write like you're talking to a colleague at a whiteboard.** Not a formal report. Not a tutorial. Not a documentation page.
 
 11. **Use "we" for shared decisions.** "Should we use X or Y?" not "Would you prefer X or Y?"
+
+### Phrasing to avoid
+
+These rules apply to **both chat responses and any prose written into files** (READMEs, papers, docs, commit messages). AI-tell rhetorical tics read as machine-generated and erode trust; strip them before output.
+
+12. **No "load-bearing".** Use "core", "central", "decisive", or "has no measurable effect" per context.
+
+13. **No honesty-signals.** Drop "honest framing", "honest pitch", "the honest X", "to be honest", "frankly". State the thing directly; flagging your own honesty implies the rest is not.
+
+14. **No filler "actually".** "What actually drives X", "what it actually is", "X actually does Y" almost always read better with "actually" deleted.
+
+15. **No "is what [verb]s" pseudo-deep framing.** "X is what makes Y discriminative" → "X makes Y discriminative". "Selection is what the workload bottlenecks on" → "the workload bottlenecks on selection". Replace the verb directly.
+
+16. **No "fundamentally" / "a real cost" / "real X" as intensifiers.** Usually empty. "A capability truncate fundamentally lacks" → "a capability truncate does not have".
+
+17. **No "not X. It is Y." rhetorical inversion.** Flatten to "Y, not X". "The win is not throughput. It is recovery" → "The win is recovery, not throughput".
+
+18. **No empty paragraph-opener adverbs.** "Crucially", "Notably", "Importantly", "Critically", "Interestingly" almost always add nothing. If the point is crucial, the content carries it.
+
+19. **No marketing-LLM vocabulary.** "Delve", "leverage", "robust", "comprehensive", "production-ready", "seamless", "elegant", "streamline". State what the thing does in plain words.
+
+20. **No em dashes or double dashes in prose.** Use commas, colons, semicolons, or parentheses.
 
 ## Activation
 
