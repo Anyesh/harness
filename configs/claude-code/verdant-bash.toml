@@ -10,6 +10,15 @@
 # `git commit -m "fix pytest"` does not (the word must sit at the start of a
 # command, optionally behind a runner wrapper, not inside an argument). The
 # regex engine is Rust's `regex` crate: no lookaround, `\b` is supported.
+#
+# A matched command runs with a generous 600s execution budget by default
+# (unmatched pass-through commands keep a 60s safety net), because test/build
+# suites routinely run for minutes and a too-short timeout kills them mid-run.
+# Add `timeout_ms = <ms>` to a rule when a suite's runtime is known, so a
+# genuinely hung run is still killed rather than waiting the full 600s, e.g.:
+#   [[rules]]
+#   match = '...pytest\b'
+#   timeout_ms = 900000
 
 # --- Python ---------------------------------------------------------------
 
