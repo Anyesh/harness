@@ -38,11 +38,6 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/scope-drift-detector.sh",
         "timeout": 5,
         "additional_context": true
-      },
-      {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cognitive-cache-nudge.sh check",
-        "timeout": 5,
-        "additional_context": true
       }
     ],
     "preToolUse": [
@@ -65,16 +60,6 @@
     "beforeShellExecution": [
       {
         "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
-        "timeout": 5
-      },
-      {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cognitive-cache-nudge.sh count",
-        "timeout": 5
-      }
-    ],
-    "beforeMCPExecution": [
-      {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cognitive-cache-nudge.sh count",
         "timeout": 5
       }
     ],
