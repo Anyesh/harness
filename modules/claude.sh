@@ -153,6 +153,38 @@ claude_scripts() {
   done
 }
 
+claude_verdant_rules() {
+  local src="$REPO_ROOT/configs/claude-code/verdant-bash.toml"
+  local dest="$CLAUDE_CONFIG_DIR/verdant-bash.toml"
+
+  if [[ ! -f "$src" ]]; then
+    return
+  fi
+
+  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$src")
+    dest_hash=$(file_checksum "$dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      log_skip "verdant-bash.toml" "unchanged"
+      return
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would deploy: verdant-bash.toml"
+    return
+  fi
+
+  if [[ "$NO_BACKUP" == "false" ]]; then
+    backup_if_exists "$dest"
+  fi
+
+  cp "$src" "$dest"
+  manifest_add "$dest" "configs/claude-code/verdant-bash.toml" "false"
+  log_update "verdant-bash.toml"
+}
+
 claude_mcp() {
   if ! command -v claude &>/dev/null; then
     log_warn "claude CLI not found, skipping MCP server registration"
@@ -205,6 +237,7 @@ claude_install() {
   claude_mcp
   second_brain_mcp
 
+  claude_verdant_rules
   claude_hooks
   claude_scripts
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills"

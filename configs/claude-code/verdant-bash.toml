@@ -1,0 +1,59 @@
+# verdant bash allowlist: commands eligible for observe-and-cache.
+#
+# Matched by `verdant-mcp` against the trimmed command (unanchored regex
+# search). A match means "this is a deterministic function of the files it
+# reads, so verdant may run it in the observing sandbox and replay the cached
+# result". Anything not matched here passes through uncached.
+#
+# Every pattern is anchored to a command position `(?:^|&&|;|\|)` so that
+# `cd backend && uv run pytest` matches but an in-prose mention such as
+# `git commit -m "fix pytest"` does not (the word must sit at the start of a
+# command, optionally behind a runner wrapper, not inside an argument). The
+# regex engine is Rust's `regex` crate: no lookaround, `\b` is supported.
+
+# --- Python ---------------------------------------------------------------
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*(?:(?:uv|poetry|pipenv) run\s+|python3?\s+-m\s+)?pytest\b'
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*(?:(?:uv|poetry|pipenv) run\s+|python3?\s+-m\s+)?mypy\b'
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*(?:(?:uv|poetry|pipenv) run\s+|python3?\s+-m\s+)?ruff\s+(?:check|format)\b'
+
+# --- Node / TypeScript ----------------------------------------------------
+# NODE_ENV folded into the cache key: it changes build/test output.
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*pnpm\s+(?:run\s+)?(?:test|build|lint|typecheck|tsc)\b'
+env = ["NODE_ENV"]
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*npm\s+(?:run\s+)?(?:test|build|lint|typecheck)\b'
+env = ["NODE_ENV"]
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*yarn\s+(?:run\s+)?(?:test|build|lint|typecheck)\b'
+env = ["NODE_ENV"]
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*(?:npx\s+)?(?:tsc|eslint|vitest|jest)\b'
+env = ["NODE_ENV"]
+
+# --- Rust -----------------------------------------------------------------
+# RUSTFLAGS and CARGO_TARGET_DIR change compiler output, so they key the cache.
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*cargo\s+(?:test|check|clippy|build|fmt|doc|bench|nextest)\b'
+env = ["RUSTFLAGS", "CARGO_TARGET_DIR"]
+
+# --- Generic build wrappers -----------------------------------------------
+# Scoped to conventional read-only-ish targets; deliberately excludes free-form
+# targets like `make deploy` that may touch the network or mutate global state.
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*make\s+(?:build|test|check|lint|all|fmt|format|ci)\b'
+
+[[rules]]
+match = '(?:^|&&|;|\|)\s*just\s+(?:build|test|check|lint|fmt|format|ci)\b'
