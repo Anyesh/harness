@@ -56,16 +56,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Bash|mcp__cognitive-cache__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/cognitive-cache-nudge.sh count",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "PostToolUse": [
@@ -156,11 +146,6 @@
           {
             "type": "command",
             "command": "bash {{HOME_DIR}}/.claude/hooks/wiki-nudge.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/cognitive-cache-nudge.sh check",
             "timeout": 5
           }
         ]
