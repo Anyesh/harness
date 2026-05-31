@@ -20,6 +20,20 @@ case "$FILE_PATH" in
     *.txt|*.html)
         CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
         if [ -n "$CONTENT" ]; then
+            # HTML is markup, not prose: tags, attribute values (initial-scale=1.0),
+            # and script/style bodies contain dots that the sentence splitter would
+            # otherwise miscount as staccato sentences. Strip comments, script/style
+            # blocks, and all tags first so only visible text nodes reach the check.
+            case "$FILE_PATH" in
+                *.html)
+                    CONTENT=$(printf '%s' "$CONTENT" | perl -0777 -pe '
+                        s/<!--.*?-->//gs;
+                        s/<script\b[^>]*>.*?<\/script>//gsi;
+                        s/<style\b[^>]*>.*?<\/style>//gsi;
+                        s/<[^>]*>/ /gs;
+                    ')
+                    ;;
+            esac
             # Strip markdown structure before checking prose: frontmatter, headers, bullets,
             # numbered lists, code blocks, tables, wikilinks-only lines, blank lines, and
             # lines that are entirely bold/italic markers so that only actual prose paragraphs
