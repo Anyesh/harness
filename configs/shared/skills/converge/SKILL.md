@@ -1,204 +1,351 @@
 ---
 name: converge
 description: >
-  Iteratively refine a piece of writing or design until N independent fresh
-  reviewers all signal green, or the loop honestly detects it is chasing taste
-  and stops. Use when the user wants to converge a deliverable (paper abstract,
-  README, plan, design doc, commit message, marketing copy, agent description,
-  function signature, prompt) through structured multi-perspective critique.
-  Triggers on: "converge", "iterate to green", "review until green",
-  "polish this", "tighten this", "make this airtight", "iterate this with reviewers".
+  Iterate a single atomic task to done through a worker-critic loop: the agent
+  does the work, a panel of fresh independent reviewers and a set of hard
+  verifiable gates judge it against criteria you set, the agent revises, and the
+  loop repeats until every hard gate passes and the reviewers converge green, or
+  it honestly surfaces a structural ceiling and stops. Works for code changes,
+  refactors, research answers, configs, designs, and any short-form artifact
+  (README, plan, abstract, commit message, copy, prompt). Use when the user
+  wants to converge or iterate a task to a defined bar of acceptance.
+  Triggers on: "converge", "iterate to green", "iterate until done", "review
+  until green", "polish this", "tighten this", "make this airtight", "iterate
+  this with reviewers", "run this through converge".
 trigger: /converge
 ---
 
 # /converge
 
-A research-grade iterative-refinement loop for any short-form artifact (paper section, README, plan, design doc, commit message, ad copy, agent description, function signature, prompt template). Spawns multiple fresh, parallel, isolated reviewer subagents per round, synthesizes their critiques into convergent-red signals, applies the smallest edit that addresses the convergent reds, and either converges to all-green or honestly surfaces that the loop is hitting a structural ceiling rather than fixable defects.
+A worker-critic convergence loop for **one atomic task**. You hand converge a small, self-contained task (or a finished artifact to harden). It runs a short interactive setup to pin down who the reviewers are, what the acceptance criteria are, and which hard gates must pass, then it loops:
 
-The core insight: fresh-each-round reviewers have orthogonal priors, so convergence is genuinely harder than with iterated reviewers, but the convergence that is reached is more robust. This skill bakes that lesson in by defaulting to fresh-per-round and refusing to let the loop drift into chase-the-last-reviewer's-taste.
+1. **Work** — the agent does or revises the task.
+2. **Judge** — a panel of fresh, parallel, isolated reviewer subagents critique the result, and every declared hard gate (a command that objectively passes or fails) is run.
+3. **Synthesize** — convergent reviewer signals and failing gates become the revision list.
+4. **Revise** — the agent applies the smallest change that addresses them.
+5. **Stop** — when every hard gate passes **and** the reviewer panel converges green, or when the loop honestly hits a structural ceiling it cannot fix in scope.
+
+## Why it is built this way
+
+Two ideas carry the whole skill, and they are non-negotiable:
+
+- **Fresh reviewers each round.** Reviewers are spawned new every round and never see prior rounds, the diff, or each other. Fresh orthogonal priors make convergence genuinely harder to fake and more robust when reached. Iterated reviewers drift into rubber-stamping the last round's edit.
+- **Hard gates outrank soft taste.** A reviewer panel alone is an opinion machine. Real work usually has at least one objectively checkable property (tests pass, build succeeds, output matches, benchmark hits a number). Those are declared as hard gates and the loop **refuses to report converged while any hard gate is red**, no matter how green the reviewers are. Soft reviewer signals shape quality; hard gates define done.
+
+A third idea makes the first two work: **the task must be atomic.** The reviewer panel is only meaningful if reviewers can hold the entire work product in view. If the change is too large to review in one panel, converge stops and asks you to split it. This is a feature, not a limitation: small atomic units are what make the loop converge instead of thrash.
 
 ## Usage
 
 ```
-/converge <path-or-pasted-text>
-/converge <path> --type paper|readme|code|plan|commit|copy|prompt
-/converge <path> --personas <p1>,<p2>,<p3>,<p4>,<p5>
-/converge <path> --rounds 5            # hard cap on rounds (default 5)
-/converge <path> --stop 5/5            # stop criterion (default all-green)
-/converge <path> --in-scope "..." --out-of-scope "..."
+/converge <task description, file path, or pasted artifact>
+/converge <task> --reviewers 5
+/converge <task> --personas <p1>,<p2>,<p3>
+/converge <task> --gates "pytest -q","ruff check ."
+/converge <task> --rounds 5             # hard cap on rounds (default 5)
+/converge <task> --stop 5/5             # reviewer stop ratio (default all-green)
+/converge <task> --in-scope "..." --out-of-scope "..."
+/converge <task> --no-interview         # accept all proposed defaults, skip setup Q&A
 ```
 
-If artifact type is omitted, infer from extension and content (`.md` README pattern vs paper abstract vs commit), and confirm the inferred type in the first round summary.
+If no flags are given, converge runs the interactive setup (Step 0) and proposes
+defaults you can accept wholesale.
 
-## When to Use
+## When to use
 
-- Tightening a paper abstract, intro, or conclusion before submission.
-- Polishing a README for a tool whose first impression matters.
-- Hardening a design doc or PRD before stakeholder review.
-- Refining a commit message or PR description that has to land cleanly.
-- Pressure-testing marketing copy, agent descriptions, or skill triggers.
-- Iterating a prompt template against multiple personas of consumer.
+- A bounded code change, fix, or refactor with a checkable definition of done.
+- A research question whose answer must survive adversarial fact-checking.
+- A config, schema, or infrastructure snippet that must satisfy concrete rules.
+- Hardening a short-form artifact (README, abstract, plan, PRD, commit message,
+  agent description, prompt, marketing copy) against a reviewer panel.
 
-## When NOT to Use
+## When NOT to use
 
-- Long-form artifacts (full papers, multi-page docs) — reviewer panels lose focus past ~500 words. Section by section instead.
-- Anything where the bottleneck is missing information rather than expression — go gather the evidence first.
-- Code logic correctness — use tests and the code-review skill instead; converge is for *expression*, not behavior.
-- A first draft from scratch — converge polishes; it does not generate.
+- **Non-atomic work.** A multi-file feature, a sprawling migration, or anything
+  whose work product cannot be reviewed in a single panel. Decompose first, then
+  converge each atomic piece. Converge will refuse and tell you to split.
+- **Open-ended generation from nothing.** Converge iterates toward a bar; it does
+  not invent the first draft or the task definition. Give it a concrete task.
+- **Tasks whose bottleneck is missing information**, not execution or expression.
+  Gather the evidence first, then converge the result.
+- **Whole-program correctness.** Converge verifies the atomic unit you scope to
+  it. It is not a substitute for a full test suite or a security audit.
 
 ## The Loop (Authoritative Protocol)
 
-### Step 0 — Anchor the artifact (run once)
+### Step 0 — Interactive setup (run once, before any agent spawns)
 
-Before any reviewers spawn, establish and write down for the remainder of the loop:
+Pin down the contract for the run. Where the user has not specified a value, ask
+with a structured `AskUserQuestion`-style prompt (one decision at a time) and
+propose a sensible default so the user can accept quickly. Capture and write down
+for the rest of the loop:
 
-1. **The artifact**: paste it verbatim into the working state. If a file path, read it now.
-2. **In-scope**: what evidence, claims, and constraints the artifact is allowed to make. What it owns.
-3. **Out-of-scope**: things reviewers must not demand (e.g. "the abstract cannot include the full ablation table — the body owns that").
-4. **Length budget**: the artifact's structural cap (word count, line count, character count). Reviewers asking for additions must respect this; the synthesis step will reject convergent reds that would violate the budget.
-5. **Format constraints**: any non-negotiable structural rules (e.g. "must end with a call to action", "must mention library X", "must fit in 280 chars").
+1. **The task.** Restate the atomic task in one sentence, or read the artifact
+   verbatim if a path/text was given. If the task is not atomic (cannot be
+   reviewed whole in one panel), stop here and ask the user to split it; name the
+   seams you would cut along.
+2. **Reviewer count.** How many reviewers per round (default 5; floor 3, ceiling
+   7). More reviewers means stronger convergence signal and higher cost.
+3. **Reviewer personas.** Propose a panel from the task-type defaults below, each
+   persona being one sharp orthogonal lens. Let the user rename, drop, add, or
+   re-brief any seat. Pin the final panel.
+4. **Soft acceptance criteria.** What "good" means on the judgment axes the
+   reviewers own (clarity, correctness of reasoning, API ergonomics, prose
+   quality). These shape reviewer briefs.
+5. **Hard gates.** The objectively checkable conditions, expressed as commands
+   that must exit zero or output that must match (e.g. `pytest -q`,
+   `ruff check .`, `npm run build`, `test "$(cmd)" = expected`). Zero gates is
+   allowed (pure-judgment artifacts like prose), but say so explicitly. Any
+   non-zero gate is a hard red that blocks convergence.
+6. **Scope.** In-scope: what the work owns and may change. Out-of-scope: what
+   reviewers must not demand and the worker must not touch (other modules,
+   evidence the artifact's format cannot carry, adjacent refactors).
+7. **Budget and format constraints.** Length cap for artifacts (words/lines/
+   chars); for code, the blast radius (which files/functions may change). The
+   synthesis step rejects convergent reds that would violate these.
+8. **Stop criterion and round cap.** Reviewer stop ratio (default all-green) and
+   max rounds (default 5).
 
-If the user did not specify in-scope / out-of-scope, ask once with an `AskUserQuestion`-style structured prompt. Do not start spawning reviewers until both are pinned.
+Do not spawn the first worker step or any reviewer until the task is confirmed
+atomic and the gates + scope are pinned.
 
 ### Step 1 — Select the reviewer panel
 
-Five reviewers per round, each with one sharp orthogonal lens. Defaults by artifact type:
+Each reviewer carries exactly one orthogonal lens. Defaults by task type (the
+user can override any seat in Step 0):
 
-- **Paper / academic abstract**: skeptic, domain-expert, cold-reader, prose-critic, devil's-advocate
-- **README / tool docs**: new-user, returning-user, integrator (API consumer), skeptic, copywriter
-- **Code (function signature, API surface)**: security, performance, readability, API-design, edge-cases
-- **Plan / design doc**: scope-skeptic, architecture-critic, ops-reviewer, stakeholder-proxy, devil's-advocate
-- **Commit / PR message**: reviewer-time-poor, future-bisect-user, prose-critic, scope-checker, copywriter
-- **Marketing copy / ad**: target-audience-proxy, brand-voice-critic, skeptic-buyer, copywriter, devil's-advocate
-- **Agent description / skill trigger**: cold-router (does the trigger fire correctly?), domain-skeptic, prose-critic, false-positive-hunter, copywriter
-- **Prompt template**: instruction-clarity, edge-case-input, downstream-consumer, prose-critic, devil's-advocate
+- **Code change / fix / refactor**: correctness, edge-cases, security,
+  readability, API/interface-design. Use `feature-dev:code-reviewer` as the
+  subagent type for the correctness and edge-case seats when available.
+- **Research answer**: fact-checker (every claim sourced), steel-man (strongest
+  opposing reading), gap-hunter (what's missing), logic-critic (does the
+  reasoning hold), clarity-critic.
+- **Config / schema / infra**: failure-mode, security, portability,
+  least-surprise, ops-reviewer.
+- **README / tool docs**: new-user, returning-user, integrator (API consumer),
+  skeptic, copywriter.
+- **Plan / design doc**: scope-skeptic, architecture-critic, ops-reviewer,
+  stakeholder-proxy, devil's-advocate.
+- **Paper / abstract**: skeptic, domain-expert, cold-reader, prose-critic,
+  devil's-advocate.
+- **Commit / PR message**: reviewer-time-poor, future-bisect-user, prose-critic,
+  scope-checker, copywriter.
+- **Marketing copy**: target-audience-proxy, brand-voice-critic, skeptic-buyer,
+  copywriter, devil's-advocate.
+- **Agent description / skill trigger**: cold-router (does it fire correctly?),
+  domain-skeptic, prose-critic, false-positive-hunter, copywriter.
+- **Prompt template**: instruction-clarity, edge-case-input, downstream-consumer,
+  prose-critic, devil's-advocate.
 
-If the artifact type is mixed or unusual, propose a custom panel with rationale per persona, and let the user override.
+For mixed or unusual tasks, propose a custom panel with one-line rationale per
+seat and let the user adjust.
 
-### Step 2 — Spawn the round (parallel, fresh, isolated)
+### Step 2 — Do or revise the work (worker step)
 
-For each round, dispatch five `Agent` calls in a **single message** (parallel batch). Each reviewer must receive:
+The parent agent performs the task to the current best of its ability, scoped
+strictly to in-scope. On round 1 this produces the first result; on later rounds
+it applies the revision list from Step 5.
 
-- The artifact verbatim (post-edit if past round 1).
-- The in-scope / out-of-scope block, re-pasted verbatim (re-anchoring every round prevents drift).
-- The length budget and format constraints.
-- The persona brief (a single sharp paragraph naming the one axis this reviewer evaluates).
-- A strict response contract.
+- Keep the work product atomic and within the declared blast radius / length
+  budget. Never expand scope to satisfy a reviewer; scope growth is the main way
+  these loops fail to converge.
+- For file-backed work use `Edit` on the target files. For pasted artifacts hold
+  the working version in state.
+- If the work product is large enough to threaten the parent's context, delegate
+  the execution to a single worker subagent and bring back only the result and a
+  short change summary; the parent stays the orchestrator. The constraint that
+  the task is atomic should keep this rare.
 
-**Reviewer response contract (enforce verbatim in each persona prompt):**
+### Step 3 — Run the hard gates
+
+Run every declared gate. Record each as pass/fail with the relevant output line
+(not the full log). A failing gate is a **hard red** and goes to the top of the
+revision list with its error. If a gate is flaky or environment-broken (cannot
+run at all), say so explicitly and treat it as unknown, not as passed.
+
+If all gates currently fail and the worker has not yet made the work runnable,
+that is fine on early rounds; the loop exists to drive them green.
+
+### Step 4 — Spawn the reviewer round (parallel, fresh, isolated)
+
+Dispatch all reviewer `Agent` calls in a **single message** (parallel batch).
+Each reviewer receives:
+
+- The current work product verbatim (the diff or the artifact, plus the minimal
+  surrounding context needed to judge it).
+- The in-scope / out-of-scope block, re-pasted verbatim every round.
+- The soft acceptance criteria and any budget/format constraints.
+- The persona brief: one sharp paragraph naming the single axis this reviewer
+  evaluates.
+- The current hard-gate status (so a reviewer does not waste its signal on
+  something a gate already covers).
+- The strict response contract below.
+
+**Reviewer response contract (embed verbatim in each persona prompt):**
 
 ```
-Respond in 100-200 words. End your response with exactly one of:
+Respond in 100-200 words. Judge ONLY your assigned axis. End with exactly one of:
 
   GREEN SIGNAL — no actionable issue on my axis.
 
   RED SIGNAL — <one-sentence diagnosis of the single strongest issue on my axis>
-  FIX: <one concrete edit suggestion, no more than two sentences>
+  FIX: <one concrete change, no more than two sentences>
 
 Do not return a wishlist. Identify only the single strongest issue on your axis.
-If you would normally flag multiple, pick the one with the highest expected information gain for the author and discard the rest.
+If you would flag several, pick the one with the highest expected information gain
+and discard the rest. Do not demand anything declared out of scope.
 ```
 
-Reviewers must not see prior rounds' critiques, must not see the diff from the previous round, and must not see each other's responses. This is the "fresh" guarantee and it is non-negotiable.
+Reviewers must not see prior rounds, the round-over-round diff, or each other's
+responses. This is the fresh guarantee and it is non-negotiable. Issue the calls
+in parallel, never sequentially: sequential calls leak the parent's stale
+anchoring across reviewers.
 
-### Step 3 — Synthesize the round
+### Step 5 — Synthesize the round
 
-Read the five responses. Classify each red on the axis it targets and produce:
+Combine failing gates and reviewer responses into one revision list:
 
-- **Convergent reds**: ≥2 reviewers flagging the same axis with substantively compatible fixes. These are real, act on them.
-- **Single-reviewer reds**: one reviewer flagging one axis. Taste. Note them but do not always act; weigh against length budget and contradiction risk.
-- **Contradictions**: cases where one reviewer's fix would create the issue another reviewer flagged (classic: copywriter says "tighten" while integrator says "add example"). This is the asymptote signal — surface it explicitly.
-- **Out-of-scope demands**: any reviewer asking for evidence the artifact's format cannot carry. Reject these; the structural ceiling is real, do not chase it.
+- **Failing hard gates** — always actionable, always top priority. Done is
+  impossible while any is red.
+- **Convergent reds** — the same axis flagged by ≥2 reviewers with compatible
+  fixes. Real; act on them.
+- **Single-reviewer reds** — one reviewer, one axis. Taste. Note them; act only
+  if cheap and non-contradictory, weighed against budget.
+- **Contradictions** — where one reviewer's fix reopens another's issue (e.g.
+  "tighten" vs "add an example"). This is an asymptote signal; surface it.
+- **Out-of-scope demands** — reject; name what owns that concern instead. Never
+  fabricate evidence or widen blast radius to satisfy a reviewer.
 
-### Step 4 — Edit minimally
+### Step 6 — Revise minimally
 
-Apply only the convergent reds. Never add scope, because every addition creates new attack surfaces for the next round. If a convergent fix would violate the length budget, choose the substitution that preserves the budget (cut something equally weighted) rather than appending.
+Apply the failing-gate fixes and the convergent reds, smallest change first.
+Never add scope; every addition is new attack surface for the next round. If a
+fix would breach the length budget or blast radius, substitute (cut something of
+equal weight) rather than append. After revising, confirm the work still honors
+in-scope and has not drifted out of scope, then loop back to Step 2/3.
 
-If after applying convergent reds the artifact has shifted meaningfully, re-confirm it still satisfies the in-scope claims and has not drifted into out-of-scope territory.
+### Step 7 — Check stop conditions
 
-### Step 5 — Check stop conditions
+**Converged** requires BOTH:
+- every hard gate passes, AND
+- the reviewer panel meets the stop ratio (default all-green).
 
-Stop the loop if any of:
+Stop and report (converged or not) if any of:
 
-1. **5/5 green** (or whatever stop ratio the user set).
-2. **Asymptote reached**: same axis flagged in 3 consecutive rounds and the response is "this is structural, not fixable in this format". Name it and stop.
-3. **Contradictory churn**: two consecutive rounds where the fix from round N reopened an issue closed in round N-1. Stop and name the trade-off.
-4. **Round cap hit** (default 5). If the loop never converged, surface that honestly with the round trace; do not lie about reaching green.
-5. **Length-budget violation pressure**: convergent reds in two consecutive rounds would require violating the length budget. The format is the ceiling, not the editor; stop and surface.
+1. **Converged** — both conditions above met.
+2. **Gate-blocked asymptote** — a hard gate cannot be made to pass within scope
+   (the fix would require out-of-scope changes). Stop; name the gate and the
+   scope wall. This is a not-converged stop and must be reported as such.
+3. **Taste asymptote** — the same soft axis is flagged 3 rounds running and the
+   honest reading is "structural, not fixable in this format/scope". Name it,
+   stop.
+4. **Contradictory churn** — two consecutive rounds where round N's fix reopened
+   an issue closed in round N-1. Stop; name the trade-off.
+5. **Round cap hit** (default 5). If not converged, say so plainly with the round
+   trace. Never report green that was not reached.
 
-If none of the above, increment round and go to Step 2 with the edited artifact.
+### Step 8 — Final report
 
-### Step 6 — Final report
+- The final work product (or the committed diff / artifact).
+- Converged or not, with the deciding reason.
+- Hard-gate tally (e.g. `gates: 3/3 pass`) and reviewer signal tally
+  (e.g. `4 green / 1 red after 4 rounds`).
+- The round log: one line per round listing failing gates fixed, convergent axes
+  addressed, and length/blast-radius delta.
+- Any single-reviewer reds noted but not acted on, so the user can judge whether
+  that taste matters.
+- An explicit asymptote call when applicable, naming the structural property the
+  task's scope or format cannot satisfy.
 
-Output:
+## Anti-Drift Safeguards (enforce every round)
 
-- The final converged artifact.
-- Round count and final reviewer signal tally (e.g. `4 green / 1 red after 4 rounds`).
-- The convergent-reds log (one line per round: round number, convergent axes addressed, length delta).
-- An honest "we're at the asymptote" call if applicable, naming the structural property the artifact's format cannot carry.
-- Any single-reviewer reds that were noted but not acted on, so the user can decide whether taste matters here.
+- **Re-anchor scope every round.** Re-paste in-scope / out-of-scope into every
+  reviewer prompt verbatim; do not assume prior-round context persists.
+- **Gates outrank reviewers, always.** Never report converged with a red gate,
+  however green the panel. A green panel over a failing gate is a louder reason
+  to keep going, not to stop.
+- **Hold the blast radius.** Track which files/functions (or words/lines) changed.
+  If the work is growing round over round, prefer "cut/simplify" reds over "add"
+  reds and surface the delta.
+- **Reject demands the work cannot satisfy in scope.** Evidence that lives
+  elsewhere, adjacent refactors, features beyond the atomic task: name the owner,
+  do not chase.
+- **AI-tic detection on any prose.** Scan for contrastive-negation ("X this, not
+  Y", "not just X but Y"), em-dashes / double dashes, hedge words ("might be
+  worth", "perhaps", "arguably"), and marketing register ("comprehensive",
+  "robust", "elegant", "production-ready"). These are house-style reds regardless
+  of reviewer feedback; require a positive rewrite.
+- **Refuse to undersell verified evidence.** If the result is weaker than what the
+  in-scope evidence supports, bring the claim up to the evidence rather than
+  hedging to placate a skeptic who lacks context.
 
-## Anti-Drift Safeguards (Enforce Every Round)
+## Prose-refinement mode (the degenerate case)
 
-- **Re-anchor scope each round.** Re-paste in-scope / out-of-scope into every reviewer prompt verbatim. Do not assume the prior round's context persists.
-- **Track length budget across rounds.** If round N adds 12 words, round N+1's convergent reds should preferentially be "cut" reds, not "add" reds. Surface length delta in the round summary.
-- **Reject evidence demands the artifact cannot satisfy.** If a reviewer asks for a number, a citation, or an ablation that lives in the body / appendix / future work, the answer is "not in this artifact, X owns it" — not "fabricate evidence to satisfy the reviewer".
-- **AI-tic detection.** Scan the artifact each round for contrastive-negation patterns ("X this, not Y", "not just X but Y", "we don't merely X, we Y") and require positive reframing if found. Same for em-dashes, double dashes, hedge words ("might be worth", "perhaps", "arguably"), and the marketing register ("comprehensive", "robust", "elegant", "production-ready") — these are house-style violations regardless of reviewer feedback.
-- **Refuse to undersell verified evidence.** If the artifact's claims are weaker than what the user has stated as in-scope evidence, the editor's job is to bring the claim up to what the evidence supports — not to hedge to satisfy a skeptic reviewer who lacks context.
+A short-form artifact with **zero hard gates** is just the worker-critic loop with
+the worker step reduced to a minimal text edit. Everything else holds: fresh
+reviewer panel, scope re-anchoring, asymptote honesty, AI-tic detection. This is
+the original converge behavior, preserved. When the task is pure expression and
+there is nothing to execute, do not invent a gate; run reviewers only and converge
+on the stop ratio.
 
-## Spawn Pattern (Concrete)
+## Spawn pattern (concrete)
 
-For each round, the parent agent must issue a single message containing five `Agent` tool calls in parallel. Each call uses `subagent_type: general-purpose` (or a more specialized type if available for the persona — e.g. `feature-dev:code-reviewer` for the code-edge-cases persona), with a self-contained prompt that includes the artifact, the scope block, the persona brief, and the response contract. The parent then waits for all five to return before proceeding to synthesis.
-
-Do not issue reviewer calls sequentially. Parallel-batch is what makes the fresh-priors guarantee meaningful; sequential calls let stale anchoring leak across reviewers via the parent's working context.
-
-## Asymptote Honesty
-
-A successful run of converge is not always 5/5 green. A successful run is one that either reaches green or names the structural ceiling honestly. The skill should refuse to over-state convergence: "4 green, 1 red on length, format-bound" is a more truthful report than papering over a real structural constraint to claim full convergence.
-
-The user is using this skill because they want a tight artifact, not because they want a green checkmark. Optimize for the former.
+Per round, the parent issues one message containing all reviewer `Agent` calls in
+parallel, each with a self-contained prompt (work product + scope block + gate
+status + persona brief + response contract). Use `general-purpose` as the subagent
+type, or a specialized type where it fits a seat (e.g. `feature-dev:code-reviewer`
+for correctness/edge-cases). The parent waits for all reviewers, then synthesizes.
+The parent is the worker and the orchestrator; it does not critique, and reviewers
+never critique each other.
 
 ## Examples
 
-**Paper abstract converging in 3 rounds:**
+**Code fix converging in 3 rounds (gates + reviewers):**
 
 ```
-Round 1: 3 red (skeptic: overclaim on generalization;
-                prose-critic: nominalization in sentence 2;
-                cold-reader: jargon "transient mediator" undefined)
-         → applied: hedge generalization claim, rewrite sentence 2,
-           define "transient mediator" inline.
-Round 2: 2 red (skeptic: still slightly overclaims; devil's-advocate: novelty
-                framing weak)
-         → applied: further hedge + add one comparison clause.
-Round 3: 0 red. 5/5 green.
-Final: -3 words from original. 3 rounds, converged.
+Task: fix the off-by-one in paginate() so the last page is never dropped.
+Gates: `pytest tests/test_paginate.py -q`, `ruff check pagination.py`
+Panel: correctness, edge-cases, readability, API-design, security
+
+Round 1: gate pytest FAIL (test_last_page), 2 reviewer red
+         (edge-cases: empty list returns one phantom page;
+          correctness: ceil division wrong for exact multiples)
+         -> rewrite page-count as ceil(n/size), guard n==0.
+Round 2: gates 2/2 pass. 1 reviewer red
+         (readability: page math duplicated in two branches)
+         -> extract _page_count() helper.
+Round 3: gates 2/2 pass. 5/5 green.
+Converged: 3 rounds, +1 helper, blast radius 1 file.
 ```
 
-**README hitting asymptote:**
+**Research answer hitting a gate-blocked asymptote:**
 
 ```
-Round 1: 3 red (new-user: install section assumes Python; integrator: no
-                example of programmatic API; copywriter: opening sentence
-                is buzzwordy)
-         → applied: explicit Python pin, add API example, rewrite opening.
-Round 2: 2 red (new-user: install still ambiguous on Windows; copywriter:
-                opening still weak)
-         → applied: Windows note, third opening rewrite.
-Round 3: 1 red (copywriter: opening still weak — "the opening cannot do
-                both 'sell' and 'orient'; you have to pick").
-         Asymptote detected: same axis flagged 3 rounds, fix would require
-         restructuring the README (sell-then-orient = two sections, not one).
-         Stopping with 4/5 green and surfacing the structural choice.
-Final: user must decide one-section vs two-section README; converge cannot
-       fix this at the prose level.
+Task: state the current SOTA latency number for X and cite it.
+Gates: every numeric claim must carry a resolvable source URL (manual check).
+Panel: fact-checker, steel-man, gap-hunter, logic-critic, clarity-critic
+
+Round 1: gate FAIL (the headline number has no primary source, only a blog
+         restating it). fact-checker red, gap-hunter red.
+         -> trace to the primary paper, replace number with the paper's figure.
+Round 2: gate still FAIL (primary paper reports a range, not the single number
+         the task assumed). The task's premise (one number) is unsupported.
+         Asymptote: cannot satisfy the gate in scope without changing the claim
+         from a point to a range.
+Stop: NOT converged. Surfaced that the question assumes a precision the evidence
+      does not support; user must accept a range or pick a benchmark condition.
 ```
 
-## Notes for the Agent Running This Skill
+## Notes for the agent running this skill
 
-- You are the parent. You do not critique. You spawn, synthesize, edit, and stop.
-- Reviewers do not see each other. You synthesize.
-- The user does not babysit each round. Run the full loop autonomously and report the trace at the end, unless the user explicitly asks for round-by-round checkpoints.
-- Use the `Agent` tool with `general-purpose` (or specialized) subagent_type, all five calls in one message per round.
-- Use `Edit` (not `Write`) to apply round edits to file-backed artifacts. For pasted-text artifacts, hold them in working state and return the final string.
-- If the artifact is a file, commit the final converged version with a brief message naming what converged (e.g. `prose: converge abstract — 3 rounds, hedge + jargon`). Do not commit intermediate rounds.
+- You are the parent: you set up, do the work, spawn reviewers, run gates,
+  synthesize, revise, and stop. You do not review.
+- Run the full loop autonomously and report the trace at the end, unless the user
+  asked for per-round checkpoints. The exception: stop and ask if convergence
+  requires going out of scope or breaking a gate's premise.
+- Never report converged while a hard gate is red. Done is gates-green AND
+  panel-green, or an honestly-named asymptote.
+- Keep the task atomic. If it stops being atomic mid-loop (the work is sprawling),
+  stop and tell the user to split it; do not push a non-atomic change through.
+- For file-backed work, commit the final converged result with a brief message
+  naming what converged (e.g. `fix: converge paginate off-by-one, 3 rounds,
+  gates green`). Do not commit intermediate rounds.
