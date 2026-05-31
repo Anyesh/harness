@@ -38,6 +38,11 @@
         "command": "bash {{HOME_DIR}}/.cursor/hooks/scope-drift-detector.sh",
         "timeout": 5,
         "additional_context": true
+      },
+      {
+        "command": "bash {{HOME_DIR}}/.cursor/hooks/cleanup-nudge.sh",
+        "timeout": 5,
+        "additional_context": true
       }
     ],
     "preToolUse": [
