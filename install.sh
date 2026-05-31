@@ -155,8 +155,8 @@ deploy_shared_skills() {
     skill_name=$(basename "$skill_dir")
     local dest="$dest_dir/$skill_name"
 
-    if [[ "$FORCE" == "false" && -d "$dest" ]]; then
-      log_skip "skill $skill_name" "exists"
+    if [[ "$FORCE" == "false" && -d "$dest" ]] && diff -rq "$skill_dir" "$dest" >/dev/null 2>&1; then
+      log_skip "skill $skill_name" "unchanged"
       continue
     fi
 
@@ -169,6 +169,47 @@ deploy_shared_skills() {
     cp -r "$skill_dir" "$dest"
     log_success "skill: $skill_name"
   done
+}
+
+deploy_impeccable_skill() {
+  local variant="$1" dest_dir="$2"
+  local src="$REPO_ROOT/configs/impeccable"
+  local skill_md="$src/SKILL.$variant.md"
+
+  if [[ ! -f "$skill_md" ]]; then
+    log_warn "impeccable SKILL.$variant.md not found, skipping"
+    return
+  fi
+
+  if [[ "$FORCE" == "false" && -d "$dest_dir" ]]; then
+    log_skip "impeccable ($variant)" "exists"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would deploy impeccable ($variant) -> $dest_dir"
+    return
+  fi
+
+  # dest_rel is the path under $HOME; the deployed files reference scripts by an
+  # absolute $HOME path so they resolve from any project CWD (the skill is installed
+  # globally, not project-local, so the upstream CWD-relative paths cannot resolve).
+  local dest_rel="${dest_dir#"$HOME"/}"
+
+  rm -rf "$dest_dir"
+  mkdir -p "$dest_dir"
+  cp "$skill_md" "$dest_dir/SKILL.md"
+  cp -r "$src/reference" "$dest_dir/reference"
+  cp -r "$src/scripts" "$dest_dir/scripts"
+  [[ "$variant" == "codex" && -d "$src/agents" ]] && cp -r "$src/agents" "$dest_dir/agents"
+
+  local repl="\$HOME/$dest_rel/"
+  local f
+  while IFS= read -r f; do
+    sed -E -i "s#\\.[a-z]+/skills/impeccable/#${repl}#g" "$f"
+  done < <(find "$dest_dir" -maxdepth 2 -name '*.md')
+
+  log_success "impeccable ($variant): $dest_dir"
 }
 
 deploy_tools() {
