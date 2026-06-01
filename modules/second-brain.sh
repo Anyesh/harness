@@ -161,8 +161,69 @@ UNIT
 }
 
 
+second_brain_sync_timer() {
+  local sb_sync_src="$REPO_ROOT/configs/second-brain/sb-sync.sh"
+  local bin_dir="$HOME/.local/bin"
+  local service_dir="$HOME/.config/systemd/user"
+  local peers_file="$HOME/.second-brain/sync-peers"
+
+  if [[ ! -f "$sb_sync_src" ]]; then
+    log_warn "sb-sync.sh template missing, skipping sync timer"
+    return
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would install second-brain sync timer"
+    return
+  fi
+
+  mkdir -p "$bin_dir" "$service_dir" "$HOME/.second-brain"
+  install -m755 "$sb_sync_src" "$bin_dir/sb-sync.sh"
+
+  # Peers are per-machine; never overwrite an existing list. Seed an empty,
+  # commented file so the guard exits cleanly until the user adds peers.
+  if [[ ! -f "$peers_file" ]]; then
+    cat > "$peers_file" <<'PEERS'
+# second-brain sync peers, one user@host per line. Example:
+# anish@10.0.0.2
+PEERS
+    log_info "seeded empty $peers_file (add peers to enable auto-sync)"
+  fi
+
+  cat > "$service_dir/sb-sync.service" <<'UNIT'
+[Unit]
+Description=Second Brain peer sync (skips silently when a peer is unreachable)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sb-sync.sh
+UNIT
+
+  cat > "$service_dir/sb-sync.timer" <<'UNIT'
+[Unit]
+Description=Run Second Brain peer sync every 30 minutes when peers are reachable
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+  if command -v systemctl &>/dev/null; then
+    systemctl --user daemon-reload
+    systemctl --user enable --now sb-sync.timer 2>/dev/null || true
+    log_success "sync timer: sb-sync.timer installed and enabled"
+  else
+    log_warn "systemctl not found, sync timer written but not activated"
+  fi
+}
+
 second_brain_install() {
   second_brain_binaries
+  second_brain_sync_timer
 }
 
 second_brain_test() {
