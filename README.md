@@ -12,6 +12,7 @@ Single-command bootstrap for AI coding tools. One repo, one install, full enviro
 | Config templates | 80 |
 | Managed files deployed | 52 |
 | Hooks (Claude Code) | 23 |
+| Hooks (Cursor events) | 11 |
 | Skills (shared) | 19 |
 | Plugins (Claude Code) | 15 |
 | MCP servers | 5 |
@@ -43,8 +44,12 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 ### Cursor
 
 ```
-~/.cursor/rules/rules.mdc      ← shared rules
-~/.cursor/mcp.json             ← MCP servers (second-brain, cognitive-cache)
+~/.cursor/rules/*.mdc          ← 15 shared rules (alwaysApply)
+~/.cursor/mcp.json             ← MCP servers (merged with existing; harness adds second-brain, cognitive-cache, web-strip, markitdown)
+~/.cursor/hooks.json           ← 11 hook events (session, prompt, tool, shell, edit, stop, compact)
+~/.cursor/hooks/               ← shared hook scripts (same family as Claude Code)
+~/.cursor/skills/              ← shared skills (converge, humanize, ownit, wiki, terminal-gif)
+~/.cursor/commands/            ← shared slash commands (plan, scope, commit, decision, devlog)
 ```
 
 ### Codex
@@ -93,7 +98,7 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 
 ```
 claude        Claude Code: configs, plugins, hooks, skills, MCP
-cursor        Cursor: rules, mcp.json
+cursor        Cursor: rules, mcp.json, hooks.json, skills, commands
 codex         Codex: config.toml, instructions
 second-brain  second-brain daemon + MCP server registration
 rtk           RTK CLI output compression tool

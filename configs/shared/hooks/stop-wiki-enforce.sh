@@ -5,22 +5,23 @@
 # next user prompt.
 set -uo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=load-harness-env.sh
+source "$HOOK_DIR/load-harness-env.sh"
+# shellcheck source=harness-project.sh
+source "$HOOK_DIR/harness-project.sh"
+load_wiki_vault
+
 INPUT=$(cat)
-
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-SESSION_ID_CLAUDE=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+[ -z "$SESSION_ID" ] && exit 0
 
-if [ -n "$CONVERSATION_ID" ]; then
-    AGENT="cursor"
-    SESSION_ID="$CONVERSATION_ID"
+if [ "$AGENT" = "cursor" ]; then
     STATE_DIR="$HOME/.cursor/state/wiki-enforce"
-elif [ -n "$SESSION_ID_CLAUDE" ]; then
-    AGENT="claude"
-    SESSION_ID="$SESSION_ID_CLAUDE"
-    STATE_DIR="$HOME/.claude/state/wiki-enforce"
 else
-    exit 0
+    STATE_DIR="$HOME/.claude/state/wiki-enforce"
 fi
 
 # Claude provides a transcript path the hook can scan for tool calls. Cursor
@@ -36,8 +37,10 @@ fi
 WIKI_VAULT="${WIKI_VAULT:-}"
 [ -z "$WIKI_VAULT" ] && exit 0
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
-PROJECT_SLUG="$(basename "$REPO_ROOT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')"
+REPO_ROOT="$(harness_repo_root "$INPUT")"
+harness_is_tooling_dir "$REPO_ROOT" && exit 0
+PROJECT_SLUG="$(harness_project_slug "$REPO_ROOT")"
+[[ -z "$PROJECT_SLUG" ]] && exit 0
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 STATE_FILE="$STATE_DIR/${SESSION_ID}.count"

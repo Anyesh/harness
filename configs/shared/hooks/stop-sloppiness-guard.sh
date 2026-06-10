@@ -5,20 +5,21 @@
 
 set -uo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 INPUT=$(cat)
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-SESSION_ID_CLAUDE=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 HOOK_EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
 
-if [ -n "$CONVERSATION_ID" ]; then
-    SESSION_ID="$CONVERSATION_ID"
-    STATE_DIR="$HOME/.cursor/state/sloppiness"
-elif [ -n "$SESSION_ID_CLAUDE" ]; then
-    SESSION_ID="$SESSION_ID_CLAUDE"
-    STATE_DIR="$HOME/.claude/state/sloppiness"
-else
+if [ -z "$SESSION_ID" ]; then
     exit 0
+fi
+
+if [ "$AGENT" = "cursor" ]; then
+    STATE_DIR="$HOME/.cursor/state/sloppiness"
+else
+    STATE_DIR="$HOME/.claude/state/sloppiness"
 fi
 
 if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then

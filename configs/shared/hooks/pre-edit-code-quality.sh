@@ -4,7 +4,7 @@
 #         obvious comments (JS/TS), empty catch blocks (JS/TS), swallowed exceptions (Python)
 
 INPUT=$(cat)
-FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0
+FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null) || exit 0
 
 if [ -z "$FILE_PATH" ]; then
     exit 0
@@ -18,7 +18,7 @@ esac
 # Prose files: check for staccato style
 case "$FILE_PATH" in
     *.txt|*.html)
-        CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
+        CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.contents // .tool_input.content // empty' 2>/dev/null) || exit 0
         if [ -n "$CONTENT" ]; then
             # HTML is markup, not prose: tags, attribute values (initial-scale=1.0),
             # and script/style bodies contain dots that the sentence splitter would
@@ -88,7 +88,7 @@ case "$FILE_PATH" in
     *test*|*spec*|*conftest*) IS_TEST=true ;;
 esac
 
-CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null) || exit 0
+CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.contents // .tool_input.content // empty' 2>/dev/null) || exit 0
 
 if [ -z "$CONTENT" ]; then
     exit 0

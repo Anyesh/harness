@@ -3,56 +3,57 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start.sh",
+        "command": "bash ./hooks/session-start.sh",
         "timeout": 5
       },
       {
-        "command": "node {{HOME_DIR}}/.cursor/hooks/humanize-activate.js",
+        "command": "node ./hooks/humanize-activate.js",
         "timeout": 5
       },
       {
-        "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-activate.js",
+        "command": "node ./hooks/ownit-activate.js",
         "timeout": 5
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-start-wiki.sh",
-        "timeout": 5,
-        "additional_context": true
+        "command": "bash ./hooks/session-start-wiki.sh",
+        "timeout": 5
       }
     ],
     "beforeSubmitPrompt": [
       {
-        "command": "node {{HOME_DIR}}/.cursor/hooks/humanize-mode-tracker.js",
+        "command": "node ./hooks/humanize-mode-tracker.js",
         "timeout": 5
       },
       {
-        "command": "node {{HOME_DIR}}/.cursor/hooks/ownit-mode-tracker.js",
+        "command": "node ./hooks/ownit-mode-tracker.js",
         "timeout": 5
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/wiki-nudge.sh",
-        "timeout": 5,
-        "additional_context": true
+        "command": "bash ./hooks/wiki-nudge.sh",
+        "timeout": 5
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/scope-drift-detector.sh",
-        "timeout": 5,
-        "additional_context": true
+        "command": "bash ./hooks/scope-drift-detector.sh",
+        "timeout": 5
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cleanup-nudge.sh",
-        "timeout": 5,
-        "additional_context": true
+        "command": "bash ./hooks/cleanup-nudge.sh",
+        "timeout": 5
       }
     ],
     "preToolUse": [
       {
-        "command": "python3 {{HOME_DIR}}/.cursor/hooks/pre-edit-comment-guard.py",
-        "matcher": "Write",
+        "command": "bash ./hooks/pre-edit-code-quality.sh",
+        "matcher": "Write|StrReplace",
         "timeout": 5
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/cost-guard.sh",
+        "command": "python3 ./hooks/pre-edit-comment-guard.py",
+        "matcher": "Write|StrReplace",
+        "timeout": 5
+      },
+      {
+        "command": "bash ./hooks/cost-guard.sh",
         "matcher": "Read|Shell",
         "timeout": 5
       },
@@ -64,36 +65,36 @@
     ],
     "beforeShellExecution": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/pre-bash-guard.sh",
+        "command": "bash ./hooks/pre-bash-guard.sh",
         "timeout": 5
       }
     ],
     "afterFileEdit": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/format-on-save.sh",
+        "command": "bash ./hooks/format-on-save.sh",
         "timeout": 10
       }
     ],
     "stop": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-sloppiness-guard.sh",
+        "command": "bash ./hooks/stop-sloppiness-guard.sh",
         "timeout": 10,
         "loop_limit": 3
       },
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/stop-wiki-enforce.sh",
+        "command": "bash ./hooks/stop-wiki-enforce.sh",
         "timeout": 10
       }
     ],
     "sessionEnd": [
       {
-        "command": "bash {{HOME_DIR}}/.cursor/hooks/session-end-ingest.sh",
+        "command": "bash ./hooks/session-end-ingest.sh",
         "timeout": 10
       }
     ],
     "preCompact": [
       {
-        "command": "sb ingest >/dev/null 2>&1 || true",
+        "command": "bash ./hooks/pre-compact.sh",
         "timeout": 10
       }
     ]

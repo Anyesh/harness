@@ -5,28 +5,28 @@
 # belongs in the wiki/devlog, not as loose files polluting the repo.
 #
 # Soft only: never blocks. Wired in Claude as UserPromptSubmit, in Cursor as
-# beforeSubmitPrompt (additional_context: true). Fires at most every 5 turns
+# beforeSubmitPrompt. Fires at most every 5 turns
 # and only when junk is actually present, so it stays quiet on clean trees.
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=harness-project.sh
+source "$HOOK_DIR/harness-project.sh"
 INPUT=$(cat)
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-SESSION_ID_CLAUDE=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
+[ -z "$SESSION_ID" ] && exit 0
 
-if [ -n "$CONVERSATION_ID" ]; then
-    AGENT="cursor"
-    SESSION_ID="$CONVERSATION_ID"
+if [ "$AGENT" = "cursor" ]; then
     STATE_DIR="$HOME/.cursor/state/cleanup-nudge"
-elif [ -n "$SESSION_ID_CLAUDE" ]; then
-    AGENT="claude"
-    SESSION_ID="$SESSION_ID_CLAUDE"
-    STATE_DIR="$HOME/.claude/state/cleanup-nudge"
 else
-    exit 0
+    STATE_DIR="$HOME/.claude/state/cleanup-nudge"
 fi
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+REPO_ROOT="$(harness_repo_root "$INPUT")"
+harness_is_tooling_dir "$REPO_ROOT" && exit 0
+git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 # WHY: counter is per-session so concurrent sessions on one repo don't corrupt
 # each other's turn count.
@@ -109,7 +109,7 @@ while IFS= read -r f; do
     if is_junk "$f"; then
         JUNK+=("$f")
     fi
-done < <(git ls-files --others --exclude-standard 2>/dev/null || true)
+done < <(git -C "$REPO_ROOT" ls-files --others --exclude-standard 2>/dev/null || true)
 
 [ "${#JUNK[@]}" -eq 0 ] && exit 0
 

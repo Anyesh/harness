@@ -54,6 +54,8 @@ done
 
 MODULE_ORDER=(second-brain verdant claude cursor codex rtk wiki)
 
+HOOK_SKIP_FILES=()
+
 deploy_hooks_from() {
   local src_dir="$1"
   local dest_dir="$2"

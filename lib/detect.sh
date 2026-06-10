@@ -14,7 +14,7 @@ detect_tools() {
     HAS_CLAUDE=true
   fi
 
-  if [[ -d "$CURSOR_CONFIG_DIR" ]]; then
+  if command -v cursor &>/dev/null || [[ -d "$CURSOR_CONFIG_DIR" ]]; then
     HAS_CURSOR=true
   fi
 
