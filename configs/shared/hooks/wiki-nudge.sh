@@ -3,35 +3,34 @@
 # hasn't, because behavioral instructions get deprioritized when the LLM is
 # deep in a task.
 #
-# Wired in Claude as UserPromptSubmit, in Cursor as beforeSubmitPrompt (with
-# additional_context: true in hooks.json). Detects agent from stdin payload
-# and emits the right JSON output shape.
+# Wired in Claude as UserPromptSubmit, in Cursor as beforeSubmitPrompt.
+# Emits additional_context JSON (Cursor) or hookSpecificOutput (Claude).
 set -euo pipefail
 
-WIKI_VAULT="${WIKI_VAULT:-}"
-[ -z "$WIKI_VAULT" ] && exit 0
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=load-harness-env.sh
+source "$HOOK_DIR/load-harness-env.sh"
+# shellcheck source=harness-project.sh
+source "$HOOK_DIR/harness-project.sh"
+load_wiki_vault
+[ -z "${WIKI_VAULT:-}" ] && exit 0
 
 INPUT=$(cat)
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
-# Detect agent. Cursor payloads carry conversation_id; Claude payloads carry
-# session_id. If both/neither present, treat as unknown and exit safely.
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-SESSION_ID_CLAUDE=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
+[ -z "$SESSION_ID" ] && exit 0
 
-if [ -n "$CONVERSATION_ID" ]; then
-    AGENT="cursor"
-    SESSION_ID="$CONVERSATION_ID"
+if [ "$AGENT" = "cursor" ]; then
     STATE_DIR="$HOME/.cursor/state/wiki-nudge"
-elif [ -n "$SESSION_ID_CLAUDE" ]; then
-    AGENT="claude"
-    SESSION_ID="$SESSION_ID_CLAUDE"
-    STATE_DIR="$HOME/.claude/state/wiki-nudge"
 else
-    exit 0
+    STATE_DIR="$HOME/.claude/state/wiki-nudge"
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
-PROJECT_SLUG="$(basename "$REPO_ROOT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')"
+REPO_ROOT="$(harness_repo_root "$INPUT")"
+harness_is_tooling_dir "$REPO_ROOT" && exit 0
+PROJECT_SLUG="$(harness_project_slug "$REPO_ROOT")"
+[[ -z "$PROJECT_SLUG" ]] && exit 0
 
 # WHY: counter must be per-session, not per-project in /tmp — concurrent
 # sessions on the same repo would otherwise corrupt each other's turn count.

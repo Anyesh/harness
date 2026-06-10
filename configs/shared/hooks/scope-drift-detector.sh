@@ -2,19 +2,18 @@
 # Prompt-submit hook: soft reminder when .scope.md is missing/stale during
 # long conversations that look like feature work. Fires after 10+ turns.
 # Wired in Claude as UserPromptSubmit, in Cursor as beforeSubmitPrompt
-# (with additional_context: true).
+# Emits additional_context JSON on Cursor, hookSpecificOutput on Claude.
 
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=harness-project.sh
+source "$HOOK_DIR/harness-project.sh"
 INPUT=$(cat 2>/dev/null || true)
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-if [ -n "$CONVERSATION_ID" ]; then
-    AGENT="cursor"
-else
-    AGENT="claude"
-fi
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
+REPO_ROOT="$(harness_repo_root "$INPUT")"
+harness_is_tooling_dir "$REPO_ROOT" && exit 0
 SCOPE_FILE="$REPO_ROOT/.scope.md"
 TURN_MARKER="$REPO_ROOT/.scope-turn-count"
 

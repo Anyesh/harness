@@ -30,7 +30,7 @@ cat > "$FAKE_HOME/.harness.env" <<EOF
 WIKI_VAULT=$FAKE_HOME/test-vault
 EOF
 
-for tool in claude codex rtk sb; do
+for tool in claude codex cursor rtk sb; do
     printf '#!/bin/sh\necho "mock %s"\n' "$tool" > "$FAKE_HOME/.local/bin/$tool"
     chmod +x "$FAKE_HOME/.local/bin/$tool"
 done
@@ -73,6 +73,24 @@ assert "claude-only produces output" '[[ -n "$claude_output" ]]'
 assert "claude-only mentions claude module" 'echo "$claude_output" | grep -q "Module: claude"'
 assert "claude-only skips cursor module" '! echo "$claude_output" | grep -q "Module: cursor"'
 assert "claude-only skips codex module" '! echo "$claude_output" | grep -q "Module: codex"'
+
+echo ""
+echo "=== Integration: --only cursor --dry-run ==="
+echo ""
+
+cursor_output=$(
+    HOME="$FAKE_HOME" \
+    HARNESS_ENV="$FAKE_HOME/.harness.env" \
+    HARNESS_MANIFEST="$TMP_DIR/manifest-cursor.json" \
+    HARNESS_BACKUP_DIR="$TMP_DIR/backups" \
+    PATH="$MOCK_PATH" \
+    bash "$REPO_ROOT/install.sh" --only cursor --dry-run 2>&1
+) || true
+
+assert "cursor-only produces output" '[[ -n "$cursor_output" ]]'
+assert "cursor-only mentions cursor module" 'echo "$cursor_output" | grep -q "Module: cursor"'
+assert "cursor-only skips claude module" '! echo "$cursor_output" | grep -q "Module: claude"'
+assert "cursor-only mentions hooks.json" 'echo "$cursor_output" | grep -qi "hooks.json"'
 
 echo ""
 echo "=== Integration: template validation ==="

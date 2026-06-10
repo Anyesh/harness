@@ -3,15 +3,15 @@
 # Agent-aware: emits Claude's hookSpecificOutput.additionalContext shape
 # under SessionStart, or Cursor's additional_context shape.
 
-WIKI_VAULT="${WIKI_VAULT:-}"
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=load-harness-env.sh
+source "$HOOK_DIR/load-harness-env.sh"
+# shellcheck source=harness-project.sh
+source "$HOOK_DIR/harness-project.sh"
+load_wiki_vault
 
 INPUT=$(cat 2>/dev/null || true)
-CONVERSATION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // empty' 2>/dev/null || true)
-if [ -n "$CONVERSATION_ID" ]; then
-    AGENT="cursor"
-else
-    AGENT="claude"
-fi
+AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
 emit_empty() {
     if [ "$AGENT" = "cursor" ]; then
@@ -32,8 +32,16 @@ if [[ ! -f "$INDEX_FILE" ]]; then
     exit 0
 fi
 
-PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
-PROJECT_SLUG="$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g')"
+PROJECT_ROOT="$(harness_repo_root "$INPUT")"
+if harness_is_tooling_dir "$PROJECT_ROOT"; then
+    emit_empty
+    exit 0
+fi
+PROJECT_SLUG="$(harness_project_slug "$PROJECT_ROOT")"
+if [[ -z "$PROJECT_SLUG" ]]; then
+    emit_empty
+    exit 0
+fi
 
 CONTEXT=""
 PROJECT_DIR="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}"

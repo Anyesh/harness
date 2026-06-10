@@ -155,18 +155,25 @@ cursor_hooks() {
     fi
   fi
 
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would deploy cursor hooks.json"
-  else
-    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$hooks_dest"
-
-    if deploy_template "$hooks_src" "$hooks_dest"; then
-      manifest_add "$hooks_dest" "configs/cursor/hooks.json" "true"
-      log_success "cursor hooks.json deployed"
-    else
-      log_error "failed to deploy cursor hooks.json"
+  if [[ "$FORCE" == "false" && -f "$hooks_dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$hooks_src")
+    dest_hash=$(file_checksum "$hooks_dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      log_skip "cursor hooks.json" "unchanged"
+      return
     fi
   fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would deploy cursor hooks.json"
+    return
+  fi
+
+  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$hooks_dest"
+  cp "$hooks_src" "$hooks_dest"
+  manifest_add "$hooks_dest" "configs/cursor/hooks.json" "false"
+  log_success "cursor hooks.json deployed"
 }
 
 cursor_install() {
