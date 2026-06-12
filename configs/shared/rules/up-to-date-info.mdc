@@ -1,8 +1,8 @@
 ---
-description: Always look up latest docs. Training data goes stale. Use Context7 or web search before relying on memory.
+description: Always look up latest docs. Training data goes stale. Use web search before relying on memory.
 alwaysApply: true
 ---
 
 ## Using Up-to-Date Information
 
-- **Always look up the latest documentation** when working with libraries, frameworks, APIs, CLIs, or cloud services — even familiar ones. Training data may be stale. Use Context7 or web search to verify current behavior, API signatures, and best practices before relying on memory.
+- **Always look up the latest documentation** when working with libraries, frameworks, APIs, CLIs, or cloud services — even familiar ones. Training data may be stale. Use web search (and the web-strip fetch tool to read pages cleanly) to verify current behavior, API signatures, and best practices before relying on memory.

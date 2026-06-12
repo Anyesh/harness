@@ -3,7 +3,6 @@
 # Lines starting with # are comments, blank lines are ignored
 
 # marketplace: anthropics/claude-plugins-official
-context7@claude-plugins-official
 frontend-design@claude-plugins-official
 feature-dev@claude-plugins-official
 typescript-lsp@claude-plugins-official
