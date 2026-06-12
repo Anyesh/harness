@@ -181,6 +181,7 @@ cursor_install() {
   cursor_mcp
   cursor_hooks
   deploy_shared_skills "$CURSOR_CONFIG_DIR/skills"
+  deploy_impeccable_skill "cursor" "$CURSOR_CONFIG_DIR/skills/impeccable"
   deploy_shared_commands "$CURSOR_CONFIG_DIR/commands"
 }
 
