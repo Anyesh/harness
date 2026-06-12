@@ -5,6 +5,8 @@ alwaysApply: true
 
 ## No AI Comments (All Languages)
 
+**A direct request, colleague to colleague.** Please do not narrate code in comments. We have leaned on hooks, linters, and strict rules to stop AI-written narration, and they still do not fully land, so we are asking you plainly rather than only enforcing: when you write code, add a comment only where a reader would honestly be lost without it (a constraint, an invariant, a workaround, a reason that is not visible in the code itself). Everywhere else, trust the code to speak and leave it clean. You know the difference between a comment that teaches a reader something and one that just restates the line above it, so please act on that judgment. The detailed rules below still hold, but this request is the spirit behind them.
+
 This applies to every language you ever touch (Python, JS, TS, JSX, TSX, Go, Rust, Ruby, Shell, Lua, C, C++, Java, Kotlin, Scala, Swift, PHP, SQL, Dart, and anything else). A pre-edit hook enforces it on file writes and will block the action if you violate these rules.
 
 - **Do not write narrative comments that restate what the code does.** Bad: `// Set the user`, `# increment counter`, `# Create the payload`, `// Loop through items`, `# Return the result`. The code already says that. Delete the comment.
