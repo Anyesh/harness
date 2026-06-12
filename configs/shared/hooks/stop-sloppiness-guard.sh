@@ -56,18 +56,28 @@ fi
 PATTERNS='simpler approach|simpler way|simpler solution|simpler version|quicker approach|quick fix|quick[- ]and[- ]dirty|good enough for now|let me just|let'\''s just|hack together|band[- ]?aid|for now,? (i|we|let)|low.?hanging fruit|low.?hanging|easy way out|take a shortcut|as a shortcut|shortcut here|cheap way|minimal change|dumb(ed)?[- ]?down|stub[- ]?out for now|lazy approach|lazier approach|skip the hard|avoid the hard|dodge the (hard|real)|kludge|duct[- ]tape|mvp (approach|version)|throw.?away (version|impl)|i[- ]?will (just|simply)|i[- ]?am going to just|naive (approach|version|impl)|poor.?man'\''s|for simplicity|keep (it|this) simple for now|punt on|skip (the|this) for now|defer (the|this) (hard|real)|workaround for now'
 
 FOUND=$(printf '%s' "$LAST_TEXT" | grep -iEo "$PATTERNS" | sort -u | head -5 || true)
-
+KIND=""
+[ -n "$FOUND" ] && KIND="shortcut"
 
 if [ -z "$FOUND" ]; then
+    # Strip fenced code blocks and inline code so file paths (settings.json) are not
+    # split on every dot into tiny sentences, then drop markdown block lines.
     TEXT_ONLY=$(printf '%s' "$LAST_TEXT" \
-        | sed 's/```[^`]*```//g' \
+        | awk 'BEGIN{inb=0} /^[[:space:]]*```/{inb=!inb; next} !inb' \
+        | sed 's/`[^`]*`//g' \
         | sed '/^[[:space:]]*[-*]/d' \
         | sed '/^[[:space:]]*[0-9]\{1,\}\./d' \
         | sed '/^[[:space:]]*#/d' \
         | sed '/^[[:space:]]*|/d')
-    STACCATO=$(printf '%s' "$TEXT_ONLY" | grep -oE '[^.!?]*[.!?]' | awk '{gsub(/^[[:space:]]+/,"")} NF<=6{c++} NF>6{if(c>=5) print c" consecutive short sentences"; c=0} END{if(c>=5) print c" consecutive short sentences"}' | head -1 || true)
+    # Split only at a terminator followed by whitespace so a dot inside a token does
+    # not end a sentence; flag 5+ consecutive sentences of <=6 words.
+    STACCATO=$(printf '%s' "$TEXT_ONLY" \
+        | sed -E 's/([.!?])[[:space:]]+/\1\n/g' \
+        | awk '{s=$0; gsub(/^[[:space:]]+/,"",s); gsub(/[[:space:]]+$/,"",s); if(s==""){c=0; next} m=split(s,p,/[[:space:]]+/); if(m<=6){c++; if(c>=5){print c" consecutive short sentences"; exit}} else {c=0}}' \
+        | head -1 || true)
     if [ -n "$STACCATO" ]; then
-        FOUND="STACCATO STYLE VIOLATION: $STACCATO detected. Connect ideas with commas, semicolons, conjunctions. No robot-talk."
+        FOUND="$STACCATO"
+        KIND="staccato"
     fi
 fi
 
@@ -77,6 +87,14 @@ fi
 
 echo $((COUNT + 1)) > "$STATE_FILE"
 
+if [ "$KIND" = "staccato" ]; then
+REASON=$(cat <<EOF
+WRITING STYLE NUDGE (not a shortcut warning).
+
+Your last response had a run of $FOUND. Per the harness writing-style rule, connect related ideas with commas, semicolons, and conjunctions rather than stacking short declarative sentences. This is a style fix only and your approach is not in question; smooth out the choppy run, then continue what you were doing.
+EOF
+)
+else
 REASON=$(cat <<EOF
 SLOPPINESS SIGNAL DETECTED in your last response.
 
@@ -103,6 +121,7 @@ What to do NOW:
 Re-engage. State the real problem honestly. Commit to the real work.
 EOF
 )
+fi
 
 if [[ "$HOOK_EVENT" == "stop" ]]; then
     # Cursor stop hook cannot block — send a followup_message to re-engage the agent
