@@ -183,8 +183,19 @@ deploy_impeccable_skill() {
     return
   fi
 
-  if [[ "$FORCE" == "false" && -d "$dest_dir" ]]; then
-    log_skip "impeccable ($variant)" "exists"
+  local src_hash hash_file
+  src_hash=$(
+    {
+      sha256sum "$skill_md"
+      find "$src/reference" "$src/scripts" -type f -exec sha256sum {} +
+      if [[ "$variant" == "codex" && -d "$src/agents" ]]; then
+        find "$src/agents" -type f -exec sha256sum {} +
+      fi
+    } 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+  )
+  hash_file="$dest_dir/.src-hash"
+  if [[ "$FORCE" == "false" && -d "$dest_dir" && "$(cat "$hash_file" 2>/dev/null)" == "$src_hash" ]]; then
+    log_skip "impeccable ($variant)" "unchanged"
     return
   fi
 
@@ -211,6 +222,7 @@ deploy_impeccable_skill() {
     sed -E -i "s#\\.[a-z]+/skills/impeccable/#${repl}#g" "$f"
   done < <(find "$dest_dir" -maxdepth 2 -name '*.md')
 
+  printf '%s\n' "$src_hash" > "$dest_dir/.src-hash"
   log_success "impeccable ($variant): $dest_dir"
 }
 

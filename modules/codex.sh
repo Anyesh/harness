@@ -85,7 +85,10 @@ codex_deploy_config() {
 
 codex_install() {
   codex_deploy_config
-  deploy_shared_skills "$CODEX_CONFIG_DIR/skills"
+  # Codex reads user-level skills from ~/.agents/skills (per OpenAI docs), not ~/.codex/skills,
+  # so shared skills and impeccable must land there to be discovered.
+  deploy_shared_skills "$HOME/.agents/skills"
+  deploy_impeccable_skill "codex" "$HOME/.agents/skills/impeccable"
 }
 
 codex_test() {
