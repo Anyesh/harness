@@ -62,20 +62,33 @@ test live in `references/character.md`.
 
 ## Rendering
 
-The skill is agent-agnostic about how the pixels get made:
+Run the bundled script once per shot. It has two backends:
 
-- If your agent has a native image tool (for example Codex's `image_gen`), call it once
-  per shot with the filled prompt.
-- If it does not (Claude Code and Cursor have none today), run the bundled script, which
-  calls the same OpenAI image model over the API:
+- **Local ComfyUI + Z-Image-Turbo (default).** Renders on your own GPU box, no API key, no cost:
 
-      export OPENAI_API_KEY=...   # required; the script will not run without it
       uv run scripts/generate.py --prompt-file shot01.txt --out assets/<slug>/01-topic.png
 
-  Defaults: model `gpt-image-1`, size `1536x1024` (closest standard landscape; true 16:9
-  needs `gpt-image-2` at `1536x864`, pass `--model gpt-image-2 --size 1536x864`). To fix
-  an accidental title or a garbled label, re-run with `--edit-image` on the saved PNG and
-  the edit sub-prompt from the template.
+  It injects the prompt into the bundled `scripts/z-image-workflow.json` (Z-Image-Turbo, 8
+  steps, cfg 1), POSTs it to ComfyUI, polls for the result, and saves the PNG. Point it at
+  your server with `--comfyui-url` or `CROW_COMFYUI_URL` (default `http://10.0.0.10:8188`).
+  Size is 16:9 `1536x864`; override with `--size WIDTHxHEIGHT` (keep both divisible by 16).
+
+- **OpenAI `gpt-image-1`** (`--backend openai`, or set `CROW_BACKEND=openai`). Stronger at
+  the deadpan line-art look and at legible labels, but needs a key:
+
+      OPENAI_API_KEY=... uv run scripts/generate.py --backend openai \
+        --prompt-file shot01.txt --out assets/<slug>/01-topic.png
+
+  Size `1536x1024` (closest landscape; true 16:9 `1536x864` needs `gpt-image-2`). Use
+  `--edit-image <png>` with the edit sub-prompt to remove an accidental title or label.
+
+- If your agent has a native image tool (for example Codex's `image_gen`), you can call it
+  directly with the filled prompt instead of the script.
+
+Z-Image-Turbo is a diffusion model, so on the local backend expect weaker label legibility
+and less character consistency across shots than `gpt-image-1`. The Qwen-3-4B text encoder
+handles our long prompts well, so adherence is decent; if labels garble, cut them to 2-3
+words or fall back to `--backend openai`.
 
 ## Notes
 
