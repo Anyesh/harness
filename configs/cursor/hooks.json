@@ -29,6 +29,10 @@
         "timeout": 5
       },
       {
+        "command": "bash ./hooks/context-cold-start-guard.sh",
+        "timeout": 5
+      },
+      {
         "command": "bash ./hooks/wiki-nudge.sh",
         "timeout": 5
       },
@@ -93,6 +97,10 @@
       }
     ],
     "preCompact": [
+      {
+        "command": "bash ./hooks/context-cold-start-guard.sh",
+        "timeout": 5
+      },
       {
         "command": "bash ./hooks/pre-compact.sh",
         "timeout": 10
