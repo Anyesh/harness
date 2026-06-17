@@ -104,6 +104,20 @@ CLAUDE_PAYLOAD=$(jq -n \
 OUT=$(CONTEXT_COLD_STATE_DIR="$STATE_DIR" bash "$GUARD" <<<"$CLAUDE_PAYLOAD" 2>/dev/null || true)
 assert "ignores non-cursor payloads" '[[ -z "$OUT" ]]'
 
+# Missing transcript_path (common on beforeSubmitPrompt) must not jq-crash
+jq -n \
+  --arg model "claude-4.6-opus-medium-thinking" \
+  '{last_model: $model, turn_count: 3, last_submit_epoch: (now | floor), last_context_tokens: 0, compact_pending: false}' \
+  > "$STATE_FILE"
+NO_TRANSCRIPT=$(echo "$BASE" | jq 'del(.transcript_path)')
+OUT=$(run_guard "$NO_TRANSCRIPT" 2>&1) || true
+assert "missing transcript_path does not error" '[[ "$OUT" != *"invalid JSON"* ]]'
+
+# Corrupt state file should fail open
+printf 'not-json' > "$STATE_FILE"
+OUT=$(run_guard "$BASE" 2>&1) || true
+assert "corrupt state fails open" '[[ "$OUT" != *"invalid JSON"* ]]'
+
 echo ""
 printf "  Pass: %d  Fail: %d\n" "$PASS" "$FAIL"
 echo ""

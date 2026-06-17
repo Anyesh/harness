@@ -40,9 +40,25 @@ log_guard() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$STATE_ROOT/guard.log" 2>/dev/null || true
 }
 
+sanitize_uint() {
+  local v="${1:-}"
+  local default="${2:-0}"
+  if [[ "$v" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$v"
+  else
+    printf '%s' "$default"
+  fi
+}
+
 load_state() {
   if [[ -f "$STATE_FILE" ]]; then
-    cat "$STATE_FILE"
+    local raw
+    raw=$(cat "$STATE_FILE" 2>/dev/null || printf '{}')
+    if printf '%s' "$raw" | jq -e . >/dev/null 2>&1; then
+      printf '%s' "$raw"
+    else
+      printf '%s' '{}'
+    fi
   else
     printf '%s' '{}'
   fi
@@ -55,8 +71,13 @@ save_state() {
 
 transcript_bytes() {
   local path="$1"
-  [[ -n "$path" && -f "$path" ]] || return 0
-  stat -c%s "$path" 2>/dev/null || stat -f%z "$path" 2>/dev/null || printf '0'
+  if [[ -z "$path" || ! -f "$path" ]]; then
+    printf '0'
+    return 0
+  fi
+  local size
+  size=$(stat -c%s "$path" 2>/dev/null || stat -f%z "$path" 2>/dev/null || printf '0')
+  sanitize_uint "$size" 0
 }
 
 estimate_context_mass() {
@@ -74,15 +95,16 @@ estimate_context_mass() {
 }
 
 if [[ "$HOOK_EVENT" == "preCompact" ]]; then
-  CONTEXT_TOKENS=$(printf '%s' "$INPUT" | jq -r '.context_tokens // 0' 2>/dev/null || echo 0)
+  CONTEXT_TOKENS=$(printf '%s' "$INPUT" | jq '(.context_tokens // 0) | floor' 2>/dev/null || echo 0)
+  CONTEXT_TOKENS=$(sanitize_uint "$CONTEXT_TOKENS" 0)
   NOW=$(date +%s)
   STATE=$(load_state)
   STATE=$(printf '%s' "$STATE" | jq \
-    --argjson tokens "${CONTEXT_TOKENS:-0}" \
+    --argjson tokens "$CONTEXT_TOKENS" \
     --argjson now "$NOW" \
     '.last_context_tokens = $tokens
      | .compact_pending = true
-     | .compact_at = $now')
+     | .compact_at = $now' 2>/dev/null) || exit 0
   save_state "$STATE"
   log_guard "preCompact conversation=$CONVERSATION_ID tokens=$CONTEXT_TOKENS"
   exit 0
@@ -105,13 +127,14 @@ NOW=$(date +%s)
 
 STATE=$(load_state)
 LAST_MODEL=$(printf '%s' "$STATE" | jq -r '.last_model // empty' 2>/dev/null || true)
-LAST_SUBMIT=$(printf '%s' "$STATE" | jq -r '.last_submit_epoch // 0' 2>/dev/null || echo 0)
-TURN_COUNT=$(printf '%s' "$STATE" | jq -r '.turn_count // 0' 2>/dev/null || echo 0)
-LAST_CONTEXT_TOKENS=$(printf '%s' "$STATE" | jq -r '.last_context_tokens // 0' 2>/dev/null || echo 0)
+LAST_SUBMIT=$(sanitize_uint "$(printf '%s' "$STATE" | jq -r '.last_submit_epoch // 0' 2>/dev/null || echo 0)" 0)
+TURN_COUNT=$(sanitize_uint "$(printf '%s' "$STATE" | jq -r '.turn_count // 0' 2>/dev/null || echo 0)" 0)
+LAST_CONTEXT_TOKENS=$(sanitize_uint "$(printf '%s' "$STATE" | jq -r '.last_context_tokens // 0' 2>/dev/null || echo 0)" 0)
 COMPACT_PENDING=$(printf '%s' "$STATE" | jq -r '.compact_pending // false' 2>/dev/null || echo false)
-COMPACT_AT=$(printf '%s' "$STATE" | jq -r '.compact_at // 0' 2>/dev/null || echo 0)
+COMPACT_AT=$(sanitize_uint "$(printf '%s' "$STATE" | jq -r '.compact_at // 0' 2>/dev/null || echo 0)" 0)
 
 TRANSCRIPT_B=$(transcript_bytes "$TRANSCRIPT")
+TRANSCRIPT_B=$(sanitize_uint "$TRANSCRIPT_B" 0)
 CONTEXT_MASS=$(estimate_context_mass "$TRANSCRIPT_B" "$LAST_CONTEXT_TOKENS")
 
 FAT=false
@@ -169,7 +192,7 @@ NEXT_STATE=$(printf '%s' "$STATE" | jq \
    | .last_transcript_bytes = $transcript_bytes
    | .last_submit_epoch = $now
    | .turn_count = $turn
-   | .compact_pending = false')
+   | .compact_pending = false' 2>/dev/null) || exit 0
 
 if [[ "$SHOULD_BLOCK" == true ]]; then
   REASON_TEXT=$(IFS='; '; echo "${REASONS[*]}")
@@ -185,7 +208,7 @@ Safer options:
 EOF
 )
   log_guard "BLOCK conversation=$CONVERSATION_ID mass=$CONTEXT_MASS reasons=$REASON_TEXT"
-  jq -n --arg msg "$MSG" '{continue: false, user_message: $msg}'
+  jq -n --arg msg "$MSG" '{continue: false, user_message: $msg}' 2>/dev/null || exit 0
   save_state "$NEXT_STATE"
   exit 0
 fi
