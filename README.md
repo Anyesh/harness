@@ -67,6 +67,7 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 | `pre-edit-code-quality.sh` | PreToolUse (Write/Edit) | Rejects shortcut-seeking language |
 | `stop-sloppiness-guard.sh` | PostResponse | Detects lazy patterns, injects correction |
 | `cost-guard.sh` | PreToolUse (Bash) | Blocks unbounded output in main context |
+| `context-cold-start-guard.sh` | beforeSubmitPrompt / preCompact (Cursor) | Blocks cold re-bill on large context after model change, compaction, or cache idle |
 | `pre-bash-guard.sh` | PreToolUse (Bash) | Validates commands before execution |
 | `format-on-save.sh` | PostToolUse (Write/Edit) | Auto-formats written files |
 | `pre-compact.sh` | PreToolUse (Compact) | Pre-compaction hook |
