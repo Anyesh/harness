@@ -44,25 +44,23 @@ Use the local LLM for any of these without being asked:
 - Brainstorming alternatives
 - Sanity-checking your own answer
 
-After decrypting, extract the primary LLM server's `base_url`, `default_model`,
-and `api_format`, then call the local review helper:
+After decrypting, extract `base_url`, `default_model`, and `api_format` from
+`llm_servers.primary`, then call the server directly. Write the JSON payload
+to a temp file to avoid shell escaping issues:
 
 ```bash
-~/.claude/skills/me/local-review.sh \
-  --url "BASE_URL" \
-  --model "MODEL" \
-  --format "ollama|openai" \
-  --prompt "YOUR PROMPT"
+# Ollama
+python3 -c "import json; print(json.dumps({'model':'MODEL','prompt':'...','stream':False}))" > /tmp/llm-req.json
+curl -sf --max-time 120 BASE_URL/api/generate -H 'Content-Type: application/json' -d @/tmp/llm-req.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("response",""))'
+
+# OpenAI-compat (llama-server)
+python3 -c "import json; print(json.dumps({'model':'MODEL','messages':[{'role':'user','content':'...'}]}))" > /tmp/llm-req.json
+curl -sf --max-time 120 BASE_URL/v1/chat/completions -H 'Content-Type: application/json' -d @/tmp/llm-req.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])'
 ```
 
-If the configured port fails, probe nearby ports before giving up. Try the
-base host on 8080, 8081, 11434, 8000, 8088 in that order — llama-server and
-Ollama move around. Use the first port that responds.
-
-Parse stdout as the model's response. Incorporate it into your answer with
-attribution: "Local model (MODEL) said: ..."
-
-If no port responds, say so and continue without blocking.
+If the configured port fails, probe the same host on 8080, 8081, 11434, 8000,
+8088 before giving up. Use the first that responds. Say so and continue
+without blocking if none respond.
 
 ## When to use local GPU / API endpoints
 
