@@ -4,8 +4,8 @@ description: >
   The user's encrypted personal context: identity, machines, endpoints, API
   keys, local LLM servers (Ollama/llama.cpp), and GPU machines.
   Load whenever the user references anything about themselves or their setup.
-  Use local LLM for second opinions and code reviews by calling local-review.sh
-  with values from the decrypted vault.
+  Decrypt the vault and use local LLM for second opinions and code reviews via
+  direct curl calls.
   Triggers on: "my API key", "my credentials", "my password", "my email",
   "my account", "my address", "who am I", "fill this in", "second opinion",
   "local review", "use local LLM", "use my GPU", "local model", "my endpoint",
