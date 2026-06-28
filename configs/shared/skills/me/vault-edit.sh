@@ -20,39 +20,6 @@ elif [[ -f "$INIT_FILE" ]]; then
   shred -u "$INIT_FILE" 2>/dev/null || rm -f "$INIT_FILE"
 else
   echo "No vault found — creating new one..."
-  cat > "$TMPFILE" <<'TEMPLATE'
-# Personal Vault
-# Encrypted with GPG AES-256. Edit freely, save and close to re-encrypt.
-
-personal:
-  name: ""
-  email: ""
-  phone: ""
-  address: ""
-
-llm_servers:
-  primary:
-    name: "ollama"
-    base_url: ""
-    api_format: "ollama"
-    default_model: ""
-    use_for:
-      - second_opinion
-      - code_review
-      - brainstorming
-
-gpu_machines:
-  homelab:
-    host: ""
-    user: ""
-    services: {}
-
-api_endpoints: []
-
-accounts: {}
-
-notes: ""
-TEMPLATE
 fi
 
 ${EDITOR:-nano} "$TMPFILE"

@@ -17,6 +17,12 @@ description: >
 Encrypted infrastructure manifest. Decrypt on demand. Never repeat context
 across sessions — load this instead.
 
+## Vault location
+
+The vault is not bundled with the skill. The user carries `vault.gpg` personally
+and places it at `~/.personal-vault/vault.gpg` on any machine before use. If
+it is missing, tell the user to place their vault file there and stop.
+
 ## How to decrypt
 
 ```bash
@@ -28,13 +34,16 @@ wrong password, GPG exits with an error — do not retry, tell the user.
 
 ## Vault structure
 
-After decrypting, parse the YAML. It contains:
+After decrypting, parse the YAML. The structure is whatever the user has put in
+it — there is no fixed schema. Read the keys present and use them accordingly.
 
-- `personal` — name, email, phone, address
-- `api_endpoints` — named list of external APIs with URL, key, and usage notes
-- `llm_servers` — local LLM endpoints (Ollama / llama.cpp / OpenAI-compat)
-- `gpu_machines` — homelab GPU machines with IPs and access info
-- `accounts` — logins for web services
+## When to use omniroute
+
+If the vault has an `omniroute` entry under `llm_servers`, prefer it for any
+lightweight LLM task across any project (summarization, classification, quick
+generation). The URL may have changed since the vault was written; confirm with
+the user. Ask for the API key before making any request — it is not stored in
+the vault.
 
 ## When to use local LLM (do this proactively)
 
