@@ -64,7 +64,6 @@ The wiki is organized by project. Each project the user works on gets its own se
 ├── raw/                       # immutable source copies
 │   └── assets/
 ├── index.md                   # master catalog
-├── log.md                     # chronological activity log
 └── WIKI_SCHEMA.md             # conventions (written by /wiki init)
 ```
 
@@ -226,31 +225,17 @@ _No sources yet._
 _No syntheses yet._
 ```
 
-### Step 5 — Write log.md
-
-```markdown
----
-type: log
-created: YYYY-MM-DD
----
-
-# Activity Log
-
-Append-only. `grep "^## \[" log.md | tail -5` for recent entries.
-```
-
-### Step 6 — Write .wiki-vault breadcrumb
+### Step 5 — Write .wiki-vault breadcrumb
 
 Write vault path to `.wiki-vault` in current working directory.
 
-### Step 7 — Report
+### Step 6 — Report
 
 ```
 Wiki initialized at <vault-path>
 
   WIKI_SCHEMA.md    — conventions (edit to customize)
-  wiki/index.md     — content catalog
-  wiki/log.md       — activity timeline
+  wiki/index.md     — master catalog (update every session, no exceptions)
 
 Open in Obsidian and start working. The wiki grows as you do.
 ```
@@ -279,12 +264,9 @@ Read existing `devlog.md` (or create if first entry). Prepend a new H2 entry:
 <2-4 bullet points of key outcomes, decisions made, or things learned. Link to any decision/plan/spike pages created this session.>
 ```
 
-### Step 4 — Append to wiki/log.md
+### Step 4 — Update wiki/index.md
 
-```markdown
-
-## [YYYY-MM-DD] devlog | <project-slug> | <brief title>
-```
+Ensure the project has an entry under `## Projects`. Add it if missing. Add the new devlog entry as a line item only if it represents a notable milestone; routine devlog writes do not need an index line.
 
 ---
 
@@ -335,9 +317,9 @@ project: <project-slug>
 
 Fill the content from the current session context (the planning discussion that just happened). Do not fabricate — only include what was actually discussed.
 
-### Step 3 — Update devlog and log
+### Step 3 — Update devlog and index
 
-Add a devlog entry noting the plan was created. Append to log.md.
+Add a devlog entry noting the plan was created. Update wiki/index.md with the new plan page entry.
 
 ---
 
@@ -379,7 +361,7 @@ project: <project-slug>
 - **<Alternative B>** — <why not chosen>
 ```
 
-Fill from session context. Update devlog and log.
+Fill from session context. Update devlog and wiki/index.md.
 
 ---
 
@@ -419,7 +401,7 @@ project: <project-slug>
 <The takeaway: what to do next, or why this was abandoned>
 ```
 
-Fill from session context. Update devlog and log.
+Fill from session context. Update devlog and wiki/index.md.
 
 ---
 
@@ -496,7 +478,7 @@ Write to `wiki/sources/<slug>.md` with Summary, Key Claims, Entities, Concepts s
 
 For each entity or concept identified: create new pages or update existing ones following the templates above.
 
-### Step 7 — Update index.md and log.md
+### Step 7 — Update index.md
 
 ### Step 8 — Report results
 
@@ -585,10 +567,10 @@ When writing a wiki page, you may `recall` from second-brain to fill in context 
 
 ## Multi-Session Continuity
 
-- Always read `wiki/index.md` before any operation
-- Read `WIKI_SCHEMA.md` at the start of first wiki operation per session
-- Read last 20 entries of `wiki/log.md` for context
-- Wiki files on disk are the source of truth, not conversation memory
+- Always read `wiki/index.md` before any operation. Read only the current project's section plus the all-projects header list; do not load the full file unless doing a cross-project query.
+- Read `WIKI_SCHEMA.md` at the start of first wiki operation per session.
+- The session-start hook injects the 3 most recent devlog entries automatically. If you need earlier context, grep `wiki/projects/<slug>/devlog.md` for the relevant date range, then Read only that section.
+- Wiki files on disk are the source of truth, not conversation memory.
 
 ---
 

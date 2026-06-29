@@ -6,7 +6,6 @@ alwaysApply: true
 ## Exploration Before Action
 
 - **You must explore before you edit.** Before touching any file, you must have read (1) the file itself, (2) at least one caller or consumer of the code you're changing, and (3) the relevant test file if one exists. If you cannot name the callers, you haven't explored enough.
-- **For large unfamiliar directories, `select_context_tool` is an optional orientation aid.** If you are cold in a big repo you cannot navigate by name, it can start you closer than blind grep. It is opt-in, not required: on repos you can navigate, your own grep/read is better and cheaper, and the tool front-loads file contents at a real token cost. Use judgment, not reflex.
 - **Read the test before writing the fix.** Tests encode the contract. If you change behavior without reading the test, you're guessing what the contract is. Read it, understand what's asserted, then decide if the contract or the implementation is wrong.
 - **Trace the call chain.** Before modifying a function, identify who calls it and what they expect. A grep for the function name is the minimum. If it's exported or public, understand the interface contract before changing it.
 - **State what you found before proposing changes.** When reporting to the user, lead with evidence (file paths, line numbers, actual behavior observed), then your interpretation, then your proposed action. Never skip straight to "here's the fix."

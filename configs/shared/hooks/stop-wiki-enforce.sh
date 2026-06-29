@@ -24,16 +24,6 @@ else
     STATE_DIR="$HOME/.claude/state/wiki-enforce"
 fi
 
-# Claude provides a transcript path the hook can scan for tool calls. Cursor
-# does not expose a transcript to stop hooks today, so on Cursor we fall
-# back to a simpler heuristic: enforce once per session regardless of
-# transcript signal.
-if [ "$AGENT" = "claude" ]; then
-    if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
-        exit 0
-    fi
-fi
-
 WIKI_VAULT="${WIKI_VAULT:-}"
 [ -z "$WIKI_VAULT" ] && exit 0
 
@@ -52,17 +42,35 @@ if [ "$FIRED" -ge 1 ]; then
 fi
 
 WIKI_PATH="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}"
+MISSING_PARTS=()
 
-if [ "$AGENT" = "claude" ]; then
-    CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|Bash|NotebookEdit)"' || echo 0)
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+    # Transcript available — use it to count actual file mutations precisely.
+    # Gating on transcript presence (not agent name) avoids misdetection when
+    # hook_event_name casing causes detect-agent.sh to return the wrong value.
+    CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|NotebookEdit)"' || echo 0)
     if [ "$CODE_EDITS" -lt 3 ]; then
         exit 0
     fi
 
-    WIKI_WRITES=$(grep -o "\"${WIKI_VAULT}[^\"]*\"" "$TRANSCRIPT" 2>/dev/null | wc -l || echo 0)
-    if [ "$WIKI_WRITES" -gt 0 ]; then
+    INDEX_WRITTEN=$(grep -c "\"${WIKI_VAULT}/wiki/index\.md\"" "$TRANSCRIPT" 2>/dev/null || echo 0)
+    DEVLOG_PATH="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md"
+    DEVLOG_WRITTEN=$(grep -c "\"${DEVLOG_PATH}\"" "$TRANSCRIPT" 2>/dev/null || echo 0)
+
+    if [ "$INDEX_WRITTEN" -gt 0 ] && [ "$DEVLOG_WRITTEN" -gt 0 ]; then
         exit 0
     fi
+
+    [ "$INDEX_WRITTEN" -eq 0 ] && MISSING_PARTS+=("wiki/index.md (mandatory — no exceptions, every session that touches a project must update it)")
+    [ "$DEVLOG_WRITTEN" -eq 0 ] && MISSING_PARTS+=("${DEVLOG_PATH} (devlog entry for this session's work)")
+else
+    # No transcript (Cursor stop hook). Use wiki mtime as the signal: if any
+    # project wiki file was written in the last 2 hours, the agent did their job.
+    if [ -d "$WIKI_PATH" ]; then
+        RECENT=$(find "$WIKI_PATH" -name "*.md" -mmin -120 2>/dev/null | head -1)
+        [ -n "$RECENT" ] && exit 0
+    fi
+    MISSING_PARTS+=("wiki/index.md and project devlog (write both before finishing)")
 fi
 
 echo $((FIRED + 1)) > "$STATE_FILE"
@@ -73,14 +81,22 @@ else
     WIKI_DIR_EXISTS="Create the project wiki directory at ${WIKI_PATH}/ (with devlog.md and subdirectories: decisions/, plans/, spikes/, concepts/)."
 fi
 
+MISSING_LIST="${MISSING_PARTS[*]:-wiki/index.md and devlog}"
+if [ "${#MISSING_PARTS[@]}" -gt 0 ]; then
+    MISSING_LIST=$(printf '  - %s\n' "${MISSING_PARTS[@]}")
+fi
+
 MSG=$(cat <<EOF
-WIKI MAINTENANCE — you just completed substantial work but wrote zero wiki pages this session.
+WIKI MAINTENANCE — substantial work this session but required wiki files were not written.
 
 ${WIKI_DIR_EXISTS}
 
-Write at minimum a devlog entry at ${WIKI_PATH}/devlog.md summarizing what was accomplished. If any plans, architecture decisions, or explorations happened, create the appropriate page (see the wiki-maintenance rule for formats).
+Missing:
+${MISSING_LIST}
 
-After writing wiki pages, update ${WIKI_VAULT}/wiki/index.md and append to ${WIKI_VAULT}/wiki/log.md.
+Write a devlog entry at ${WIKI_PATH}/devlog.md summarizing what was accomplished. If any plans, decisions, or explorations happened, create the appropriate page. Then update ${WIKI_VAULT}/wiki/index.md.
+
+Both are mandatory. Do not stop without completing them.
 EOF
 )
 
