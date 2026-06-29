@@ -98,4 +98,8 @@ project: <slug>
 
 ### After Writing
 
-Update `$WIKI_VAULT/wiki/index.md` (add project and page entries) and append to `$WIKI_VAULT/wiki/log.md`.
+Update `$WIKI_VAULT/wiki/index.md` — this is mandatory with no exceptions. Every session that writes any wiki page must update the index. Add new projects under `## Projects` if they don't exist; add new page entries under the project section. Keep entries to one line with a short description hook.
+
+### Devlog Reading Strategy
+
+The devlog is the first thing to read when starting work on a project. The session-start hook loads the 3 most recent entries automatically. If you need context from earlier sessions, use the Read tool with an offset — do not load the full devlog into context. For large devlogs (projects like `unlearn`, `verdant`, `taxer`, `wardrobe` all exceed 30KB), loading the full file is expensive and unnecessary; scan headings first with a targeted Bash grep to find the relevant date range, then read only that section.

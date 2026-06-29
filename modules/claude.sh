@@ -199,7 +199,6 @@ claude_mcp() {
   local servers=(
     "web-strip:node:$HOME/.harness/tools/web-strip/index.js"
     "markitdown:uvx:markitdown-mcp"
-    "cognitive-cache:uvx:--from cognitive-cache[mcp] cognitive-cache-mcp"
   )
 
   for entry in "${servers[@]}"; do
