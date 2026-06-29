@@ -30,7 +30,7 @@ cat > "$FAKE_HOME/.harness.env" <<EOF
 WIKI_VAULT=$FAKE_HOME/test-vault
 EOF
 
-for tool in claude codex cursor rtk sb; do
+for tool in claude codex cursor sb; do
     printf '#!/bin/sh\necho "mock %s"\n' "$tool" > "$FAKE_HOME/.local/bin/$tool"
     chmod +x "$FAKE_HOME/.local/bin/$tool"
 done
