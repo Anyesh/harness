@@ -102,7 +102,6 @@ claude        Claude Code: configs, plugins, hooks, skills, MCP
 cursor        Cursor: rules, mcp.json, hooks.json, skills, commands
 codex         Codex: config.toml, instructions
 second-brain  second-brain daemon + MCP server registration
-rtk           RTK CLI output compression tool
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
 lib           Shared functions (logging, template rendering, manifest)

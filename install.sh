@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-MODULE_ORDER=(second-brain verdant claude cursor codex rtk wiki)
+MODULE_ORDER=(second-brain verdant claude cursor codex wiki)
 
 HOOK_SKIP_FILES=()
 

@@ -60,11 +60,6 @@
         "command": "bash ./hooks/cost-guard.sh",
         "matcher": "Read|Shell",
         "timeout": 5
-      },
-      {
-        "command": "command -v rtk >/dev/null && rtk hook cursor || exit 0",
-        "matcher": "Shell",
-        "timeout": 5
       }
     ],
     "beforeShellExecution": [

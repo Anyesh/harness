@@ -10,7 +10,7 @@ python3 <<'PY'
 import json
 import os
 
-env = {"RTK_TELEMETRY_DISABLED": "1"}
+env = {}
 wiki = os.environ.get("WIKI_VAULT", "")
 if wiki:
     env["WIKI_VAULT"] = wiki
