@@ -64,8 +64,12 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     [ "$INDEX_WRITTEN" -eq 0 ] && MISSING_PARTS+=("wiki/index.md (mandatory — no exceptions, every session that touches a project must update it)")
     [ "$DEVLOG_WRITTEN" -eq 0 ] && MISSING_PARTS+=("${DEVLOG_PATH} (devlog entry for this session's work)")
 else
-    # No transcript (Cursor stop hook). Use wiki mtime as the signal: if any
-    # project wiki file was written in the last 2 hours, the agent did their job.
+    # No transcript. Only Cursor can be reliably evaluated here via wiki mtime,
+    # because Cursor never passes transcript_path. Claude subagents also arrive
+    # without a transcript_path, but without a work signal there is no way to
+    # distinguish a real session from an idle one-turn stop — skip to avoid
+    # false positives.
+    [ "$AGENT" != "cursor" ] && exit 0
     if [ -d "$WIKI_PATH" ]; then
         RECENT=$(find "$WIKI_PATH" -name "*.md" -mmin -120 2>/dev/null | head -1)
         [ -n "$RECENT" ] && exit 0
