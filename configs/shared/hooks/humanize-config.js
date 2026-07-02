@@ -160,4 +160,13 @@ function readFlag(flagPath) {
   }
 }
 
-module.exports = { getDefaultMode, getConfigDir, getConfigPath, VALID_MODES, safeWriteFlag, readFlag, detectPlatform, getFlagPath };
+function getStateDir() {
+  if (process.env.HUMANIZE_STATE_DIR) return process.env.HUMANIZE_STATE_DIR;
+  const platform = detectPlatform();
+  const configDir = platform === 'cursor'
+    ? process.env.CURSOR_CONFIG_DIR || path.join(os.homedir(), '.cursor')
+    : process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  return path.join(configDir, 'state', 'humanize');
+}
+
+module.exports = { getDefaultMode, getConfigDir, getConfigPath, VALID_MODES, safeWriteFlag, readFlag, detectPlatform, getFlagPath, getStateDir };

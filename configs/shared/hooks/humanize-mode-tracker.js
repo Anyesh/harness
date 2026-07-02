@@ -10,7 +10,31 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { getDefaultMode, safeWriteFlag, readFlag, VALID_MODES, detectPlatform, getFlagPath } = require('./humanize-config');
+const { getDefaultMode, safeWriteFlag, readFlag, VALID_MODES, detectPlatform, getFlagPath, getStateDir } = require('./humanize-config');
+
+// The reminder persists in conversation history every time it is emitted, so
+// per-prompt emission compounds cost across long sessions. Every 3rd prompt
+// keeps the mode alive (and survives compaction) at a third of the cost.
+const REMIND_EVERY = 3;
+
+function shouldRemind(sessionId) {
+  if (!sessionId) return true;
+  try {
+    const dir = getStateDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const marker = path.join(dir, sessionId + '.count');
+    let count = 0;
+    try {
+      const raw = fs.readFileSync(marker, 'utf8').trim();
+      if (/^\d+$/.test(raw)) count = parseInt(raw, 10);
+    } catch (_) { void 0; }
+    count += 1;
+    fs.writeFileSync(marker, String(count));
+    return count % REMIND_EVERY === 1;
+  } catch (_) {
+    return true;
+  }
+}
 
 const flagPath = getFlagPath();
 const platform = detectPlatform();
@@ -60,8 +84,9 @@ process.stdin.on('end', () => {
       try { fs.unlinkSync(flagPath); } catch (_) { void 0; }
     }
 
+    const sessionId = data.conversation_id || data.session_id || '';
     const activeMode = readFlag(flagPath);
-    if (activeMode) {
+    if (activeMode && shouldRemind(sessionId)) {
       const strictExtra = activeMode === 'strict'
         ? ' STRICT: absolutely zero multi-question responses. One question, one response, no exceptions.'
         : '';
