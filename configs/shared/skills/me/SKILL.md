@@ -1,17 +1,14 @@
 ---
 name: me
 description: >
-  Plain reference facts about the user's setup: what kinds of machines and
-  self-hosted services are available, and which to prefer for a given task.
-  No secrets, no hostnames, no IPs live here — load this for context, then
-  ask the user directly for any current endpoint or credential.
-  Triggers on: "my setup", "my infrastructure", "my machines", "who am I",
-  "second opinion", "local review", "use local LLM", "use my GPU",
-  "local model", "my endpoint", "what endpoints do I have", "deploy this",
-  "where should I deploy", "self-host", "homelab", "my server", "my Pi",
-  "Raspberry Pi", "NAS", "auth server", "notification", "mail server",
-  "SMTP", "uptime", "status page", "what services do I have", "my stack",
-  "what do I run", "available services".
+  Plain reference facts about the user's machines and self-hosted services,
+  and which to prefer for a given task. No secrets, hostnames, or IPs live
+  here — load for context, then ask the user for current endpoints or
+  credentials. Use whenever a task involves the user's own infrastructure:
+  deploying or self-hosting something, using a local LLM or GPU, or asking
+  what machines, servers, endpoints, or services they have. Triggers on:
+  "my setup", "my infrastructure", "homelab", "my server", "use my GPU",
+  "local model", "where should I deploy", "what services do I have".
 ---
 
 # Me — Personal Context
