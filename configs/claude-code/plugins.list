@@ -12,8 +12,12 @@ code-review@claude-plugins-official
 playwright@claude-plugins-official
 commit-commands@claude-plugins-official
 security-guidance@claude-plugins-official
-claude-md-management@claude-plugins-official
-claude-code-setup@claude-plugins-official
-skill-creator@claude-plugins-official
-plugin-dev@claude-plugins-official
+
+# Meta plugins disabled 2026-07: rarely used, and their agent/skill
+# descriptions cost ~2k tokens of system prompt every session.
+# Uncomment here and flip to true in settings.json.tmpl to re-enable.
+# claude-md-management@claude-plugins-official
+# claude-code-setup@claude-plugins-official
+# skill-creator@claude-plugins-official
+# plugin-dev@claude-plugins-official
 
