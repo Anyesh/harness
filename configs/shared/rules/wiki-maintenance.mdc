@@ -5,101 +5,24 @@ alwaysApply: true
 
 ## Wiki Maintenance (Proactive)
 
-You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`. This happens as part of your natural workflow, not only when `/wiki` is invoked. The wiki captures knowledge that would otherwise vanish with the conversation.
+You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`, as part of your natural workflow, not only when `/wiki` is invoked. It captures knowledge that would otherwise vanish with the conversation.
 
-### When to Write
+**Write when a session produces:** a concrete plan or PRD, an architecture or design decision (especially with tradeoffs), a completed spike (succeeded or abandoned), brainstorm ideas worth remembering, a concept discussed in depth for the first time, or scope defined with rationale.
 
-- A planning session produces a concrete plan or PRD
-- An architecture or design decision is made (especially with tradeoffs)
-- A spike or exploration is completed (whether it succeeded or was abandoned)
-- A brainstorming session produces ideas worth remembering
-- A concept is discussed in depth for the first time
-- Scope is defined with rationale
+**Do NOT write:** routine fixes or refactors, debugging steps (unless the finding is non-obvious), transcripts or play-by-play, summaries of what was just done, file listings or raw output, anything obvious from reading the code.
 
-### When NOT to Write
-
-- Routine bug fixes or refactors (unless the root cause is surprising)
-- Debugging steps (unless the finding is non-obvious)
-- Session transcripts or play-by-play narration
-- Summaries of what was just done
-- File listings, command outputs, raw data
-- Anything obvious from reading the code
-
-### Where Pages Go
-
-Determine project slug: `basename $(git rev-parse --show-toplevel)` in kebab-case.
+**Where pages go** (slug: repo basename in kebab-case, create directories as needed):
 
 ```
-$WIKI_VAULT/wiki/projects/<slug>/devlog.md      — append dated entries
-$WIKI_VAULT/wiki/projects/<slug>/plans/         — PRDs, specs
-$WIKI_VAULT/wiki/projects/<slug>/decisions/     — ADRs
-$WIKI_VAULT/wiki/projects/<slug>/spikes/        — explorations
-$WIKI_VAULT/wiki/projects/<slug>/concepts/      — project-specific concepts
-$WIKI_VAULT/wiki/concepts/                      — cross-project concepts
+$WIKI_VAULT/wiki/projects/<slug>/devlog.md   — dated entries, newest first
+$WIKI_VAULT/wiki/projects/<slug>/plans|decisions|spikes|concepts/
+$WIKI_VAULT/wiki/concepts/                   — cross-project concepts
 ```
 
-Create the project directory and subdirectories if they don't exist.
+Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's SKILL.md; follow them exactly.
 
-### Page Formats
+**Anti-bloat:** no session narration, no timestamps in prose (frontmatter only), no AI attribution, no hedging, maximum 2 paragraphs per section, prefer lists for facts and tradeoffs; write as a knowledgeable colleague documenting for future reference.
 
-**Devlog** (append to existing file, newest entry first):
-```
-## [YYYY-MM-DD] Brief title
-- Key outcome or decision
-- Link to [[decision]] or [[plan]] page if created
-```
+**After writing any page, update `$WIKI_VAULT/wiki/index.md`.** Mandatory, no exceptions: one line per page with a short description hook; new projects go under `## Projects`.
 
-**Decision** (new file per decision):
-```
----
-type: decision
-status: accepted
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Context — ## Decision — ## Consequences — ## Alternatives Considered
-```
-
-**Plan** (new file per plan):
-```
----
-type: plan
-status: active
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Goal — ## Background — ## Approach — ## Scope — ## Open Questions
-```
-
-**Spike** (new file per exploration):
-```
----
-type: spike
-outcome: success|abandoned|partial
-created: YYYY-MM-DD
-project: <slug>
----
-# Title
-## Question — ## What Was Tried — ## Findings — ## Conclusion
-```
-
-### Anti-Bloat Rules
-
-- No "In this session we..." framing
-- No timestamps in prose (frontmatter only)
-- No attribution to "Claude" or "the AI"
-- No hedging ("it might be worth considering...")
-- No listing things obvious from the code
-- Maximum 2 paragraphs per section
-- Prefer lists for facts and tradeoffs
-- Write as a knowledgeable colleague documenting for future reference
-
-### After Writing
-
-Update `$WIKI_VAULT/wiki/index.md` — this is mandatory with no exceptions. Every session that writes any wiki page must update the index. Add new projects under `## Projects` if they don't exist; add new page entries under the project section. Keep entries to one line with a short description hook.
-
-### Devlog Reading Strategy
-
-The devlog is the first thing to read when starting work on a project. The session-start hook loads the 3 most recent entries automatically. If you need context from earlier sessions, use the Read tool with an offset — do not load the full devlog into context. For large devlogs (projects like `unlearn`, `verdant`, `taxer`, `wardrobe` all exceed 30KB), loading the full file is expensive and unnecessary; scan headings first with a targeted Bash grep to find the relevant date range, then read only that section.
+**Devlog reading:** the session-start hook loads the 3 most recent entries. For older context, grep headings to find the date range, then Read only that section; never load a large devlog whole.
