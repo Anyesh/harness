@@ -1,7 +1,8 @@
 #!/bin/bash
 # Prompt-submit hook: soft reminder when .scope.md is missing/stale during
-# long conversations that look like feature work. Fires after 10+ turns.
-# Wired in Claude as UserPromptSubmit, in Cursor as beforeSubmitPrompt
+# long conversations that look like feature work. Fires every 10th turn of a
+# session, starting at turn 10.
+# Wired in Claude as UserPromptSubmit, in Cursor as beforeSubmitPrompt.
 # Emits additional_context JSON on Cursor, hookSpecificOutput on Claude.
 
 set -euo pipefail
@@ -12,21 +13,36 @@ source "$HOOK_DIR/harness-project.sh"
 INPUT=$(cat 2>/dev/null || true)
 AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
+[ -z "$SESSION_ID" ] && exit 0
+
 REPO_ROOT="$(harness_repo_root "$INPUT")"
 harness_is_tooling_dir "$REPO_ROOT" && exit 0
 SCOPE_FILE="$REPO_ROOT/.scope.md"
-TURN_MARKER="$REPO_ROOT/.scope-turn-count"
 
-if [ ! -f "$TURN_MARKER" ]; then
-    echo "1" > "$TURN_MARKER"
-    exit 0
+# Earlier versions kept a lifetime counter in the repo root; it never reset
+# across sessions, so remove it wherever it still lingers.
+rm -f "$REPO_ROOT/.scope-turn-count" 2>/dev/null || true
+
+if [ -n "${SCOPE_DRIFT_STATE_DIR:-}" ]; then
+    STATE_DIR="$SCOPE_DRIFT_STATE_DIR"
+elif [ "$AGENT" = "cursor" ]; then
+    STATE_DIR="$HOME/.cursor/state/scope-drift"
+else
+    STATE_DIR="$HOME/.claude/state/scope-drift"
 fi
 
-TURNS=$(cat "$TURN_MARKER")
-TURNS=$((TURNS + 1))
-echo "$TURNS" > "$TURN_MARKER"
+# WHY: counter is per-session so it resets between conversations and
+# concurrent sessions on one repo don't corrupt each other's turn count.
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+MARKER="$STATE_DIR/${SESSION_ID}.count"
 
-if [ "$TURNS" -lt 10 ]; then
+TURNS=$(cat "$MARKER" 2>/dev/null || echo 0)
+[[ "$TURNS" =~ ^[0-9]+$ ]] || TURNS=0
+TURNS=$((TURNS + 1))
+echo "$TURNS" > "$MARKER"
+
+if [ "$TURNS" -lt 10 ] || [ $((TURNS % 10)) -ne 0 ]; then
     exit 0
 fi
 
