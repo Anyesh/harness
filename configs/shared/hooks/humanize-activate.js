@@ -27,12 +27,18 @@ if (mode === 'off') {
 
 safeWriteFlag(flagPath, mode);
 
+// Prefer the digest: the full SKILL.md costs ~1.2k tokens on every session
+// start, and the digest carries all operative rules. SKILL.md stays on disk
+// for on-demand reads.
 let skillContent = '';
-try {
-  skillContent = fs.readFileSync(
-    path.join(__dirname, '..', 'skills', 'humanize', 'SKILL.md'), 'utf8'
-  );
-} catch (_) { void 0; }
+for (const name of ['DIGEST.md', 'SKILL.md']) {
+  try {
+    skillContent = fs.readFileSync(
+      path.join(__dirname, '..', 'skills', 'humanize', name), 'utf8'
+    );
+    break;
+  } catch (_) { void 0; }
+}
 
 let rules;
 
