@@ -62,6 +62,8 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 These rules apply to **both chat responses and any prose written into files** (READMEs, papers, docs, commit messages). AI-tell rhetorical tics read as machine-generated and erode trust; strip them before output.
 
+For a deliberate writing artifact (a doc, README, blog post, client-facing copy), reach for the `deslop` skill: it carries the full pattern catalog and a false-positive guardrail. This short list is the always-on floor; `deslop` is the on-demand deep pass.
+
 12. **No "load-bearing".** Use "core", "central", "decisive", or "has no measurable effect" per context.
 
 13. **No honesty-signals.** Drop "honest framing", "honest pitch", "the honest X", "to be honest", "frankly". State the thing directly; flagging your own honesty implies the rest is not.
