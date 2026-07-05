@@ -1,0 +1,10 @@
+---
+description: Save reusable command sequences as runbooks; skip infrastructure for one-offs.
+alwaysApply: true
+---
+
+## Runbooks
+
+- **Reusable command sequence?** Save as a runbook in `~/.agent-scratchpad/runbooks/{project-name}/`. Skip for one-offs or 1-2 commands.
+- **Scripts:** `.sh`, executable, no comments; document all in one `README.md` (`When/What/Usage` per script). Use `.yaml` (`name/description/when/steps`) only if CI or another agent must parse the steps.
+- **Check first:** before typing a command sequence, look for an existing runbook and reuse it.
