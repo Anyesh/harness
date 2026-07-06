@@ -1,16 +1,42 @@
 #!/bin/bash
 # Global PreToolUse hook: Enforces universal code quality rules
-# Blocks: emojis, inline imports (Python), unnecessary docstrings (Python),
-#         obvious comments (JS/TS), empty catch blocks (JS/TS), swallowed exceptions (Python)
+# Blocks: em dashes (any file), emojis, inline imports (Python), unnecessary
+#         docstrings (Python), obvious comments (JS/TS), empty catch blocks (JS/TS),
+#         swallowed exceptions (Python)
 
 INPUT=$(cat)
-FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // empty' 2>/dev/null) || exit 0
+FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.notebook_path // empty' 2>/dev/null) || exit 0
 
 if [ -z "$FILE_PATH" ]; then
     exit 0
 fi
 
-# Markdown exempt entirely: handovers/notes/READMEs use scannable short lines by design
+# Scratch/working output isn't user-facing prose, so it's exempt from the em dash check below.
+case "$FILE_PATH" in
+    /tmp/*scratchpad*|*/scratchpad/*) exit 0 ;;
+esac
+
+# Em dash check applies to every file type (README, docs, code comments, everywhere),
+# unlike the language-specific checks below, so it runs before the markdown exemption.
+EMDASH_CONTENT=$(printf '%s' "$INPUT" | jq -r '.tool_input.new_string // .tool_input.contents // .tool_input.content // .tool_input.new_source // empty' 2>/dev/null) || exit 0
+if [ -n "$EMDASH_CONTENT" ]; then
+    FOUND=$(printf '%s' "$EMDASH_CONTENT" | LC_ALL=C.UTF-8 command grep -nP '\x{2014}' 2>/dev/null | head -3 || true)
+    if [ -n "$FOUND" ]; then
+        cat >&2 <<EOF
+[hook:global] BLOCKED: em dash (—) detected
+Rule: No em dashes in writing. Restructure with colons, commas, parentheses, or periods instead.
+File: $FILE_PATH
+
+Violations found:
+$FOUND
+
+Run the humanize/deslop rewrite on this text before writing it.
+EOF
+        exit 2
+    fi
+fi
+
+# Markdown exempt from the remaining checks: handovers/notes/READMEs use scannable short lines by design
 case "$FILE_PATH" in
     *.md|*.mdx) exit 0 ;;
 esac
