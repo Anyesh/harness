@@ -36,9 +36,9 @@ proc.stdin.close(); proc.wait()
 - Seed every `random.Random(n)` and `np.random.default_rng(n)` so re-renders are identical.
 - Timing helpers you will need constantly: `smooth(t)` (smoothstep, clamped) and `fade(t, t0, t1, edge)` returning 0..1 with eased edges. Every element fades in and out through these; nothing pops.
 
-## Visual language A: dark glow scenes
+## Visual language A: dark scenes
 
-Near-black background (6, 7, 10). Draw crisp elements (points, lines, text) on a black RGB layer, then `layer.filter(GaussianBlur(7))` and `ImageChops.add` the blur and the crisp layer over the background: instant neon glow, one blur per frame, fast. Palette: one warm accent (amber 255,196,130), one cool (cyan 140,190,255), near-white ink for captions. Captions go on a separate RGBA overlay alpha-composited last so they never glow. Good scene vocabulary: blinking cursor, typed prompt with expanding ripple rings per keystroke, constellation of nodes with pulsing edges, falling glyph rain out of which a bright sentence locks in character by character, a dot trail whose lights dim behind a moving "context limit" line, twinkling cross-shaped stars.
+Near-black background (6, 7, 10). Text never glows: every caption, headline, and typed line renders as clean antialiased type, exactly like normal UI text, on a separate RGBA overlay alpha-composited last. Anyesh rejected glowing and shimmering text outright, so never blur text and never pulse its opacity. Draw graphic marks (points, lines, rings) crisp straight onto the background by default. If a piece genuinely calls for neon marks, glow only those graphics: draw them on a black RGB layer, `layer.filter(GaussianBlur(7))`, then `ImageChops.add` the blur and the crisp layer over the background, keeping all text off that layer. Palette: one warm accent (amber 255,196,130), one cool (cyan 140,190,255), near-white ink for text. Good scene vocabulary: blinking cursor, typed prompt, constellation of nodes with pulsing edges, a dot trail whose lights dim behind a moving "context limit" line.
 
 ## Visual language B: typed letter on paper
 
@@ -54,7 +54,7 @@ See `references/techniques.md` for the full recipes. The essentials:
 
 ## Audio
 
-Full recipes in `references/audio.md`. Everything is numpy sine waves, filtered noise, and exponential decays written to a wav with the stdlib `wave` module. Minimum viable score: two or three detuned drones with slow LFOs, sparse pentatonic bells, soft convolved-noise texture, and a global fade-in/fade-out envelope. For letters add per-event typewriter sounds driven by the same event schedule as the video. Normalize to 0.85 peak before writing int16.
+Full recipes in `references/audio.md`. Everything is numpy sine waves, filtered noise, and exponential decays written to a wav with the stdlib `wave` module. Minimum viable score: two or three detuned drones with slow LFOs, sparse pentatonic bells, soft convolved-noise texture, and a global fade-in/fade-out envelope. Typing sounds are driven by the same event schedule as the video; use the mechanical keyboard kit for on-screen typing (Anyesh's preference), and reserve the typewriter kit for the paper-letter language where the aesthetic demands it. Normalize to 0.85 peak before writing int16.
 
 ## Pitfalls actually hit while building the reference films
 
