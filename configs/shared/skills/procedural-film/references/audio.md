@@ -23,6 +23,16 @@ with wave.open(path, "wb") as f:
 - **Air**: white noise convolved with a 600-sample hanning window (cheap lowpass), amplitude about 0.05 for dark films; for paper films use sparse vinyl crackle instead: a few impulses per second convolved with a 50-sample hanning, amplitude about 0.01.
 - **Envelope**: `clip(t / 3, 0, 1) * clip((D - t) / 4.5, 0, 1)` over the whole mix, optionally a gaussian swell (`1 + 0.35 exp(-(t - peak)^2 / 2 sigma^2)`) centered on the film's emotional peak.
 
+## Mechanical keyboard kit (event-driven)
+
+The default for any on-screen typing. Three layers per key, about 90 ms total, randomized so no two keys sound identical:
+
+- **Click transient**: noise burst `exp(-t * 550)` convolved with a 10-sample hanning (keeps the high end), weight 1.1.
+- **Thock**: sine at 105 to 150 Hz (70 to 95 Hz for the space bar) with random phase, `exp(-t * 60)` decay, weight 0.9. This low bottom-out is what makes it read as a mechanical board instead of a typewriter.
+- **Tap resonance**: sine at 550 to 850 Hz, `exp(-t * 300)`, weight 0.3.
+
+Scale the sum by a random 0.85 to 1.15 per key, pan 0.4 to 0.6, event amplitude 0.06 to 0.12 with the space bar at about 0.85 of a letter key.
+
 ## Typewriter kit (event-driven)
 
 Drive these from the same event schedule as the video so sync is exact.
