@@ -104,6 +104,10 @@ codex         Codex: config.toml, instructions
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
+leakguard     gitleaks + global pre-commit scan for personal info/secrets;
+              pairs with the publish-leak-guard Claude hook that scans built
+              artifacts (sdists/wheels) before uv publish/twine upload.
+              Escape hatches: '#gitleaks:allow' inline, LEAKGUARD_SKIP=1.
 lib           Shared functions (logging, template rendering, manifest)
 ```
 
