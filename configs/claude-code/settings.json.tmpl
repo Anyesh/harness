@@ -44,6 +44,11 @@
             "type": "command",
             "command": "bash {{HOME_DIR}}/.claude/hooks/pre-bash-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/publish-leak-guard.sh",
+            "timeout": 30
           }
         ]
       }

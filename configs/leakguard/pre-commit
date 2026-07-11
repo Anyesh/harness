@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Global pre-commit dispatcher installed by the harness leakguard module to
+# ~/.config/git/hooks/ (core.hooksPath). Scans the staged diff for personal
+# info and secrets, then chains to the repo-local hook so repos with their
+# own pre-commit (husky, pre-commit framework) keep working.
+set -uo pipefail
+
+if [[ "${LEAKGUARD_SKIP:-}" != "1" ]] && command -v gitleaks >/dev/null 2>&1; then
+  cfg="${LEAKGUARD_CONFIG:-$HOME/.config/leakguard/gitleaks.toml}"
+  if ! gitleaks git --staged --no-banner --redact -v --log-level warn -c "$cfg"; then
+    {
+      echo ""
+      echo "leakguard: staged changes contain personal info or a secret (see findings above)."
+      echo "Fix the content before committing. For a genuine false positive, append"
+      echo "'#gitleaks:allow' to the flagged line, or bypass this one commit with:"
+      echo "  LEAKGUARD_SKIP=1 git commit ..."
+    } >&2
+    exit 1
+  fi
+fi
+
+# Deliberately --git-dir, not --git-path: --git-path resolves through
+# core.hooksPath and would re-run this dispatcher forever.
+repo_hook="$(git rev-parse --git-dir)/hooks/pre-commit"
+if [[ -x "$repo_hook" ]]; then
+  exec "$repo_hook" "$@"
+fi
+exit 0
