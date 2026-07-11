@@ -108,6 +108,8 @@ leakguard     gitleaks + global pre-commit scan for personal info/secrets;
               pairs with the publish-leak-guard Claude hook that scans built
               artifacts (sdists/wheels) before uv publish/twine upload.
               Escape hatches: '#gitleaks:allow' inline, LEAKGUARD_SKIP=1.
+              Caveat: repos that set their own core.hooksPath (like this
+              one) bypass the global scan; they must scan themselves.
 lib           Shared functions (logging, template rendering, manifest)
 ```
 
