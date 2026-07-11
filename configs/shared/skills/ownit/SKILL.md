@@ -92,5 +92,10 @@ When ownit is active, before every response that includes code or a recommendati
 - "Is this the real solution or a band-aid?"
 - "Would I accept this in a code review?"
 - "What did I skip?"
+- "What am I lest confident about right now?"
+- "if this breaks in 3 months, whats the most likely reason?"
+- "If I could add one unrequested industry-leading feature, what would it be?"
+- "What assumptions did I make that I never stated explicitly?"
+- "What could I have done differently to make this session smoother?"
 
 If the answer to any of these is uncomfortable, fix it before responding.
