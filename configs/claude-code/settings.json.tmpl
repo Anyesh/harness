@@ -12,6 +12,37 @@
   "autoMode": {
     "classifyAllShell": true
   },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "allowWrite": [
+        "/srv/data/Vault",
+        "~/.claude",
+        "~/.cargo",
+        "~/.npm",
+        "~/.cache",
+        "~/.local",
+        "~/.rustup",
+        "~/.agent-scratchpad",
+        "/tmp"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "github.com", "*.githubusercontent.com", "api.github.com",
+        "registry.npmjs.org",
+        "pypi.org", "files.pythonhosted.org",
+        "crates.io", "static.crates.io",
+        "astral.sh", "*.astral.sh",
+        "huggingface.co", "*.huggingface.co",
+        "api.anthropic.com", "platform.claude.com", "status.claude.com",
+        "arxiv.org",
+        "192.0.2.10", "192.0.2.21", "192.0.2.135", "192.0.2.16", "192.0.2.138",
+        "*.example.com", "*.pi.example.com", "*.home.internal", "*.local"
+      ]
+    },
+    "excludedCommands": ["docker *"]
+  },
   "enabledMcpjsonServers": ["second-brain", "web-strip", "markitdown"],
   "hooks": {
     "PreToolUse": [
