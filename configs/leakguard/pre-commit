@@ -6,7 +6,11 @@
 set -uo pipefail
 
 if [[ "${LEAKGUARD_SKIP:-}" != "1" ]] && command -v gitleaks >/dev/null 2>&1; then
-  cfg="${LEAKGUARD_CONFIG:-$HOME/.config/leakguard/gitleaks.toml}"
+  # Repos that legitimately hold personal info (homelab docs) point
+  # leakguard.config at a repo-scoped ruleset so that secret scanning
+  # stays on while the personal-info rules are relaxed there.
+  cfg="${LEAKGUARD_CONFIG:-$(git config --get leakguard.config || true)}"
+  cfg="${cfg:-$HOME/.config/leakguard/gitleaks.toml}"
   if ! gitleaks git --staged --no-banner --redact -v --log-level warn -c "$cfg"; then
     {
       echo ""
