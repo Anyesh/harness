@@ -1,0 +1,20 @@
+// harness does not manage opencode.json(c): model/provider config is machine-specific.
+// This file exists as a reference for manual setup only.
+//
+// opencode merges ~/.config/opencode/opencode.json AND opencode.jsonc if both exist,
+// so machine-specific settings can live in either without conflicting with the
+// harness-managed AGENTS.md and commands/ in the same directory.
+//
+// Reference shape (schema: https://opencode.ai/config.json):
+//
+// {
+//   "$schema": "https://opencode.ai/config.json",
+//   "model": "anthropic/claude-sonnet-4-5",
+//   "small_model": "anthropic/claude-haiku-4-5",
+//   "permission": {
+//     "bash": { "*": "ask", "git status*": "allow" }
+//   },
+//   "mcp": {
+//     "example": { "type": "local", "command": ["npx", "-y", "some-mcp"], "enabled": true }
+//   }
+// }
