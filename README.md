@@ -57,7 +57,19 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 ```
 ~/.codex/config.toml           ← model, approval mode
 ~/.codex/instructions.md       ← shared instructions
+~/.agents/skills/              ← shared skills (Codex reads user skills here)
 ```
+
+### opencode
+
+```
+~/.config/opencode/AGENTS.md   ← shared global rules
+~/.config/opencode/commands/   ← shared slash commands (plan, scope, commit, decision, devlog)
+~/.agents/skills/              ← shared skills (opencode auto-scans this dir and ~/.claude/skills)
+```
+
+opencode.json(c) stays unmanaged (model/provider config is machine-specific); a
+reference template lives at `configs/opencode/opencode.jsonc.tmpl`.
 
 ## Hooks
 
@@ -101,6 +113,7 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 claude        Claude Code: configs, plugins, hooks, skills, MCP
 cursor        Cursor: rules, mcp.json, hooks.json, skills, commands
 codex         Codex: config.toml, instructions
+opencode      opencode: AGENTS.md, commands, skills via ~/.agents/skills
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
@@ -174,7 +187,8 @@ harness/
 ├── configs/
 │   ├── claude-code/            ← Templates: settings, CLAUDE.md, .mcp.json, hooks, skills
 │   ├── cursor/                 ← Templates: rules, mcp.json
-│   └── codex/                  ← Templates: config.toml, instructions
+│   ├── codex/                  ← Templates: config.toml, instructions
+│   └── opencode/               ← Templates: AGENTS.md, opencode.jsonc (reference)
 ├── modules/                    ← Deploy logic per tool (claude.sh, cursor.sh, etc.)
 ├── lib/                        ← Shared: template rendering, manifest, backup, detect
 ├── tools/                      ← Bundled tools (web-strip)

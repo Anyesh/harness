@@ -47,12 +47,13 @@ while [[ $# -gt 0 ]]; do
     --claude-only) ONLY_MODULE="claude" ;;
     --cursor-only) ONLY_MODULE="cursor" ;;
     --codex-only) ONLY_MODULE="codex" ;;
+    --opencode-only) ONLY_MODULE="opencode" ;;
     *) die "unknown flag: $1" ;;
   esac
   shift
 done
 
-MODULE_ORDER=(second-brain verdant claude cursor codex wiki leakguard)
+MODULE_ORDER=(second-brain verdant claude cursor codex opencode wiki leakguard)
 
 HOOK_SKIP_FILES=()
 
@@ -384,9 +385,10 @@ detect_tools
 
 if [[ -n "$ONLY_MODULE" ]]; then
   case "$ONLY_MODULE" in
-    claude)  HAS_CURSOR=false; HAS_CODEX=false ;;
-    cursor)  HAS_CLAUDE=false; HAS_CODEX=false ;;
-    codex)   HAS_CLAUDE=false; HAS_CURSOR=false ;;
+    claude)   HAS_CURSOR=false; HAS_CODEX=false; HAS_OPENCODE=false ;;
+    cursor)   HAS_CLAUDE=false; HAS_CODEX=false; HAS_OPENCODE=false ;;
+    codex)    HAS_CLAUDE=false; HAS_CURSOR=false; HAS_OPENCODE=false ;;
+    opencode) HAS_CLAUDE=false; HAS_CURSOR=false; HAS_CODEX=false ;;
   esac
 fi
 
