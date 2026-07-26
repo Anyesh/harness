@@ -3,13 +3,19 @@
 second_brain_check() {
     if ! command -v sb &>/dev/null; then
         log_info "second-brain binaries not found (will attempt install)"
-        log_info "  Manual install: cargo install second-brain-cli"
+        log_info "  Manual install: cargo install --git $SECOND_BRAIN_GIT_URL --rev $SECOND_BRAIN_REV second-brain-cli"
         if ! command -v cargo &>/dev/null; then
             log_info "  Install Rust first: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
         fi
     fi
     return 0
 }
+
+# second-brain is a private repo, and crates.io lags the workspace (stuck at 0.5.3 while
+# HEAD is past 0.5.7), so pin by git rev until publishing catches up. Bump SECOND_BRAIN_REV
+# when a new stable rev is cut.
+SECOND_BRAIN_GIT_URL="ssh://git@github.com/Anyesh/second-brain.git"
+SECOND_BRAIN_REV="f80b41a805fa2cf5252b1cafd796e23f80af6c2e"
 
 second_brain_binaries() {
   local binaries=("second-brain-api" "second-brain-mcp" "sb")
@@ -28,36 +34,45 @@ second_brain_binaries() {
   fi
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would install second-brain via cargo"
+    log_info "[dry-run] would install second-brain via cargo (git rev ${SECOND_BRAIN_REV:0:7})"
     return
   fi
 
   if ! command -v cargo &>/dev/null; then
     log_warn "cargo not found, cannot install second-brain"
-    log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+    log_warn "run manually: cargo install --git $SECOND_BRAIN_GIT_URL --rev $SECOND_BRAIN_REV second-brain-cli second-brain-mcp second-brain-api"
     return 1
   fi
 
   local cargo_flags=()
   if [[ "$FORCE" == "true" ]]; then
     cargo_flags+=(--force)
-    log_info "force-installing latest second-brain from crates.io..."
   fi
+  log_info "installing second-brain from git rev ${SECOND_BRAIN_REV:0:7}..."
+
+  # libgit2 cannot use the ssh-agent reliably against a private repo; the git CLI can.
+  export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
   local build_log
   build_log=$(mktemp)
-  if cargo install "${cargo_flags[@]}" second-brain-cli second-brain-mcp second-brain-api 2>&1 | tee "$build_log" | tail -3; then
-    if command -v sb &>/dev/null; then
-      log_success "second-brain installed from crates.io"
-      rm -f "$build_log"
-      return 0
+  local pkg all_ok=true
+  for pkg in second-brain-cli second-brain-mcp second-brain-api; do
+    if ! cargo install "${cargo_flags[@]}" --git "$SECOND_BRAIN_GIT_URL" --rev "$SECOND_BRAIN_REV" "$pkg" 2>&1 | tee -a "$build_log" | tail -3; then
+      all_ok=false
+      break
     fi
+  done
+
+  if [[ "$all_ok" == "true" ]] && command -v sb &>/dev/null; then
+    log_success "second-brain installed (git rev ${SECOND_BRAIN_REV:0:7})"
+    rm -f "$build_log"
+    return 0
   fi
 
   log_warn "second-brain install failed:"
   grep -iE "error|failed|cannot|missing" "$build_log" | tail -10 >&2
   rm -f "$build_log"
-  log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+  log_warn "run manually: cargo install --git $SECOND_BRAIN_GIT_URL --rev $SECOND_BRAIN_REV second-brain-cli second-brain-mcp second-brain-api"
   return 1
 }
 
@@ -138,7 +153,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=$sb_api
-Environment=SECOND_BRAIN_DB=$HOME/.second-brain/graph.kuzu
+Environment=SECOND_BRAIN_DB=$HOME/.second-brain/brain.db
 Environment=SECOND_BRAIN_BIND=127.0.0.1:7200
 Restart=on-failure
 RestartSec=5

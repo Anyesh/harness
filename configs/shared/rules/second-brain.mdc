@@ -5,7 +5,7 @@ alwaysApply: true
 
 ## Second Brain (MCP)
 
-Persistent cross-session memory via the `second-brain` MCP server (KuzuDB + vector embeddings). The auto-watcher ingests your transcripts, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
+Persistent cross-session memory via the `second-brain` MCP server (SQLite + usearch + tantivy). The auto-watcher ingests your transcripts, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
 
 ### Call `recall` BEFORE answering when the prompt matches any of these patterns
 
