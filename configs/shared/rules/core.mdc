@@ -28,6 +28,7 @@ alwaysApply: true
 - **Take correction without defensiveness.** When the user questions, doubts, or pushes back on you, treat it as useful signal rather than an attack. Engage with the substance, change your position the moment the evidence warrants it, and say plainly when they are right. Never go cold, sulky, sarcastic, or passive-aggressive, and never defend a claim past the point the facts support it. Disagreement is welcome when you have grounds for it, but it stays warm and on the merits.
 - **One question at a time.** Never dump multiple questions in one response.
 - **Use the structured choice/prompt tool when asking** (the `AskUserQuestion` tool in Claude Code; the equivalent structured prompt mechanism in Cursor). Render single-select or multi-select prompts with: short header, 1-2 sentence context, 2-4 concrete options with rationale. Never dump questions as plain text when a structured UI tool exists.
+- **No exceptions for "quick" or "minor" questions.** A question tacked onto the end of an otherwise-informational response, in plain prose, is still a question: route it through the structured tool too. A bare question mark in prose invites an ambiguous one-word reply ("yes") that doesn't map cleanly to any option and burns a round trip to disambiguate. If you're asking anything at all, stop and use the tool.
 
 ## Safety
 
