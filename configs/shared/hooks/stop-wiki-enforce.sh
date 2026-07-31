@@ -12,6 +12,33 @@ source "$HOOK_DIR/load-harness-env.sh"
 source "$HOOK_DIR/harness-project.sh"
 load_wiki_vault
 
+# A wiki page is recorded in the transcript differently depending on which
+# channel wrote it, so all three signals are checked. A verdant-routed project
+# denies native Write and confines mcp__verdant__write to the project root,
+# which leaves bash heredocs as the only way to reach a vault outside it, and a
+# page written that way carries no file_path field at all.
+#
+# The path must never be matched as bare text: wiki-nudge.sh and this hook's
+# own block message both name it in prose, so a loose match would let the
+# reminder satisfy the requirement it exists to enforce.
+wiki_page_written() {
+    local page="$1"
+    grep -qF "\"${page}\"" "$TRANSCRIPT" 2>/dev/null && return 0
+    grep -F "$page" "$TRANSCRIPT" 2>/dev/null | jq -e --arg p "$page" '
+        .. | objects
+        | select(.type? == "tool_use")
+        | select((.name? // "") | ascii_downcase | contains("bash"))
+        | (.input.command? // "")
+        | select(contains($p))
+    ' >/dev/null 2>&1 && return 0
+    # A command that assembles the path from a variable never contains it
+    # literally, so mtime against session start is the channel-independent
+    # signal of last resort.
+    [ -n "$SESSION_START" ] && [ -f "$page" ] \
+        && [ -n "$(find "$page" -newermt "@${SESSION_START}" 2>/dev/null)" ] && return 0
+    return 1
+}
+
 INPUT=$(cat)
 AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // empty' 2>/dev/null || true)
@@ -61,11 +88,21 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
         exit 0
     fi
 
-    INDEX_WRITTEN=$(grep -c "\"${WIKI_VAULT}/wiki/index\.md\"" "$TRANSCRIPT" 2>/dev/null || true)
-    [[ "$INDEX_WRITTEN" =~ ^[0-9]+$ ]] || INDEX_WRITTEN=0
+    # Anchors the mtime signal in wiki_page_written. `grep -m1` stops at the
+    # first hit, so the whole transcript is never parsed just to find it.
+    SESSION_START=""
+    FIRST_TS=$(grep -m1 -o '"timestamp":"[^"]*"' "$TRANSCRIPT" 2>/dev/null | cut -d'"' -f4 || true)
+    if [ -n "$FIRST_TS" ]; then
+        SESSION_START=$(date -d "$FIRST_TS" +%s 2>/dev/null || true)
+    fi
+    [[ "$SESSION_START" =~ ^[0-9]+$ ]] || SESSION_START=""
+
+    INDEX_PATH="${WIKI_VAULT}/wiki/index.md"
     DEVLOG_PATH="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md"
-    DEVLOG_WRITTEN=$(grep -c "\"${DEVLOG_PATH}\"" "$TRANSCRIPT" 2>/dev/null || true)
-    [[ "$DEVLOG_WRITTEN" =~ ^[0-9]+$ ]] || DEVLOG_WRITTEN=0
+    INDEX_WRITTEN=0
+    DEVLOG_WRITTEN=0
+    wiki_page_written "$INDEX_PATH" && INDEX_WRITTEN=1
+    wiki_page_written "$DEVLOG_PATH" && DEVLOG_WRITTEN=1
 
     if [ "$INDEX_WRITTEN" -gt 0 ] && [ "$DEVLOG_WRITTEN" -gt 0 ]; then
         exit 0
