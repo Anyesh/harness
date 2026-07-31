@@ -11,7 +11,7 @@ CODEX_CONFIG_DIR="${CODEX_CONFIG_DIR:-$HOME/.codex}"
 OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 
 detect_tools() {
-  if command -v claude &>/dev/null; then
+  if command -v claude &>/dev/null || [[ -d "$CLAUDE_CONFIG_DIR" ]]; then
     HAS_CLAUDE=true
   fi
 
