@@ -163,13 +163,34 @@ TimeoutStartSec=60
 WantedBy=default.target
 UNIT
 
+  # WHY: lingering keeps this user's systemd instance (and this service) running
+  # across logout/reboot; without it the daemon looks healthy right up until the
+  # session ends, then silently stops until someone logs back in.
+  if command -v loginctl &>/dev/null; then
+    loginctl enable-linger "$(whoami)" 2>/dev/null || true
+  fi
+
   if command -v systemctl &>/dev/null; then
     systemctl --user daemon-reload
     systemctl --user enable second-brain.service 2>/dev/null || true
-    if ! systemctl --user is-active --quiet second-brain.service 2>/dev/null; then
+    if systemctl --user is-active --quiet second-brain.service 2>/dev/null; then
+      # WHY: cargo install --force replaces the binary on disk but the running
+      # process keeps its old copy open until restarted, so a rebuilt binary
+      # (e.g. after bumping SECOND_BRAIN_REV) would otherwise silently keep
+      # serving the previous rev with no error anywhere.
+      local bin_mtime svc_start_epoch
+      bin_mtime=$(stat -c %Y "$sb_api" 2>/dev/null || echo 0)
+      svc_start_epoch=$(date -d "$(systemctl --user show second-brain.service -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0)
+      if [[ "$bin_mtime" -gt "$svc_start_epoch" ]]; then
+        systemctl --user restart second-brain.service 2>/dev/null || true
+        log_success "daemon: second-brain service restarted (binary updated since last start)"
+      else
+        log_skip "daemon: second-brain service" "already running the current binary"
+      fi
+    else
       systemctl --user start second-brain.service 2>/dev/null || true
+      log_success "daemon: second-brain service installed and started"
     fi
-    log_success "daemon: second-brain service installed and started"
   else
     log_warn "systemctl not found, service file written but not activated"
   fi
