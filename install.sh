@@ -17,6 +17,12 @@ fi
 
 REPO_ROOT="$SCRIPT_DIR"
 
+# WHY: install.sh often runs from a non-interactive shell (ssh "cmd", cron)
+# that never sources .bashrc/.profile, where per-user tool installs like
+# claude (~/.local/bin) or cargo-installed binaries (~/.cargo/bin) would
+# otherwise be invisible to `command -v` even though they're really there.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/template.sh"
 source "$REPO_ROOT/lib/manifest.sh"
