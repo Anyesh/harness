@@ -42,6 +42,11 @@ tool_use() {
   printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"%s","input":{"file_path":"%s"}}]}}\n' "$1" "$2"
 }
 
+bash_use() {
+  jq -cn --arg name "$1" --arg cmd "$2" \
+    '{type:"assistant",message:{content:[{type:"tool_use",name:$name,input:{command:$cmd}}]}}'
+}
+
 echo ""
 
 # A conversation-only session: tool names appear in transcript text but no
@@ -111,6 +116,70 @@ OUT=$(WIKI_ENFORCE_STATE_DIR="$RO_STATE" WIKI_VAULT="$VAULT" \
   CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<"$(payload "s-rostate" "$T_EDITS")")
 chmod 755 "$RO_STATE"
 assert "unwritable state dir does not block" '[ -z "$OUT" ]'
+
+# A verdant-routed project denies native Write and confines mcp__verdant__write
+# to the project root, so a vault write can only go through a bash heredoc.
+# The page lands but carries no file_path, which used to read as "not written".
+T_HEREDOC="$TMP_DIR/heredoc.jsonl"
+{
+  tool_use "mcp__verdant__write" "/tmp/a"
+  tool_use "mcp__verdant__write" "/tmp/b"
+  tool_use "mcp__verdant__write" "/tmp/c"
+  bash_use "mcp__verdant__bash" "cat > $VAULT/wiki/index.md <<'EOF'
+- [myproj](projects/myproj/devlog.md)
+EOF"
+  bash_use "mcp__verdant__bash" "cat > $VAULT/wiki/projects/myproj/devlog.md <<'EOF'
+## [2026-07-31] work
+EOF"
+} > "$T_HEREDOC"
+OUT=$(run_hook "$(payload "s-heredoc" "$T_HEREDOC")")
+assert "heredoc writes through verdant bash satisfy the check" '[ -z "$OUT" ]'
+
+# The nudge hook and this hook's own block message both name the wiki paths in
+# prose. Matching the path as bare text would let the reminder satisfy the
+# requirement it exists to enforce, so this must still fire.
+T_PROSE="$TMP_DIR/prose.jsonl"
+{
+  tool_use "Write" "/tmp/a"
+  tool_use "Edit" "/tmp/b"
+  tool_use "Write" "/tmp/c"
+  jq -cn --arg m "WIKI: write a devlog at $VAULT/wiki/projects/myproj/devlog.md then update $VAULT/wiki/index.md, this is mandatory." \
+    '{type:"user",message:{content:$m}}'
+} > "$T_PROSE"
+OUT=$(run_hook "$(payload "s-prose" "$T_PROSE")")
+assert "prose naming the wiki paths does not satisfy the check" \
+  'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
+
+# A command that builds the path from a variable never contains it literally,
+# so mtime after session start is the only remaining signal.
+T_MTIME="$TMP_DIR/mtime.jsonl"
+{
+  jq -cn --arg ts "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{type:"user",timestamp:$ts,message:{content:"go"}}'
+  tool_use "mcp__verdant__write" "/tmp/a"
+  tool_use "mcp__verdant__write" "/tmp/b"
+  tool_use "mcp__verdant__write" "/tmp/c"
+  bash_use "mcp__verdant__bash" 'cd "$WIKI_VAULT/wiki" && cat > index.md <<EOF
+built from a variable
+EOF'
+} > "$T_MTIME"
+touch "$VAULT/wiki/index.md" "$VAULT/wiki/projects/myproj/devlog.md"
+OUT=$(run_hook "$(payload "s-mtime" "$T_MTIME")")
+assert "wiki pages touched after session start satisfy the check" '[ -z "$OUT" ]'
+
+# Same transcript, but the pages predate the session: staleness must not pass.
+T_STALE="$TMP_DIR/stale.jsonl"
+{
+  jq -cn --arg ts "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%S.000Z)" \
+    '{type:"user",timestamp:$ts,message:{content:"go"}}'
+  tool_use "mcp__verdant__write" "/tmp/a"
+  tool_use "mcp__verdant__write" "/tmp/b"
+  tool_use "mcp__verdant__write" "/tmp/c"
+} > "$T_STALE"
+touch -d '-2 hours' "$VAULT/wiki/index.md" "$VAULT/wiki/projects/myproj/devlog.md"
+OUT=$(run_hook "$(payload "s-stale" "$T_STALE")")
+assert "wiki pages older than session start still fire" \
+  'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
 
 echo ""
 echo "stop-wiki-enforce: $PASS passed, $FAIL failed"
