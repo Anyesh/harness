@@ -104,6 +104,14 @@ assert "message names the missing index" \
 OUT=$(run_hook "$(payload "s-notranscript" "")")
 assert "claude session without transcript stays silent" '[ -z "$OUT" ]'
 
+RO_STATE="$TMP_DIR/ro-state"
+mkdir -p "$RO_STATE"
+chmod 555 "$RO_STATE"
+OUT=$(WIKI_ENFORCE_STATE_DIR="$RO_STATE" WIKI_VAULT="$VAULT" \
+  CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<"$(payload "s-rostate" "$T_EDITS")")
+chmod 755 "$RO_STATE"
+assert "unwritable state dir does not block" '[ -z "$OUT" ]'
+
 echo ""
 echo "stop-wiki-enforce: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

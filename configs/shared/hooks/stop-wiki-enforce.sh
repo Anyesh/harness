@@ -87,7 +87,12 @@ else
     MISSING_PARTS+=("wiki/index.md and project devlog (write both before finishing)")
 fi
 
-echo $((FIRED + 1)) > "$STATE_FILE"
+# The FIRED guard is the only thing that stops this hook from re-firing on
+# every stop; if the count cannot be persisted the block loop would be
+# unbreakable from inside the session, so a lost nudge is the safer failure.
+if ! echo $((FIRED + 1)) > "$STATE_FILE" 2>/dev/null; then
+    exit 0
+fi
 
 if [ -d "$WIKI_PATH" ]; then
     WIKI_DIR_EXISTS="The project wiki directory exists at ${WIKI_PATH}/."
