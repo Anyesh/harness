@@ -18,7 +18,9 @@ SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.conversation_id // .session_id // em
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
 [ -z "$SESSION_ID" ] && exit 0
 
-if [ "$AGENT" = "cursor" ]; then
+if [ -n "${WIKI_ENFORCE_STATE_DIR:-}" ]; then
+    STATE_DIR="$WIKI_ENFORCE_STATE_DIR"
+elif [ "$AGENT" = "cursor" ]; then
     STATE_DIR="$HOME/.cursor/state/wiki-enforce"
 else
     STATE_DIR="$HOME/.claude/state/wiki-enforce"
@@ -48,14 +50,22 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     # Transcript available — use it to count actual file mutations precisely.
     # Gating on transcript presence (not agent name) avoids misdetection when
     # hook_event_name casing causes detect-agent.sh to return the wrong value.
-    CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|NotebookEdit)"' || echo 0)
+    # `|| true`, not `|| echo 0`: grep -c already prints 0 on no match while
+    # exiting 1, so under pipefail `|| echo 0` appended a second line and the
+    # integer tests below silently failed, firing the hook on idle sessions.
+    # The verdant tool names count too, because verdant-cached projects deny
+    # native Write/Edit and route all mutations through the MCP equivalents.
+    CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|NotebookEdit|mcp__verdant__(write|edit))"' 2>/dev/null || true)
+    [[ "$CODE_EDITS" =~ ^[0-9]+$ ]] || CODE_EDITS=0
     if [ "$CODE_EDITS" -lt 3 ]; then
         exit 0
     fi
 
-    INDEX_WRITTEN=$(grep -c "\"${WIKI_VAULT}/wiki/index\.md\"" "$TRANSCRIPT" 2>/dev/null || echo 0)
+    INDEX_WRITTEN=$(grep -c "\"${WIKI_VAULT}/wiki/index\.md\"" "$TRANSCRIPT" 2>/dev/null || true)
+    [[ "$INDEX_WRITTEN" =~ ^[0-9]+$ ]] || INDEX_WRITTEN=0
     DEVLOG_PATH="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md"
-    DEVLOG_WRITTEN=$(grep -c "\"${DEVLOG_PATH}\"" "$TRANSCRIPT" 2>/dev/null || echo 0)
+    DEVLOG_WRITTEN=$(grep -c "\"${DEVLOG_PATH}\"" "$TRANSCRIPT" 2>/dev/null || true)
+    [[ "$DEVLOG_WRITTEN" =~ ^[0-9]+$ ]] || DEVLOG_WRITTEN=0
 
     if [ "$INDEX_WRITTEN" -gt 0 ] && [ "$DEVLOG_WRITTEN" -gt 0 ]; then
         exit 0
