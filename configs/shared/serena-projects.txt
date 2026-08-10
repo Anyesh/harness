@@ -1,0 +1,20 @@
+# Repos considered good Serena (LSP-backed symbol search) candidates:
+# deep call graphs where grep-based exploration is expensive. Opt in with
+# `install.sh serena-project [path]` run from inside the target repo.
+#
+# Documentation/validation only: install.sh never reads paths from here,
+# it only checks whether the basename of the repo you ran the command in
+# is listed, and warns (does not block) if it isn't.
+#
+# Format: one repo directory basename per line.
+
+webapp
+api-rating
+api-accounting
+second-brain
+verdant
+incr
+animator
+kiln
+# best-guess directory basename for the local ggml-org/llama.cpp fork; confirm and fix if wrong
+llama-cpp
