@@ -105,6 +105,60 @@ deploy_template() {
   return 0
 }
 
+# Merges a rendered JSON fragment's "mcpServers" key into dest without
+# clobbering dest's other keys, then applies the same checksum-skip/dry-run/
+# backup/manifest treatment every other deploy function gets. Consumes and
+# removes rendered_tmp.
+deploy_merged_json() {
+  local rendered_tmp="$1" dest="$2" manifest_source="$3" label="$4"
+
+  local tmp_merged
+  tmp_merged=$(mktemp)
+  # WHY: always normalize through the same json.dump(indent=2) pass, even
+  # when dest doesn't exist yet (existing={}). A "cp the raw fragment on
+  # first deploy, pretty-print on every later merge" split produces
+  # different bytes for identical content, so checksum-skip never fires
+  # after the first run unless the fragment happens to already be
+  # formatted exactly like python's output.
+  python3 - "$rendered_tmp" "$dest" "$tmp_merged" <<'PYEOF'
+import json, sys
+harness = json.load(open(sys.argv[1]))
+try:
+    existing = json.load(open(sys.argv[2]))
+except FileNotFoundError:
+    existing = {}
+merged = existing.copy()
+merged.setdefault("mcpServers", {}).update(harness.get("mcpServers", {}))
+json.dump(merged, open(sys.argv[3], "w"), indent=2)
+open(sys.argv[3], "a").write("\n")
+PYEOF
+  rm -f "$rendered_tmp"
+
+  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$tmp_merged")
+    dest_hash=$(file_checksum "$dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      rm -f "$tmp_merged"
+      log_skip "$label" "unchanged"
+      return 0
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    rm -f "$tmp_merged"
+    log_info "[dry-run] would deploy $label"
+    return 0
+  fi
+
+  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+  mkdir -p "$(dirname "$dest")"
+  mv "$tmp_merged" "$dest"
+  manifest_add "$dest" "$manifest_source" "true"
+  log_success "$label deployed"
+  return 0
+}
+
 validate_rendered() {
   local file="$1"
   local unresolved
