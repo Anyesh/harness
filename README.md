@@ -16,7 +16,7 @@ Single-command bootstrap for AI coding tools. One repo, one install, full enviro
 | Skills (shared) | 19 |
 | Plugins (Claude Code) | 15 |
 | MCP servers | 5 |
-| Modules | 8 |
+| Modules | 9 |
 | Template variables | 5 |
 | No-op redeploy | <2s |
 
@@ -115,6 +115,9 @@ cursor        Cursor: rules, mcp.json, hooks.json, skills, commands
 codex         Codex: config.toml, instructions
 opencode      opencode: AGENTS.md, commands, skills via ~/.agents/skills
 second-brain  second-brain daemon + MCP server registration
+serena        Serena CLI (LSP-backed symbol search); MCP registration is
+              opt-in per-project via `install.sh serena-project`, not
+              deployed globally like the other modules, see below
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
 leakguard     gitleaks + global pre-commit scan for personal info/secrets;
@@ -125,6 +128,53 @@ leakguard     gitleaks + global pre-commit scan for personal info/secrets;
               one) bypass the global scan; they must scan themselves.
 lib           Shared functions (logging, template rendering, manifest)
 ```
+
+## Serena (opt-in, per-project)
+
+[Serena](https://github.com/oraios/serena) gives an agent LSP-backed symbol
+search, find-references, and rename instead of grep. It matters most in
+Cursor, whose agent has no native LSP tool access, and it's still an upgrade
+over grep in Claude Code on repos with large call graphs.
+
+The `serena` module (`modules/serena.sh`) only installs the CLI globally:
+`uv tool install -p 3.13 serena-agent`, then `serena init` once. Wiring an
+individual repo up to use it is a separate, explicit step:
+
+```bash
+cd path/to/repo
+~/.harness/install.sh serena-project
+```
+
+This merges a `serena` MCP entry into that repo's own `.mcp.json` (Claude
+Code) and `.cursor/mcp.json` (Cursor), without touching any other keys
+already in those files. It takes an optional path argument and defaults to
+`$PWD`; `--force` and `--dry-run` work the same as everywhere else.
+
+There's deliberately no path registry (no list of "here's where webapp lives
+on this machine"): that set differs per machine, so this follows the same
+pattern `verdant install --project <path>` already uses in this repo, one
+repo at a time, run from inside it. `configs/shared/serena-projects.txt` is
+a plain allowlist of repo basenames for documentation, not enforcement;
+running the command in an unlisted repo still works, just with a warning.
+
+**Include:** repos with deep call graphs where grep-based exploration is
+slow (`webapp`, `api-rating`, `api-accounting`, `second-brain`, `verdant`,
+`incr`, `animator`, `kiln`, `llama-cpp`).
+**Exclude:** bash/YAML/systemd-dominated infra repos, where grep already
+covers everything an LSP would add.
+
+**Deliberately not automated:**
+- Serena's Claude-Code-specific reliability hooks (remind/activate/cleanup/
+  auto-approve). These would need to merge into a project's own
+  `.claude/settings.json` hook arrays without clobbering hooks that repo
+  already has, real risk for a config file this bootstrapper doesn't own.
+  Revisit only if plain MCP tool access proves flaky in practice.
+- `serena project create --index` pre-indexing: a one-time, potentially
+  slow operation, better run by whoever's about to actually work in that
+  repo than forced on every opt-in.
+- The `--system-prompt` override flag Serena's docs recommend for the
+  `claude` CLI: a manual per-invocation flag, not something a config file
+  can inject.
 
 ## Wiki (Knowledge Base)
 
