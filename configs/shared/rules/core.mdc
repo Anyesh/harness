@@ -18,6 +18,13 @@ alwaysApply: true
 - **No double dashes or em dashes in prose.** Do not use `--` or `—`. Restructure with colons, commas, or parentheses instead.
 - **Write like a human.** The writing should read like a person wrote it, not like an AI generated it.
 
+## Response Format
+
+- **No wall-of-text responses, ever.** Lead with a bold header, then 2-4 bullet points. Add one short paragraph of context only if it's needed. Don't front-load every possible detail before the user has asked for it.
+- **Progressive disclosure.** Give the headline first; add depth only when asked for it.
+- **Action before explanation.** State what you did or recommend first, then explain why, briefly. Don't explain first and conclude second.
+- **Auto-bypass for:** executing code changes (just do the work), raw command/error output (show it raw), an explicit request for a detailed explanation, and security warnings (clarity over brevity beats chunking).
+
 ## Behavior
 
 - **Investigate before acting.** Read code, configs, logs before making changes.
