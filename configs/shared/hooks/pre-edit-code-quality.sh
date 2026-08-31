@@ -24,9 +24,9 @@ if [ -n "$EMDASH_CONTENT" ]; then
     FOUND=$(printf '%s' "$EMDASH_CONTENT" | LC_ALL=C.UTF-8 command grep -nP '\x{2014}' 2>/dev/null | head -3 || true)
     if [ -n "$FOUND" ]; then
         cat >&2 <<EOF
-[hook:global] BLOCKED: em dash detected
-This character is a signal, not the whole problem: it is a tell that this text
-was written in default LLM style. Deleting only the dash and resubmitting is
+[hook:global] BLOCKED: AI-writing tell detected (em dash)
+The dash is evidence, not the problem. It is a tell that this text was
+written in default LLM style. Deleting only the dash and resubmitting is
 not sufficient.
 File: $FILE_PATH
 
@@ -43,9 +43,9 @@ EOF
     CURLY=$(printf '%s' "$EMDASH_CONTENT" | LC_ALL=C.UTF-8 command grep -nP '[\x{2018}\x{2019}\x{201C}\x{201D}]' 2>/dev/null | head -3 || true)
     if [ -n "$CURLY" ]; then
         cat >&2 <<EOF
-[hook:global] BLOCKED: curly/smart quote detected
-This character is a signal, not the whole problem: it is a tell that this text
-was written in default LLM style. Deleting only the quote and resubmitting is
+[hook:global] BLOCKED: AI-writing tell detected (curly/smart quote)
+The quote is evidence, not the problem. It is a tell that this text was
+written in default LLM style. Deleting only the quote and resubmitting is
 not sufficient.
 File: $FILE_PATH
 
@@ -68,10 +68,10 @@ case "$FILE_PATH" in
         DHYPHEN=$(printf '%s' "$PROSE_ONLY" | grep -nP '(?<=\s)-{2}(?=\s)' 2>/dev/null | head -3 || true)
         if [ -n "$DHYPHEN" ]; then
             cat >&2 <<EOF
-[hook:global] BLOCKED: double hyphen used as a dash substitute
-This character is a signal, not the whole problem: it is a tell that this text
-was written in default LLM style. Deleting only the hyphens and resubmitting
-is not sufficient.
+[hook:global] BLOCKED: AI-writing tell detected (double hyphen as a dash)
+The hyphens are evidence, not the problem. It is a tell that this text was
+written in default LLM style. Deleting only the hyphens and resubmitting is
+not sufficient.
 File: $FILE_PATH
 
 Violations found:
