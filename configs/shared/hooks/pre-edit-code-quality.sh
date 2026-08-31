@@ -1,6 +1,7 @@
 #!/bin/bash
 # Global PreToolUse hook: Enforces universal code quality rules
-# Blocks: em dashes (any file), emojis, inline imports (Python), unnecessary
+# Blocks: em dashes (any file), curly/smart quotes (any file), double-hyphen-as-dash
+#         (prose files only), emojis, inline imports (Python), unnecessary
 #         docstrings (Python), obvious comments (JS/TS), empty catch blocks (JS/TS),
 #         swallowed exceptions (Python)
 
@@ -34,7 +35,40 @@ Run the humanize/deslop rewrite on this text before writing it.
 EOF
         exit 2
     fi
+
+    CURLY=$(printf '%s' "$EMDASH_CONTENT" | LC_ALL=C.UTF-8 command grep -nP '[\x{2018}\x{2019}\x{201C}\x{201D}]' 2>/dev/null | head -3 || true)
+    if [ -n "$CURLY" ]; then
+        cat >&2 <<EOF
+[hook:global] BLOCKED: curly/smart quote detected
+Rule: Use straight quotes, not curly/smart quotes.
+File: $FILE_PATH
+
+Violations found:
+$CURLY
+EOF
+        exit 2
+    fi
 fi
+
+# Double-hyphen-as-dash check: prose files only, fenced code blocks stripped first
+# so CLI examples like "git diff -- file.txt" or "npm test -- --watch" in docs don't false-positive.
+case "$FILE_PATH" in
+    *.md|*.mdx)
+        PROSE_ONLY=$(printf '%s' "$EMDASH_CONTENT" | awk '/^```/{inb=!inb; next} !inb')
+        DHYPHEN=$(printf '%s' "$PROSE_ONLY" | grep -nP '(?<=\s)-{2}(?=\s)' 2>/dev/null | head -3 || true)
+        if [ -n "$DHYPHEN" ]; then
+            cat >&2 <<EOF
+[hook:global] BLOCKED: double hyphen used as a dash substitute
+Rule: No "--" as a dash substitute in prose. Restructure with colons, commas, parentheses, or periods instead.
+File: $FILE_PATH
+
+Violations found:
+$DHYPHEN
+EOF
+            exit 2
+        fi
+        ;;
+esac
 
 # Markdown exempt from the remaining checks: handovers/notes/READMEs use scannable short lines by design
 case "$FILE_PATH" in
