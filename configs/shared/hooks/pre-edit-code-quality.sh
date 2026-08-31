@@ -24,14 +24,18 @@ if [ -n "$EMDASH_CONTENT" ]; then
     FOUND=$(printf '%s' "$EMDASH_CONTENT" | LC_ALL=C.UTF-8 command grep -nP '\x{2014}' 2>/dev/null | head -3 || true)
     if [ -n "$FOUND" ]; then
         cat >&2 <<EOF
-[hook:global] BLOCKED: em dash (—) detected
-Rule: No em dashes in writing. Restructure with colons, commas, parentheses, or periods instead.
+[hook:global] BLOCKED: em dash detected
+This character is a signal, not the whole problem: it is a tell that this text
+was written in default LLM style. Deleting only the dash and resubmitting is
+not sufficient.
 File: $FILE_PATH
 
 Violations found:
 $FOUND
 
-Run the humanize/deslop rewrite on this text before writing it.
+Reread the full passage for other AI-writing tells (staccato sentences,
+wordiness, hedging, AI vocabulary, rule of three) and rewrite it as flowing
+human prose per the humanize and deslop rules, then resubmit the whole thing.
 EOF
         exit 2
     fi
@@ -40,11 +44,17 @@ EOF
     if [ -n "$CURLY" ]; then
         cat >&2 <<EOF
 [hook:global] BLOCKED: curly/smart quote detected
-Rule: Use straight quotes, not curly/smart quotes.
+This character is a signal, not the whole problem: it is a tell that this text
+was written in default LLM style. Deleting only the quote and resubmitting is
+not sufficient.
 File: $FILE_PATH
 
 Violations found:
 $CURLY
+
+Reread the full passage for other AI-writing tells (staccato sentences,
+wordiness, hedging, AI vocabulary, rule of three) and rewrite it as flowing
+human prose per the humanize and deslop rules, then resubmit the whole thing.
 EOF
         exit 2
     fi
@@ -59,11 +69,17 @@ case "$FILE_PATH" in
         if [ -n "$DHYPHEN" ]; then
             cat >&2 <<EOF
 [hook:global] BLOCKED: double hyphen used as a dash substitute
-Rule: No "--" as a dash substitute in prose. Restructure with colons, commas, parentheses, or periods instead.
+This character is a signal, not the whole problem: it is a tell that this text
+was written in default LLM style. Deleting only the hyphens and resubmitting
+is not sufficient.
 File: $FILE_PATH
 
 Violations found:
 $DHYPHEN
+
+Reread the full passage for other AI-writing tells (staccato sentences,
+wordiness, hedging, AI vocabulary, rule of three) and rewrite it as flowing
+human prose per the humanize and deslop rules, then resubmit the whole thing.
 EOF
             exit 2
         fi
