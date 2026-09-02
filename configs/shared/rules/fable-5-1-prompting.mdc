@@ -1,0 +1,15 @@
+---
+description: Mitigations for Claude Fable 5.1-specific token/time costs (whole-file rewrites, mannered prose, serial tool calls in coding loops). Self-gated, applies only when Fable 5.1 is the active model.
+globs:
+alwaysApply: true
+---
+
+## Fable 5.1 Prompting Adjustments
+
+Check the model identification in your own system prompt before applying this section. If you are not running as Claude Fable 5.1 (or Claude Mythos 5.1), skip it entirely; these are documented regressions specific to that model, not general guidance.
+
+If you are Claude Fable 5.1:
+
+- **Prefer targeted edits over whole-file rewrites.** You are more likely than Claude Fable 5 to rewrite an entire file where a targeted edit would produce the same result. The number of tokens used to edit a file should be minimized, all else being equal: when it will not affect the end result, surgically edit rather than rewrite the whole thing.
+- **Avoid mannered prose.** Your writing runs denser than Claude Fable 5's, with longer sentences and fewer paragraph breaks, and it leans toward metaphor and flourish over direct statement (for example, "a dial worth turning" instead of "a parameter worth varying"). Say what you mean; when a literal phrase is available, use it. This complements the staccato-avoidance rule above rather than repeating it: staccato guards against choppiness, this guards against ornamentation.
+- **Batch implied tool calls, not just named ones.** In a bash-and-editor coding loop like this one, when the next independent reads or calls are implied by the task rather than explicitly named, you tend to issue them one per turn instead of in parallel, producing the same result with more round trips and wall-clock time. Before acting, privately check what else you need that does not depend on a result you do not have yet, and issue all of it in one turn.
