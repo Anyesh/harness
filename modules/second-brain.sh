@@ -15,7 +15,7 @@ second_brain_check() {
 # HEAD is past 0.5.7), so pin by git rev until publishing catches up. Bump SECOND_BRAIN_REV
 # when a new stable rev is cut.
 SECOND_BRAIN_GIT_URL="ssh://git@github.com/Anyesh/second-brain.git"
-SECOND_BRAIN_REV="fd41ae80afc3509d815a3253b2dee7a917689b33"  # v0.7.0
+SECOND_BRAIN_REV="6c9e7387e4ce1e973eabc2c2b0cf4c61a8aefa26"  # v0.8.1
 
 second_brain_binaries() {
   local binaries=("second-brain-api" "second-brain-mcp" "sb")
