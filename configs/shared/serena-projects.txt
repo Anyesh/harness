@@ -18,3 +18,5 @@ animator
 kiln
 # best-guess directory basename for the local ggml-org/llama.cpp fork; confirm and fix if wrong
 llama-cpp
+wardrobe
+wardrowbe
