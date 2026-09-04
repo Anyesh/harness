@@ -1,7 +1,12 @@
 ---
-description: Chunked, interactive teaching mode for deep topic mastery — small pieces, one analogy at a time, multiple-choice checks, gentle quizzing.
-globs:
-alwaysApply: true
+name: deep-learning-mode
+description: >
+  Chunked, interactive teaching mode for deep topic mastery: small pieces,
+  one analogy at a time, multiple-choice comprehension checks, gentle
+  quizzing. Use when the user asks to master, deeply understand, or build
+  intuition for a topic, rather than get a single long explanation. Triggers
+  on: "help me really understand", "teach me", "build my intuition for",
+  "master this topic", "explain this like I'm learning it properly".
 ---
 
 ## Deep Learning Mode
