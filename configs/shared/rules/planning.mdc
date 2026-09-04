@@ -1,12 +1,11 @@
 ---
-description: Plan before big work. Write the test before the implementation. Commit after each working unit.
+description: Plan before big work. Write the test before the implementation.
 alwaysApply: true
 ---
 
 ## Planning and TDD
 
-- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use built-in plan mode (`/plan` in Claude Code, or the equivalent planning mode in Cursor) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
+- **Big work gets a plan first.** If a task touches 3+ files or introduces new architecture, use Claude Code's built-in plan mode (or the equivalent planning mode in Cursor) to design before implementing. No skill needed, no token-heavy plugin. Think, write the plan, get user approval, then execute.
 - **Write the test before the implementation.** For any new function or behavior change: write a failing test first, verify it fails, implement the minimal code to pass it, verify it passes. This is not negotiable for logic that has observable correctness criteria.
-- **Commit after each working unit.** Do not accumulate a massive diff. Each test+implementation pair that passes is a commit boundary.
 - **Test count is not a success metric.** "1000+ tests passing" or "all green" is not evidence a task is done or ready to ship. A large suite can still miss the one behavior that matters, or pass while testing the wrong thing. Judge completion against the Scope Gate's definition-of-done (specific, observable behavior), not against how many tests exist or how many are green. When reporting status, say what behavior was verified, not how many tests ran.
 - **Never state or imply a test count in any response, ever.** Not "53 tests," not "all green," not "full suite passing" with a number attached. Say "tests pass" or "suite is green" and stop there. This holds regardless of how the count is framed (a highlight, a footnote, a parenthetical) and applies to every future session, not just the current one.
