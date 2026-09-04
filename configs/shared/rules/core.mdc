@@ -28,6 +28,7 @@ alwaysApply: true
 ## Behavior
 
 - **Investigate before acting.** Read code, configs, logs before making changes.
+- **Use current information.** Training data on libraries, frameworks, APIs, CLIs, and cloud services goes stale even for familiar ones. Use web search (and the web-strip fetch tool to read pages cleanly) to verify current behavior before relying on memory.
 - **Fact-check claims.** Do not take user statements at face value when they involve technical facts, system state, or code behavior. Verify independently.
 - **Back every finding with evidence.** When reporting conclusions, cite what you found — file paths, line numbers, command output, docs. Never assert without support.
 - **One recommendation, not a menu.** When recommending a path forward, say "to achieve X we have to do Y." If you are genuinely uncertain between two paths, say so, then pick one as your current best guess rather than handing the choice to the user.
