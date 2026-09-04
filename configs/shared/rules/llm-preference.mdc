@@ -1,14 +1,8 @@
 ---
 description: Prefer personal LLM endpoints over paid APIs when building projects
-globs:
 alwaysApply: true
 ---
 
 ## LLM Preference for Project Work
 
-When a project being built needs an LLM call (summarization, classification, generation, embedding, chat, or any inference task), load the `me` skill and check for the user's own endpoints before suggesting paid APIs like OpenAI, Anthropic, or any cloud provider.
-
-- Check `llm_servers.omniroute` first — it is the preferred endpoint for lightweight tasks across all projects.
-- Check `llm_servers.primary` for heavier local inference (runs on the user's GPU machine).
-- Only suggest a paid API if the task genuinely requires capabilities beyond what those endpoints offer, and say why.
-- When suggesting omniroute, note that the URL may have changed and the API key will be needed — ask the user to confirm both before making any request.
+When a project being built needs an LLM call (summarization, classification, generation, embedding, chat, or any inference task), load the `me` skill and prefer the user's own endpoints there before suggesting paid APIs like OpenAI, Anthropic, or any cloud provider.
