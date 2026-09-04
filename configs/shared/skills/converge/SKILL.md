@@ -188,7 +188,15 @@ Respond in 100-200 words. Judge ONLY your assigned axis. End with exactly one of
   GREEN SIGNAL — no actionable issue on my axis.
 
   RED SIGNAL — <one-sentence diagnosis of the single strongest issue on my axis>
+  SEVERITY: <blocking | major | moderate | minor>
   FIX: <one concrete change, no more than two sentences>
+
+Severity is required on every RED SIGNAL. Pick exactly one:
+  blocking: a core claim or behavior is false or broken; the work cannot ship as is.
+  major: a core claim or behavior is unsupported or misleading; the work needs a
+         substantive change on my axis, not a wording change.
+  moderate: a secondary claim, case, or section is wrong or missing; the core holds.
+  minor: precision, sourcing of an example, phrasing, or style; nothing depends on it.
 
 Do not return a wishlist. Identify only the single strongest issue on your axis.
 If you would flag several, pick the one with the highest expected information gain
@@ -206,10 +214,14 @@ Combine failing gates and reviewer responses into one revision list:
 
 - **Failing hard gates** — always actionable, always top priority. Done is
   impossible while any is red.
+- **Blocking or major reds**: any reviewer, any count. Severity outranks
+  convergence, so a single blocking or major red is actionable before a
+  convergent moderate or minor one. Order the list by severity first, then by
+  count.
 - **Convergent reds** — the same axis flagged by ≥2 reviewers with compatible
   fixes. Real; act on them.
-- **Single-reviewer reds** — one reviewer, one axis. Taste. Note them; act only
-  if cheap and non-contradictory, weighed against budget.
+- **Single-reviewer reds** — one reviewer, one axis, moderate or minor. Taste.
+  Note them; act only if cheap and non-contradictory, weighed against budget.
 - **Contradictions** — where one reviewer's fix reopens another's issue (e.g.
   "tighten" vs "add an example"). This is an asymptote signal; surface it.
 - **Out-of-scope demands** — reject; name what owns that concern instead. Never
@@ -247,8 +259,10 @@ Stop and report (converged or not) if any of:
 
 - The final work product (or the committed diff / artifact).
 - Converged or not, with the deciding reason.
-- Hard-gate tally (e.g. `gates: 3/3 pass`) and reviewer signal tally
-  (e.g. `4 green / 1 red after 4 rounds`).
+- Hard-gate tally (e.g. `gates: 3/3 pass`) and reviewer signal tally with the
+  severity breakdown of every red across all rounds (e.g. `3 green / 22 red
+  (7 blocking or major, 5 moderate, 10 minor) after 5 rounds`), plus the final
+  round's own tally (e.g. `round 5: 4 green / 1 red (1 major)`).
 - The round log: one line per round listing failing gates fixed, convergent axes
   addressed, and length/blast-radius delta.
 - Any single-reviewer reds noted but not acted on, so the user can judge whether
