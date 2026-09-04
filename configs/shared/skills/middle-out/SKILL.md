@@ -45,10 +45,9 @@ the iteration, and no one-shot "invent me a time machine" prompt exists.
 State plainly what is fixed, the specific capability, not the project name.
 If the user hasn't said what makes it genuinely differentiated yet, ask
 before proceeding, since ideation on a vague primitive just produces vague
-ideas. Also establish the operator's actual starting resources when known
-(team size, funding status, whether raising money later is on the table),
-since Phase 3's fit check depends on it and defaults to "assume no funding
-yet" if the user hasn't said otherwise.
+ideas. If the user volunteers their starting resources (team size, funding
+status, whether raising later is on the table), note it for Phase 3's fit
+check; don't ask for it and don't assume a constraint that wasn't stated.
 
 ### Phase 1: Ground it in evidence
 Before generating a single idea, pull real facts about the primitive by
@@ -75,36 +74,42 @@ primitive's actual limits from Phase 1. Market size now: roughly how many
 buyers exist at the target size today, what they'd realistically pay, and
 how long the sales cycle to a first paying customer runs. Ceiling: how big
 this could realistically get if it fully succeeds, the total addressable
-scale, not the cautious near-term number. Fit: what this candidate is
-achievable to *without* assuming resources the operator doesn't have, given
-the starting resources from Phase 0, and what specifically about the
+scale, not the cautious near-term number. Fit: what specifically about the
 operator (existing access, credibility, an asset, a relationship) this
-candidate leverages versus a generic competitor with the same primitive.
+candidate leverages versus a generic competitor with the same primitive;
+when starting resources from Phase 0 are actually known, also weigh
+whether the candidate is achievable without assuming resources the
+operator doesn't have.
 "Needs nothing the primitive doesn't already ship" answers feasibility, not
 market size, ceiling, or fit, and a candidate that's easiest to build or
 fastest to first revenue is not automatically the one worth pursuing.
 Report a rough number for buyer count, price point, sales-cycle length, and
-ceiling even when the estimate is loose, plus the specific milestone
-reachable on the operator's actual starting resources before any
-fundraising, treated as the real near-term ceiling; the bigger funded-scale
-number is upside once that milestone is proven, not the pitch itself. Flag
-any candidate whose ceiling is small, whose path assumes resources the
-operator doesn't have, or that any well-funded competitor could pursue just
-as easily. Keep the modeling lightweight: just enough to tell a real
-opportunity from a plausible-sounding one, not a full business plan.
+ceiling even when the estimate is loose. When starting resources are known,
+also report the specific milestone reachable on them before any
+fundraising, treated as the real near-term ceiling in that case, with the
+bigger funded-scale number as upside once that milestone is proven rather
+than the pitch itself; flag a candidate whose only path assumes resources
+the operator is known not to have. When starting resources aren't known,
+report the ceiling on its own terms. Keep the modeling lightweight: just
+enough to tell a real opportunity from a plausible-sounding one, not a full
+business plan.
 
 ### Phase 4: Converge, don't menu
 Present the strongest one to three candidates with the specific evidence
 behind each, matching the user's standing preference for one recommendation
-over a spread of options. Rank by the achievable-without-funding path
-first, not the theoretical funded ceiling: the goal is the best idea this
-operator can actually start on and prove with their stated resources, with
-the bigger ceiling reported as real upside once that milestone lands, not
-as the sort key itself. A candidate whose only credible path assumes
-funding, a team, or years the operator doesn't have loses to a smaller
+over a spread of options. When the operator's starting resources are
+actually known, rank by the achievable-without-funding path first, not the
+theoretical funded ceiling: the goal is the best idea this operator can
+actually start on and prove with their stated resources, with the bigger
+ceiling reported as real upside once that milestone lands, not as the sort
+key itself, and a candidate whose only credible path assumes funding, a
+team, or years the operator is known not to have loses to a smaller
 candidate that's genuinely startable now, unless the user says otherwise.
-Feasibility gaps and slow sales cycles are risk to name and weigh, not
-automatic disqualifiers against a candidate with a genuinely larger
+When starting resources aren't known, rank by strength of evidence and
+ceiling instead, since sorting by "achievable now" with no stated
+constraint is just guessing. Feasibility gaps and slow sales cycles are
+risk to name and weigh, not automatic disqualifiers against a candidate
+with a genuinely larger
 ceiling; only cut a high-ceiling candidate if the feasibility gap is a real
 wall (the primitive would need a capability it fundamentally cannot get
 to), not just more work than a smaller candidate needs. If genuinely torn
