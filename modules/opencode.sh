@@ -47,8 +47,85 @@ opencode_deploy_config() {
   fi
 }
 
+# Merges harness-provided MCP servers (web-strip, markitdown, second-brain when
+# installed) into opencode's "mcp" config key. Targets opencode.json unless
+# only an opencode.jsonc exists (the file the user's own reference template
+# points them at for machine-specific settings), in which case it targets
+# that file instead so there's a single source of truth. deploy_merged_json
+# refuses to touch a file that isn't strict JSON (e.g. a hand-commented
+# .jsonc) rather than risk dropping the user's content on a parse/re-dump.
+opencode_mcp() {
+  local dest="$OPENCODE_CONFIG_DIR/opencode.json"
+  if [[ ! -f "$dest" && -f "$OPENCODE_CONFIG_DIR/opencode.jsonc" ]]; then
+    dest="$OPENCODE_CONFIG_DIR/opencode.jsonc"
+  fi
+
+  declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
+  second_brain_find_binaries
+  local sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  local web_strip_path="$HOME/.harness/tools/web-strip/index.js"
+
+  local fragment
+  fragment=$(mktemp)
+  {
+    printf '{"mcp":{'
+    printf '"web-strip":{"type":"local","command":["node","%s"],"enabled":true},' "$web_strip_path"
+    printf '"markitdown":{"type":"local","command":["uvx","markitdown-mcp"],"enabled":true}'
+    if [[ -n "$sb_mcp" ]]; then
+      printf ',"second-brain":{"type":"local","command":["%s"],"environment":{"SECOND_BRAIN_API":"http://127.0.0.1:7200"' "$sb_mcp"
+      [[ -n "$sb_api" ]] && printf ',"SECOND_BRAIN_DAEMON_BIN":"%s"' "$sb_api"
+      printf '},"enabled":true}'
+    fi
+    printf '}}'
+  } > "$fragment"
+
+  deploy_merged_json "$fragment" "$dest" "runtime:opencode-mcp" "opencode MCP servers" "mcp" || true
+}
+
+# Deploys a plugin, opencode's only lifecycle-hook mechanism (there is no
+# shell-command hook config like Claude Code/Codex have), that mirrors
+# session-end-ingest.sh: on session.idle, it kicks off a non-blocking
+# second-brain ingest if the daemon is healthy. opencode's plugin API
+# (checked against https://opencode.ai/docs/plugins as of this writing) has
+# no SessionStart equivalent that can inject additional context into the
+# model's turn the way Claude Code's and Codex's
+# hookSpecificOutput.additionalContext can. That leaves the
+# wiki-context-at-session-start half of wiki-maintenance.mdc without an
+# opencode implementation for now, a real platform gap rather than something
+# skipped here.
+opencode_wiki_plugin() {
+  local dest_dir="$OPENCODE_CONFIG_DIR/plugins"
+  local dest="$dest_dir/harness-second-brain.js"
+  local src="$REPO_ROOT/configs/opencode/plugins/harness-second-brain.js"
+
+  [[ -f "$src" ]] || return 0
+
+  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
+    local src_hash dest_hash
+    src_hash=$(file_checksum "$src")
+    dest_hash=$(file_checksum "$dest")
+    if [[ "$src_hash" == "$dest_hash" ]]; then
+      log_skip "opencode second-brain plugin" "unchanged"
+      return
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would deploy opencode second-brain plugin"
+    return
+  fi
+
+  mkdir -p "$dest_dir"
+  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
+  cp "$src" "$dest"
+  manifest_add "$dest" "configs/opencode/plugins/harness-second-brain.js" "false"
+  log_success "opencode second-brain plugin deployed"
+}
+
 opencode_install() {
   opencode_deploy_config
+  opencode_mcp
+  opencode_wiki_plugin
   deploy_shared_commands "$OPENCODE_CONFIG_DIR/commands"
   # opencode auto-scans ~/.claude/skills and ~/.agents/skills for SKILL.md files,
   # so shared skills land in ~/.agents/skills (same target as the codex module;
@@ -76,6 +153,10 @@ opencode_test() {
 
     local output
     output=$(opencode_deploy_config 2>&1)
+    output+=$'\n'
+    output+=$(opencode_mcp 2>&1)
+    output+=$'\n'
+    output+=$(opencode_wiki_plugin 2>&1)
 
     HOME="$orig_home"
     OPENCODE_CONFIG_DIR="$orig_config"
@@ -86,6 +167,16 @@ opencode_test() {
 
     if ! echo "$output" | grep -q '\[dry-run\]'; then
         log_error "opencode_test: no dry-run output produced"
+        return 1
+    fi
+
+    if ! echo "$output" | grep -q 'MCP servers'; then
+        log_error "opencode_test: opencode_mcp produced no output"
+        return 1
+    fi
+
+    if ! echo "$output" | grep -qi 'second-brain plugin'; then
+        log_error "opencode_test: opencode_wiki_plugin produced no output"
         return 1
     fi
 

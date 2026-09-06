@@ -1,0 +1,14 @@
+---
+description: Evaluate code for maintainability and sound design (SOLID, coupling/cohesion, clean code), not just correctness. Applies whenever writing or reviewing non-trivial code.
+alwaysApply: true
+---
+
+## Code Design
+
+- **Correctness is not the bar.** A change can pass tests and still be bad: a function doing three unrelated things, a module every other module reaches into, a class that can't be extended without editing its internals. Flag these the same way you'd flag a bug, don't just ship whatever makes the tests green.
+- **Single responsibility, checked concretely.** If describing what a function or class does needs "and" between unrelated clauses, or a change to one behavior forces edits to code serving a different behavior, split it.
+- **Watch coupling and cohesion.** Prefer modules where the pieces that change together live together and pieces that change for different reasons don't share a file or class. Feature envy (a function mostly operating on another module's internals) and shotgun surgery (one logical change touching many unrelated files) are both signals to restructure, not just push through.
+- **Depend on the shape callers need, not the shape the implementation has.** At real seams (public APIs, module boundaries, anything with more than one caller or a plausible second implementation), depend on that narrow interface rather than a concrete type. This does not mean adding an interface/abstraction for a single implementation with no second caller in sight, that's premature and this same rule already forbids it below.
+- **Duplication is only a problem when it's the same rule twice.** Unify code that encodes one rule and would need to change in both places together. Leave alone code that merely looks similar today but changes for independent reasons, collapsing it just to remove "duplication" creates false coupling.
+- **This is a lens, not a license to gold-plate.** Don't add layers, patterns, or config beyond what the actual complexity in front of you warrants. The test is always "would a senior engineer reading this cold call it sound," not "does every SOLID letter have a dedicated abstraction."
+- **Say so when you see it.** If existing code you're touching has a real design problem in your path (not just a stylistic preference), name it to the user with the concrete symptom (file, what changes together that shouldn't have to) before deciding whether fixing it is in scope.

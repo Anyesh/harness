@@ -401,14 +401,14 @@ cmd_serena_project() {
   cat > "$claude_tmp" <<JSON
 {"mcpServers":{"serena":{"command":"serena","args":["start-mcp-server","--context","claude-code","--project","$path_escaped"]}}}
 JSON
-  deploy_merged_json "$claude_tmp" "$abs_path/.mcp.json" "serena-project:claude" "serena mcp.json ($abs_path/.mcp.json)"
+  deploy_merged_json "$claude_tmp" "$abs_path/.mcp.json" "serena-project:claude" "serena mcp.json ($abs_path/.mcp.json)" || true
 
   local cursor_tmp
   cursor_tmp=$(mktemp)
   cat > "$cursor_tmp" <<JSON
 {"mcpServers":{"serena":{"command":"serena","args":["start-mcp-server","--context","ide","--project","$path_escaped"]}}}
 JSON
-  deploy_merged_json "$cursor_tmp" "$abs_path/.cursor/mcp.json" "serena-project:cursor" "serena mcp.json ($abs_path/.cursor/mcp.json)"
+  deploy_merged_json "$cursor_tmp" "$abs_path/.cursor/mcp.json" "serena-project:cursor" "serena mcp.json ($abs_path/.cursor/mcp.json)" || true
 
   manifest_finalize
 }

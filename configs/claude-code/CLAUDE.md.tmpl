@@ -1,32 +1,6 @@
 # Global Claude Code Instructions
 
-{{INCLUDE_BODY:shared/rules/python.mdc}}
-
-{{INCLUDE_BODY:shared/rules/core.mdc}}
-
-{{INCLUDE_BODY:shared/rules/commits.mdc}}
-
-{{INCLUDE_BODY:shared/rules/exploration.mdc}}
-
-{{INCLUDE_BODY:shared/rules/context-cost.mdc}}
-
-{{INCLUDE_BODY:shared/rules/fable-5-1-prompting.mdc}}
-
-{{INCLUDE_BODY:shared/rules/runbooks.mdc}}
-
-{{INCLUDE_BODY:shared/rules/planning.mdc}}
-
-{{INCLUDE_BODY:shared/rules/scope-gate.mdc}}
-
-{{INCLUDE_BODY:shared/rules/mcp-usage.mdc}}
-
-{{INCLUDE_BODY:shared/rules/second-brain.mdc}}
-
-{{INCLUDE_BODY:shared/rules/llm-preference.mdc}}
-
-{{INCLUDE_BODY:shared/rules/work-style.mdc}}
-
-{{INCLUDE_BODY:shared/rules/no-ai-comments.mdc}}
+{{INCLUDE_BODY_GLOB:shared/rules/*.mdc}}
 
 # ownit
 - **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
@@ -40,5 +14,3 @@ When the user types `/converge`, invoke the Skill tool with `skill: "converge"` 
 # wiki
 - **wiki** (`~/.claude/skills/wiki/SKILL.md`) - LLM-maintained knowledge wiki (Karpathy pattern). Ingest sources, query with citations, lint for quality. Trigger: `/wiki`
 When the user types `/wiki`, invoke the Skill tool with `skill: "wiki"` before doing anything else.
-
-{{INCLUDE_BODY:shared/rules/wiki-maintenance.mdc}}

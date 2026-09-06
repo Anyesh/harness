@@ -91,7 +91,7 @@ cursor_mcp() {
     return
   fi
 
-  deploy_merged_json "$tmp_rendered" "$dest" "configs/cursor/mcp.json.tmpl" "cursor mcp.json"
+  deploy_merged_json "$tmp_rendered" "$dest" "configs/cursor/mcp.json.tmpl" "cursor mcp.json" || true
 }
 
 cursor_hooks() {

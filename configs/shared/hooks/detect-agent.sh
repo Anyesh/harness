@@ -2,6 +2,12 @@
 # Reads hook JSON from stdin; prints "cursor" or "claude".
 # cursor_version is present only in Cursor payloads. hook_event_name casing
 # is a secondary signal (Cursor: sessionStart, Claude: SessionStart).
+# Codex payloads fall through to "claude" deliberately: Codex's hook JSON
+# uses the same PascalCase event names and the same
+# hookSpecificOutput.additionalContext output shape as Claude Code (verified
+# against developers.openai.com/codex/hooks), so callers of this script that
+# only need to pick between "cursor-shaped" and "claude-shaped" output get
+# the right answer for Codex too without a dedicated branch.
 
 INPUT=$(cat 2>/dev/null || true)
 
