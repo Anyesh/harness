@@ -76,37 +76,46 @@ second_brain_binaries() {
   return 1
 }
 
-second_brain_mcp() {
-  if ! command -v claude &>/dev/null; then
-    return
-  fi
-
-  local sb_mcp=""
+# Sets SB_MCP_BIN and SB_API_BIN to the resolved binary paths, or "" when a
+# binary isn't installed. Shared by every module that registers the
+# second-brain MCP server (claude, codex, opencode) so the lookup order
+# lives in exactly one place.
+second_brain_find_binaries() {
+  SB_MCP_BIN=""
+  SB_API_BIN=""
+  local candidate
   for candidate in \
     "$(command -v second-brain-mcp 2>/dev/null)" \
     "$HOME/.local/bin/second-brain-mcp" \
     "$HOME/.cargo/bin/second-brain-mcp"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then
-      sb_mcp="$candidate"
+      SB_MCP_BIN="$candidate"
       break
     fi
   done
-
-  if [[ -z "$sb_mcp" ]]; then
-    log_warn "second-brain-mcp binary not found, skipping MCP registration"
-    return
-  fi
-
-  local sb_api=""
   for candidate in \
     "$(command -v second-brain-api 2>/dev/null)" \
     "$HOME/.local/bin/second-brain-api" \
     "$HOME/.cargo/bin/second-brain-api"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then
-      sb_api="$candidate"
+      SB_API_BIN="$candidate"
       break
     fi
   done
+}
+
+second_brain_mcp() {
+  if ! command -v claude &>/dev/null; then
+    return
+  fi
+
+  second_brain_find_binaries
+  local sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+
+  if [[ -z "$sb_mcp" ]]; then
+    log_warn "second-brain-mcp binary not found, skipping MCP registration"
+    return
+  fi
 
   second_brain_daemon "$sb_api"
 

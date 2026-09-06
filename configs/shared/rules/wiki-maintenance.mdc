@@ -25,4 +25,4 @@ Page frontmatter and section formats (devlog, decision, plan, spike) are defined
 
 **After writing any page, update `$WIKI_VAULT/wiki/index.md`.** Mandatory, no exceptions: one line per page with a short description hook; new projects go under `## Projects`.
 
-**Devlog reading:** the session-start hook loads the 3 most recent entries. For older context, grep headings to find the date range, then Read only that section; never load a large devlog whole.
+**Devlog reading:** on Claude Code, Cursor, and Codex, a session-start hook loads the 3 most recent entries automatically. opencode has no equivalent hook (its plugin API can't inject context at session start), so read the project's `devlog.md` and `index.md` yourself at the start of work there. For older context on any tool, grep headings to find the date range, then Read only that section; never load a large devlog whole.
