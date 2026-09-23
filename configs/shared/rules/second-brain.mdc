@@ -1,11 +1,11 @@
 ---
-description: Second Brain MCP. Recall before answering for status/memory probes; remember only non-derivable knowledge.
+description: Second Brain MCP. Recall before answering for status/memory probes, verify what comes back; remember only non-derivable knowledge.
 alwaysApply: true
 ---
 
 ## Second Brain (MCP)
 
-Persistent cross-session memory via the `second-brain` MCP server (SQLite + usearch + tantivy). The auto-watcher ingests your transcripts, so the store grows on its own. Your job is to **query it when prior context likely exists** and to **write deliberately** when transcripts alone would not carry the meaning forward.
+Persistent cross-session memory via the `second-brain` MCP server. Transcripts are captured automatically. The server sends its own usage instructions (query phrasing, `full=true`, `project` scoping, trust, forgetting); this section only says when to reach for it.
 
 ### Call `recall` BEFORE answering when the prompt matches any of these patterns
 
@@ -14,7 +14,7 @@ Persistent cross-session memory via the `second-brain` MCP server (SQLite + usea
 - Cold-start on a project or directory you have not touched this session
 - Resuming work after time away ("back to X", "picking up Y")
 
-Use the user's prompt verbatim as the recall query. If the top result scores >0.5, treat it as authoritative prior context and lead your answer with it. If nothing relevant comes back, say so and proceed from current evidence.
+Query with the subject (project, component, error text or identifier) rather than the prompt verbatim. Treat what comes back as leads, not ground truth: memories are model-written summaries that can be stale or wrong, so verify versions, paths and current status against the code, git or the live system before acting on them or reporting them as fact. If nothing relevant comes back, say so and proceed from current evidence.
 
 ### Skip recall entirely for
 
@@ -28,10 +28,8 @@ Use the user's prompt verbatim as the recall query. If the top result scores >0.
 - A surprise or gotcha future-you would otherwise re-discover
 - An explicit user preference ("don't do X", "always do Y")
 
-Do NOT call `remember` to summarize what was just done. The watcher captures transcripts automatically; an additional `remember` write must add interpretation that the transcript itself does not carry, or it is noise that pollutes future recall.
+One self-contained topic per memory, naming the project and keeping exact identifiers. Do NOT call `remember` to summarize what was just done; the watcher captures transcripts, so an extra write must add interpretation the transcript does not carry.
 
-### Other tools
+### Retire what is wrong
 
-- **`context`**: broader than recall, pulls ambient memories for the current working directory. Use when starting work in an unfamiliar project tree and `recall` returned nothing specific.
-- **`associate`**: link related memories when you discover a non-obvious connection (a library choice tied to a performance constraint, a decision tied to its triggering incident).
-- **`forget`**: prune memories that are stale, wrong, or superseded. Do not let outdated knowledge accumulate.
+When a recalled memory turns out to be wrong or superseded, retire it with `forget` and a reason so the next agent is not misled.
