@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PASS=0
+FAIL=0
+TOTAL=0
+
+assert() {
+    local name="$1"
+    TOTAL=$((TOTAL + 1))
+    if eval "$2"; then
+        printf "  PASS  %s\n" "$name"
+        PASS=$((PASS + 1))
+    else
+        printf "  FAIL  %s\n" "$name"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+FAKE_HOME="$TMP_DIR/home"
+MANIFEST="$TMP_DIR/manifest.json"
+BACKUPS="$TMP_DIR/backups"
+mkdir -p "$FAKE_HOME/.cursor" "$FAKE_HOME/.local/bin" "$BACKUPS"
+printf 'WIKI_VAULT=%s/vault\n' "$TMP_DIR" > "$FAKE_HOME/.harness.env"
+for tool in cursor claude sb; do
+    printf '#!/bin/sh\necho "mock %s"\n' "$tool" > "$FAKE_HOME/.local/bin/$tool"
+    chmod +x "$FAKE_HOME/.local/bin/$tool"
+done
+
+harness() {
+    HOME="$FAKE_HOME" \
+    HARNESS_ENV="$FAKE_HOME/.harness.env" \
+    HARNESS_MANIFEST="$MANIFEST" \
+    HARNESS_BACKUP_DIR="$BACKUPS" \
+    PATH="$FAKE_HOME/.local/bin:$PATH" \
+    bash "$REPO_ROOT/install.sh" "$@" 2>&1
+}
+
+sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+entry() { jq -r --arg k "$1" --arg f "$2" '.files[$k][$f] // "absent"' "$MANIFEST"; }
+set_entry() {
+    local tmp
+    tmp=$(mktemp)
+    jq --arg k "$1" --arg sha "$2" --arg src "$3" \
+        '.files[$k] = {"sha256": $sha, "source": $src, "templated": false}' "$MANIFEST" > "$tmp"
+    mv "$tmp" "$MANIFEST"
+}
+
+STALE_SHA=0000000000000000000000000000000000000000000000000000000000000000
+RULE="$FAKE_HOME/.cursor/rules/core.mdc"
+HOOK="$FAKE_HOME/.cursor/hooks/format-on-save.sh"
+
+harness --only cursor > /dev/null
+[[ -f "$RULE" && -f "$HOOK" ]] || { echo "baseline cursor install did not deploy $RULE and $HOOK"; exit 1; }
+
+echo ""
+echo "=== unchanged files are re-recorded ==="
+echo ""
+
+set_entry "$RULE" "$STALE_SHA" "configs/old/core.mdc"
+set_entry "$HOOK" "$STALE_SHA" "configs/claude-code/hooks/format-on-save.sh"
+harness --only cursor --dry-run > /dev/null
+assert "dry-run leaves a stale entry alone" '[[ "$(entry "$RULE" sha256)" == "$STALE_SHA" ]]'
+
+harness --only cursor > /dev/null
+assert "skipped rule gets its current sha" '[[ "$(entry "$RULE" sha256)" == "$(sha_of "$RULE")" ]]'
+assert "skipped rule gets its current source" '[[ "$(entry "$RULE" source)" == "configs/shared/rules/core.mdc" ]]'
+assert "skipped hook gets its moved source" '[[ "$(entry "$HOOK" source)" == "configs/shared/hooks/format-on-save.sh" ]]'
+status_out=$(harness status) || true
+assert "status is clean after re-recording" '! echo "$status_out" | grep -qE "DIRTY|MISSING|ORPHAN"'
+
+echo ""
+echo "=== entries for deleted files are pruned ==="
+echo ""
+
+GONE="$FAKE_HOME/.cursor/hooks/retired-hook.sh"
+KEPT="$FAKE_HOME/.cursor/rules/user-original.mdc"
+set_entry "$GONE" "$STALE_SHA" "configs/shared/hooks/retired-hook.sh"
+set_entry "$KEPT" "$STALE_SHA" "configs/shared/rules/user-original.mdc"
+printf 'present\t%s\n' "$KEPT" >> "$BACKUPS/.preexist"
+
+harness --only cursor --dry-run > /dev/null
+assert "dry-run does not prune" '[[ "$(entry "$GONE" source)" != "absent" ]]'
+
+harness --only cursor > /dev/null
+assert "missing harness-created file is dropped" '[[ "$(entry "$GONE" source)" == "absent" ]]'
+assert "missing file that pre-dated the harness is kept for uninstall" '[[ "$(entry "$KEPT" source)" != "absent" ]]'
+
+echo ""
+echo "=== status flags orphans ==="
+echo ""
+
+ORPHAN="$FAKE_HOME/.cursor/rules/retired-rule.mdc"
+printf -- '---\nalwaysApply: true\n---\nretired\n' > "$ORPHAN"
+set_entry "$ORPHAN" "$(sha_of "$ORPHAN")" "configs/shared/rules/retired-rule.mdc"
+status_out=$(harness status) || true
+assert "file whose source was deleted is ORPHAN" 'echo "$status_out" | grep -E "ORPHAN" | grep -qF "$ORPHAN"'
+assert "live rule is not ORPHAN" '! echo "$status_out" | grep -E "ORPHAN" | grep -qF "$RULE"'
+
+echo ""
+echo "Manifest sync: $TOTAL total, $PASS passed, $FAIL failed"
+
+[[ $FAIL -eq 0 ]]

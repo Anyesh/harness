@@ -97,6 +97,7 @@ deploy_hooks_from() {
       dest_hash=$(file_checksum "$dest")
       if [[ "$src_hash" == "$dest_hash" ]]; then
         log_skip "hook $filename" "unchanged"
+        manifest_record_unchanged "$dest" "$manifest_prefix/$filename" "false"
         continue
       fi
     fi
@@ -137,6 +138,7 @@ deploy_shared_commands() {
       dest_hash=$(file_checksum "$dest")
       if [[ "$src_hash" == "$dest_hash" ]]; then
         log_skip "command $filename" "unchanged"
+        manifest_record_unchanged "$dest" "configs/shared/commands/$filename" "false"
         continue
       fi
     fi
@@ -316,9 +318,15 @@ cmd_status() {
 
   log_section "Harness Status"
 
-  for dest in $(manifest_list_files); do
+  local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}"
+  local dest source
+  while IFS=$'\t' read -r dest source; do
+    [[ -z "$dest" ]] && continue
     if [[ ! -f "$dest" ]]; then
       printf "  ${RED}MISSING${RESET}  %s\n" "$dest"
+      dirty=$((dirty + 1))
+    elif [[ "$source" == configs/* && ! -e "$REPO_ROOT/$source" ]]; then
+      printf "  ${RED}ORPHAN${RESET}   %s (source %s was removed from the harness)\n" "$dest" "$source"
       dirty=$((dirty + 1))
     elif manifest_check_changed "$dest"; then
       printf "  ${YELLOW}DIRTY${RESET}    %s\n" "$dest"
@@ -326,14 +334,14 @@ cmd_status() {
     else
       printf "  ${GREEN}CLEAN${RESET}    %s\n" "$dest"
     fi
-  done
+  done < <([[ -f "$manifest" ]] && jq -r '.files | to_entries[] | "\(.key)\t\(.value.source // "")"' "$manifest")
 
   echo ""
   if [[ $dirty -eq 0 ]]; then
     log_info "all managed files are clean"
     return 0
   else
-    log_warn "$dirty file(s) have local modifications"
+    log_warn "$dirty file(s) are dirty, missing or orphaned"
     return 1
   fi
 }
@@ -420,6 +428,7 @@ setup_global_gitignore
 log_section "Tools"
 deploy_tools
 
+[[ "$DRY_RUN" == "true" ]] || manifest_prune_missing
 manifest_finalize
 report_summary
 

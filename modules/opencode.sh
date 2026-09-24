@@ -106,6 +106,7 @@ opencode_wiki_plugin() {
     dest_hash=$(file_checksum "$dest")
     if [[ "$src_hash" == "$dest_hash" ]]; then
       log_skip "opencode second-brain plugin" "unchanged"
+      manifest_record_unchanged "$dest" "configs/opencode/plugins/harness-second-brain.js" "false"
       return
     fi
   fi

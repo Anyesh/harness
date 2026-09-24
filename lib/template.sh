@@ -204,6 +204,7 @@ PYEOF
     if [[ "$src_hash" == "$dest_hash" ]]; then
       rm -f "$tmp_merged"
       log_skip "$label" "unchanged"
+      manifest_record_unchanged "$dest" "$manifest_source" "true"
       return 0
     fi
   fi
