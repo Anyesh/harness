@@ -67,42 +67,7 @@ claude_config() {
     return
   fi
 
-  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-    local tmp_check
-    tmp_check=$(mktemp)
-    render_template "$src" "$tmp_check"
-    local src_hash dest_hash
-    src_hash=$(file_checksum "$tmp_check")
-    dest_hash=$(file_checksum "$dest")
-    # WHY: Claude Code rewrites settings.json in its own key order whenever a
-    # setting changes in its UI, so byte equality would redeploy identical config.
-    local same=false
-    if [[ "$src_hash" == "$dest_hash" ]]; then
-      same=true
-    elif [[ "$dest" == *.json ]] && json_equivalent "$tmp_check" "$dest"; then
-      same=true
-    fi
-    rm -f "$tmp_check"
-    if [[ "$same" == "true" ]]; then
-      log_skip "$tmpl_name" "unchanged"
-      manifest_record_unchanged "$dest" "configs/claude-code/$tmpl_name" "true"
-      return
-    fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would deploy: $tmpl_name -> $dest"
-    return
-  fi
-
-  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-
-  if deploy_template "$src" "$dest"; then
-    manifest_add "$dest" "configs/claude-code/$tmpl_name" "true"
-    log_update "deployed: $dest"
-  else
-    log_error "failed to deploy: $dest (unresolved template vars)"
-  fi
+  deploy_rendered_template "$src" "$dest" "configs/claude-code/$tmpl_name" "$tmpl_name" || true
 }
 
 claude_hooks() {
@@ -134,32 +99,7 @@ claude_scripts() {
     [[ ! -f "$script_file" ]] && continue
     local filename
     filename=$(basename "$script_file")
-    local dest="$scripts_dest/$filename"
-
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$script_file")
-      dest_hash=$(file_checksum "$dest")
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        log_skip "script $filename" "unchanged"
-        manifest_record_unchanged "$dest" "configs/claude-code/scripts/$filename" "false"
-        continue
-      fi
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy script: $filename"
-      continue
-    fi
-
-    if [[ "$NO_BACKUP" == "false" ]]; then
-      backup_if_exists "$dest"
-    fi
-
-    cp "$script_file" "$dest"
-    chmod +x "$dest" 2>/dev/null || true
-    manifest_add "$dest" "configs/claude-code/scripts/$filename" "false"
-    log_update "script: $filename"
+    deploy_file "$script_file" "$scripts_dest/$filename" "configs/claude-code/scripts/$filename" "false" "script $filename" executable
   done
 }
 
@@ -171,29 +111,7 @@ claude_verdant_rules() {
     return
   fi
 
-  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-    local src_hash dest_hash
-    src_hash=$(file_checksum "$src")
-    dest_hash=$(file_checksum "$dest")
-    if [[ "$src_hash" == "$dest_hash" ]]; then
-      log_skip "verdant-bash.toml" "unchanged"
-      manifest_record_unchanged "$dest" "configs/claude-code/verdant-bash.toml" "false"
-      return
-    fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would deploy: verdant-bash.toml"
-    return
-  fi
-
-  if [[ "$NO_BACKUP" == "false" ]]; then
-    backup_if_exists "$dest"
-  fi
-
-  cp "$src" "$dest"
-  manifest_add "$dest" "configs/claude-code/verdant-bash.toml" "false"
-  log_update "verdant-bash.toml"
+  deploy_file "$src" "$dest" "configs/claude-code/verdant-bash.toml" "false" "verdant-bash.toml"
 }
 
 claude_mcp() {

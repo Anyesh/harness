@@ -145,84 +145,6 @@ deploy_template() {
   return 0
 }
 
-# Merges a rendered JSON fragment's top-level $merge_key into dest without
-# clobbering dest's other keys, then applies the same checksum-skip/dry-run/
-# backup/manifest treatment every other deploy function gets. Consumes and
-# removes rendered_tmp. Refuses (exit 1) instead of merging when dest exists
-# but isn't strict JSON (a hand-edited file with comments), since a blind
-# json.load/dump round-trip would silently drop the user's content.
-deploy_merged_json() {
-  local rendered_tmp="$1" dest="$2" manifest_source="$3" label="$4" merge_key="${5:-mcpServers}"
-
-  local tmp_merged
-  tmp_merged=$(mktemp)
-  # WHY: always normalize through the same json.dump(indent=2) pass, even
-  # when dest doesn't exist yet (existing={}). A "cp the raw fragment on
-  # first deploy, pretty-print on every later merge" split produces
-  # different bytes for identical content, so checksum-skip never fires
-  # after the first run unless the fragment happens to already be
-  # formatted exactly like python's output.
-  local py_err
-  py_err=$(mktemp)
-  if ! python3 - "$rendered_tmp" "$dest" "$tmp_merged" "$merge_key" 2>"$py_err" <<'PYEOF'
-import json, sys
-try:
-    harness = json.load(open(sys.argv[1]))
-except json.JSONDecodeError as e:
-    sys.stderr.write(f"fragment:{sys.argv[1]} is not strict JSON (parse error: {e})\n")
-    sys.exit(1)
-merge_key = sys.argv[4]
-try:
-    existing = json.load(open(sys.argv[2]))
-except FileNotFoundError:
-    existing = {}
-except json.JSONDecodeError as e:
-    sys.stderr.write(f"dest:{sys.argv[2]} is not strict JSON (parse error: {e})\n")
-    sys.exit(1)
-merged = existing.copy()
-merged.setdefault(merge_key, {}).update(harness.get(merge_key, {}))
-json.dump(merged, open(sys.argv[3], "w"), indent=2)
-open(sys.argv[3], "a").write("\n")
-PYEOF
-  then
-    rm -f "$rendered_tmp" "$tmp_merged"
-    if grep -q '^fragment:' "$py_err"; then
-      log_warn "$label: harness-generated fragment isn't strict JSON, this is a harness bug: $(cat "$py_err")"
-    else
-      log_warn "$label: existing $dest isn't strict JSON, left untouched"
-    fi
-    rm -f "$py_err"
-    return 1
-  fi
-  rm -f "$py_err"
-  rm -f "$rendered_tmp"
-
-  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-    local src_hash dest_hash
-    src_hash=$(file_checksum "$tmp_merged")
-    dest_hash=$(file_checksum "$dest")
-    if [[ "$src_hash" == "$dest_hash" ]]; then
-      rm -f "$tmp_merged"
-      log_skip "$label" "unchanged"
-      manifest_record_unchanged "$dest" "$manifest_source" "true"
-      return 0
-    fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    rm -f "$tmp_merged"
-    log_info "[dry-run] would deploy $label"
-    return 0
-  fi
-
-  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-  mkdir -p "$(dirname "$dest")"
-  mv "$tmp_merged" "$dest"
-  manifest_add "$dest" "$manifest_source" "true"
-  log_success "$label deployed"
-  return 0
-}
-
 validate_rendered() {
   local file="$1"
   local unresolved
@@ -259,11 +181,4 @@ validate_all_templates() {
   log_info "validated $checked template(s), $failed failure(s)"
 
   [[ $failed -eq 0 ]]
-}
-
-json_equivalent() {
-  local a b
-  a=$(jq -S -c . "$1" 2>/dev/null) || return 1
-  b=$(jq -S -c . "$2" 2>/dev/null) || return 1
-  [[ "$a" == "$b" ]]
 }

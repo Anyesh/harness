@@ -37,40 +37,7 @@ cursor_rules() {
     [[ ! -f "$src" ]] && continue
     local filename
     filename=$(basename "$src")
-    local dest="$dest_dir/$filename"
-
-    local tmp_render
-    tmp_render=$(mktemp)
-    render_template "$src" "$tmp_render"
-
-    if ! validate_template "$tmp_render"; then
-      rm -f "$tmp_render"
-      log_error "cursor rule failed validation: $filename"
-      continue
-    fi
-
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$tmp_render")
-      dest_hash=$(file_checksum "$dest")
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        rm -f "$tmp_render"
-        log_skip "cursor rule $filename" "unchanged"
-        manifest_record_unchanged "$dest" "configs/shared/rules/$filename" "true"
-        continue
-      fi
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-      rm -f "$tmp_render"
-      log_info "[dry-run] would deploy cursor rule: $filename"
-      continue
-    fi
-
-    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-    mv "$tmp_render" "$dest"
-    manifest_add "$dest" "configs/shared/rules/$filename" "true"
-    log_update "cursor rule: $filename"
+    deploy_rendered_template "$src" "$dest_dir/$filename" "configs/shared/rules/$filename" "cursor rule $filename" || true
   done
 }
 
@@ -118,26 +85,7 @@ cursor_hooks() {
     fi
   fi
 
-  if [[ "$FORCE" == "false" && -f "$hooks_dest" ]]; then
-    local src_hash dest_hash
-    src_hash=$(file_checksum "$hooks_src")
-    dest_hash=$(file_checksum "$hooks_dest")
-    if [[ "$src_hash" == "$dest_hash" ]]; then
-      log_skip "cursor hooks.json" "unchanged"
-      manifest_record_unchanged "$hooks_dest" "configs/cursor/hooks.json" "false"
-      return
-    fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would deploy cursor hooks.json"
-    return
-  fi
-
-  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$hooks_dest"
-  cp "$hooks_src" "$hooks_dest"
-  manifest_add "$hooks_dest" "configs/cursor/hooks.json" "false"
-  log_success "cursor hooks.json deployed"
+  deploy_file "$hooks_src" "$hooks_dest" "configs/cursor/hooks.json" "false" "cursor hooks.json"
 }
 
 cursor_install() {

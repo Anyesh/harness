@@ -116,6 +116,7 @@ echo ""
 
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/template.sh"
+source "$REPO_ROOT/lib/deploy.sh"
 source "$REPO_ROOT/lib/manifest.sh"
 source "$REPO_ROOT/lib/detect.sh"
 source "$REPO_ROOT/lib/backup.sh"

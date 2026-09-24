@@ -25,6 +25,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/template.sh"
+source "$REPO_ROOT/lib/deploy.sh"
 source "$REPO_ROOT/lib/manifest.sh"
 source "$REPO_ROOT/lib/detect.sh"
 source "$REPO_ROOT/lib/backup.sh"
@@ -89,30 +90,7 @@ deploy_hooks_from() {
     done
     [[ "$skip" == "true" ]] && continue
 
-    local dest="$dest_dir/$filename"
-
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$hook_file")
-      dest_hash=$(file_checksum "$dest")
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        log_skip "hook $filename" "unchanged"
-        manifest_record_unchanged "$dest" "$manifest_prefix/$filename" "false"
-        continue
-      fi
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy hook: $filename"
-      continue
-    fi
-
-    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-
-    cp "$hook_file" "$dest"
-    chmod +x "$dest" 2>/dev/null || true
-    manifest_add "$dest" "$manifest_prefix/$filename" "false"
-    log_update "hook: $filename"
+    deploy_file "$hook_file" "$dest_dir/$filename" "$manifest_prefix/$filename" "false" "hook $filename" executable
   done
 }
 
@@ -130,28 +108,7 @@ deploy_shared_commands() {
     [[ ! -f "$cmd_file" ]] && continue
     local filename
     filename=$(basename "$cmd_file")
-    local dest="$dest_dir/$filename"
-
-    if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-      local src_hash dest_hash
-      src_hash=$(file_checksum "$cmd_file")
-      dest_hash=$(file_checksum "$dest")
-      if [[ "$src_hash" == "$dest_hash" ]]; then
-        log_skip "command $filename" "unchanged"
-        manifest_record_unchanged "$dest" "configs/shared/commands/$filename" "false"
-        continue
-      fi
-    fi
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy command: $filename"
-      continue
-    fi
-
-    [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-    cp "$cmd_file" "$dest"
-    manifest_add "$dest" "configs/shared/commands/$filename" "false"
-    log_update "command: $filename"
+    deploy_file "$cmd_file" "$dest_dir/$filename" "configs/shared/commands/$filename" "false" "command $filename"
   done
 }
 
