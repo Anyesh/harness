@@ -51,10 +51,10 @@ full_output=$(
 ) || true
 
 assert "full dry-run produces output" '[[ -n "$full_output" ]]'
-assert "full dry-run loads modules" 'echo "$full_output" | grep -q "Module:"'
-assert "full dry-run mentions claude" 'echo "$full_output" | grep -qi "claude"'
-assert "full dry-run contains dry-run markers" 'echo "$full_output" | grep -q "\[dry-run\]"'
-assert "full dry-run mentions tools detection" 'echo "$full_output" | grep -q "Detected tools"'
+assert "full dry-run loads modules" 'grep -q "Module:" <<<"$full_output"'
+assert "full dry-run mentions claude" 'grep -qi "claude" <<<"$full_output"'
+assert "full dry-run contains dry-run markers" 'grep -q "\[dry-run\]" <<<"$full_output"'
+assert "full dry-run mentions tools detection" 'grep -q "Detected tools" <<<"$full_output"'
 
 echo ""
 echo "=== Integration: --only claude --dry-run ==="
@@ -70,9 +70,9 @@ claude_output=$(
 ) || true
 
 assert "claude-only produces output" '[[ -n "$claude_output" ]]'
-assert "claude-only mentions claude module" 'echo "$claude_output" | grep -q "Module: claude"'
-assert "claude-only skips cursor module" '! echo "$claude_output" | grep -q "Module: cursor"'
-assert "claude-only skips codex module" '! echo "$claude_output" | grep -q "Module: codex"'
+assert "claude-only mentions claude module" 'grep -q "Module: claude" <<<"$claude_output"'
+assert "claude-only skips cursor module" '! grep -q "Module: cursor" <<<"$claude_output"'
+assert "claude-only skips codex module" '! grep -q "Module: codex" <<<"$claude_output"'
 
 echo ""
 echo "=== Integration: --only cursor --dry-run ==="
@@ -88,9 +88,9 @@ cursor_output=$(
 ) || true
 
 assert "cursor-only produces output" '[[ -n "$cursor_output" ]]'
-assert "cursor-only mentions cursor module" 'echo "$cursor_output" | grep -q "Module: cursor"'
-assert "cursor-only skips claude module" '! echo "$cursor_output" | grep -q "Module: claude"'
-assert "cursor-only mentions hooks.json" 'echo "$cursor_output" | grep -qi "hooks.json"'
+assert "cursor-only mentions cursor module" 'grep -q "Module: cursor" <<<"$cursor_output"'
+assert "cursor-only skips claude module" '! grep -q "Module: claude" <<<"$cursor_output"'
+assert "cursor-only mentions hooks.json" 'grep -qi "hooks.json" <<<"$cursor_output"'
 
 echo ""
 echo "=== Integration: template validation ==="
@@ -108,7 +108,7 @@ tmpl_output=$(
 ) || true
 
 assert "template validation runs" '[[ -n "$tmpl_output" ]]'
-assert "template validation reports count" 'echo "$tmpl_output" | grep -q "validated"'
+assert "template validation reports count" 'grep -q "validated" <<<"$tmpl_output"'
 
 echo ""
 echo "=== Integration: per-module tests ==="

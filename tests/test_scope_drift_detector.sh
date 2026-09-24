@@ -54,7 +54,7 @@ assert "turns 1-9 stay silent" '[ -z "$OUT" ]'
 assert "counter reaches 9 after 9 prompts" '[ "$(cat "$COUNT_FILE")" = "9" ]'
 
 OUT=$(run_hook "$(claude_payload "$SESSION")")
-assert "turn 10 without .scope.md fires" 'printf "%s" "$OUT" | grep -q "SCOPE CHECK (turn 10)"'
+assert "turn 10 without .scope.md fires" 'grep -q "SCOPE CHECK (turn 10)" <<<"$OUT"'
 assert "claude payload emits hookSpecificOutput" 'printf "%s" "$OUT" | jq -e ".hookSpecificOutput.additionalContext" >/dev/null'
 
 OUT=$(run_hook "$(claude_payload "$SESSION")")
@@ -68,7 +68,7 @@ assert "turn 20 with fresh .scope.md stays silent" '[ -z "$OUT" ]'
 echo "29" > "$COUNT_FILE"
 touch -d "3 hours ago" "$PROJECT/.scope.md"
 OUT=$(run_hook "$(claude_payload "$SESSION")")
-assert "turn 30 with stale .scope.md fires" 'printf "%s" "$OUT" | grep -q "SCOPE CHECK (turn 30)"'
+assert "turn 30 with stale .scope.md fires" 'grep -q "SCOPE CHECK (turn 30)" <<<"$OUT"'
 
 echo "215" > "$PROJECT/.scope-turn-count"
 run_hook "$(claude_payload "$SESSION")" >/dev/null

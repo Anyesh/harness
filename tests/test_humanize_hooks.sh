@@ -43,23 +43,23 @@ payload() {
 echo ""
 
 OUT=$(run_activate)
-assert "activate injects the digest, not full skill" 'printf "%s" "$OUT" | grep -q "Humanize Digest"'
+assert "activate injects the digest, not full skill" 'grep -q "Humanize Digest" <<<"$OUT"'
 assert "activate payload stays under 2000 bytes" '[ "$(printf "%s" "$OUT" | wc -c)" -lt 2000 ]'
 assert "activate sets the flag file" '[ -f "$CONFIG_DIR/.humanize-active" ]'
 
 SESSION="hum-session-001"
 OUT=$(run_tracker "$(payload "$SESSION")")
-assert "1st prompt reminds" 'printf "%s" "$OUT" | grep -q "HUMANIZE MODE ACTIVE"'
+assert "1st prompt reminds" 'grep -q "HUMANIZE MODE ACTIVE" <<<"$OUT"'
 
 OUT=$(run_tracker "$(payload "$SESSION")")
 OUT2=$(run_tracker "$(payload "$SESSION")")
 assert "2nd and 3rd prompts stay silent" '[ -z "$OUT" ] && [ -z "$OUT2" ]'
 
 OUT=$(run_tracker "$(payload "$SESSION")")
-assert "4th prompt reminds again" 'printf "%s" "$OUT" | grep -q "HUMANIZE MODE ACTIVE"'
+assert "4th prompt reminds again" 'grep -q "HUMANIZE MODE ACTIVE" <<<"$OUT"'
 
 OUT=$(run_tracker '{"prompt": "no session id here"}')
-assert "missing session id falls back to reminding" 'printf "%s" "$OUT" | grep -q "HUMANIZE MODE ACTIVE"'
+assert "missing session id falls back to reminding" 'grep -q "HUMANIZE MODE ACTIVE" <<<"$OUT"'
 
 OUT=$(run_tracker "$(jq -n --arg id "$SESSION" '{session_id: $id, prompt: "/humanize off"}')")
 assert "/humanize off silences tracker" '[ -z "$OUT" ] && [ ! -f "$CONFIG_DIR/.humanize-active" ]'
