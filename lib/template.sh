@@ -260,3 +260,10 @@ validate_all_templates() {
 
   [[ $failed -eq 0 ]]
 }
+
+json_equivalent() {
+  local a b
+  a=$(jq -S -c . "$1" 2>/dev/null) || return 1
+  b=$(jq -S -c . "$2" 2>/dev/null) || return 1
+  [[ "$a" == "$b" ]]
+}
