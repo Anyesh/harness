@@ -55,9 +55,8 @@ while [[ $# -gt 0 ]]; do
     --codex-only) ONLY_MODULE="codex" ;;
     --opencode-only) ONLY_MODULE="opencode" ;;
     --) shift; break ;;
-    # WHY: a bare positional arg (edit's target path, serena-project's repo
-    # path) ends flag parsing rather than dying, so it survives into
-    # COMMAND_ARGS for the command dispatch below.
+    # WHY: a bare positional arg (edit's target path) ends flag parsing rather
+    # than dying, so it survives into COMMAND_ARGS for the command dispatch below.
     -*) die "unknown flag: $1" ;;
     *) break ;;
   esac
@@ -66,7 +65,7 @@ done
 
 COMMAND_ARGS=("$@")
 
-MODULE_ORDER=(second-brain verdant serena claude cursor codex opencode wiki leakguard)
+MODULE_ORDER=(second-brain verdant claude cursor codex opencode wiki leakguard)
 
 HOOK_SKIP_FILES=()
 
@@ -375,50 +374,6 @@ cmd_edit() {
   fi
 }
 
-cmd_serena_project() {
-  local target="${1:-$PWD}"
-  local abs_path
-  abs_path=$(cd "$target" 2>/dev/null && pwd) || die "path not found: $target"
-
-  local repo_basename
-  repo_basename=$(basename "$abs_path")
-
-  local allowlist="$REPO_ROOT/configs/shared/serena-projects.txt"
-  if [[ -f "$allowlist" ]] && ! grep -qxF "$repo_basename" "$allowlist"; then
-    log_warn "$repo_basename not listed in configs/shared/serena-projects.txt (proceeding anyway; running this command here is the opt-in)"
-  fi
-
-  # JSON-escape the path for embedding in the heredoc fragments below.
-  local path_escaped="${abs_path//\\/\\\\}"
-  path_escaped="${path_escaped//\"/\\\"}"
-
-  log_section "Serena: $abs_path"
-
-  manifest_init
-
-  local claude_tmp
-  claude_tmp=$(mktemp)
-  cat > "$claude_tmp" <<JSON
-{"mcpServers":{"serena":{"command":"serena","args":["start-mcp-server","--context","claude-code","--project","$path_escaped"]}}}
-JSON
-  deploy_merged_json "$claude_tmp" "$abs_path/.mcp.json" "serena-project:claude" "serena mcp.json ($abs_path/.mcp.json)" || true
-
-  local cursor_tmp
-  cursor_tmp=$(mktemp)
-  cat > "$cursor_tmp" <<JSON
-{"mcpServers":{"serena":{"command":"serena","args":["start-mcp-server","--context","ide","--project","$path_escaped"]}}}
-JSON
-  deploy_merged_json "$cursor_tmp" "$abs_path/.cursor/mcp.json" "serena-project:cursor" "serena mcp.json ($abs_path/.cursor/mcp.json)" || true
-
-  manifest_finalize
-
-  # WHY: left alone, the MCP server autogenerates project.yml on first start
-  # with only the single most common language, so mixed repos (Python API +
-  # TypeScript frontend) silently lose symbol tools for the rest.
-  source "$REPO_ROOT/modules/serena.sh"
-  serena_configure_languages "$abs_path"
-}
-
 case "$COMMAND" in
   install) ;;
   status) cmd_status; exit $? ;;
@@ -426,8 +381,7 @@ case "$COMMAND" in
   edit) cmd_edit "${COMMAND_ARGS[0]:-}"; exit $? ;;
   watch) source "$REPO_ROOT/modules/watch.sh"; cmd_watch; exit $? ;;
   validate) source "$REPO_ROOT/lib/template.sh"; validate_all_templates; exit $? ;;
-  serena-project) cmd_serena_project "${COMMAND_ARGS[0]:-}"; exit $? ;;
-  *) die "unknown command: $COMMAND. Use: install, status, edit, uninstall, watch, validate, serena-project" ;;
+  *) die "unknown command: $COMMAND. Use: install, status, edit, uninstall, watch, validate" ;;
 esac
 
 log_section "Harness Bootstrap"
