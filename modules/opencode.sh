@@ -94,33 +94,12 @@ opencode_mcp() {
 # opencode implementation for now, a real platform gap rather than something
 # skipped here.
 opencode_wiki_plugin() {
-  local dest_dir="$OPENCODE_CONFIG_DIR/plugins"
-  local dest="$dest_dir/harness-second-brain.js"
+  local dest="$OPENCODE_CONFIG_DIR/plugins/harness-second-brain.js"
   local src="$REPO_ROOT/configs/opencode/plugins/harness-second-brain.js"
 
   [[ -f "$src" ]] || return 0
 
-  if [[ "$FORCE" == "false" && -f "$dest" ]]; then
-    local src_hash dest_hash
-    src_hash=$(file_checksum "$src")
-    dest_hash=$(file_checksum "$dest")
-    if [[ "$src_hash" == "$dest_hash" ]]; then
-      log_skip "opencode second-brain plugin" "unchanged"
-      manifest_record_unchanged "$dest" "configs/opencode/plugins/harness-second-brain.js" "false"
-      return
-    fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would deploy opencode second-brain plugin"
-    return
-  fi
-
-  mkdir -p "$dest_dir"
-  [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-  cp "$src" "$dest"
-  manifest_add "$dest" "configs/opencode/plugins/harness-second-brain.js" "false"
-  log_success "opencode second-brain plugin deployed"
+  deploy_file "$src" "$dest" "configs/opencode/plugins/harness-second-brain.js" "false" "opencode second-brain plugin"
 }
 
 opencode_install() {
