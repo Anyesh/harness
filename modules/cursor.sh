@@ -56,6 +56,7 @@ cursor_rules() {
       if [[ "$src_hash" == "$dest_hash" ]]; then
         rm -f "$tmp_render"
         log_skip "cursor rule $filename" "unchanged"
+        manifest_record_unchanged "$dest" "configs/shared/rules/$filename" "true"
         continue
       fi
     fi
@@ -123,6 +124,7 @@ cursor_hooks() {
     dest_hash=$(file_checksum "$hooks_dest")
     if [[ "$src_hash" == "$dest_hash" ]]; then
       log_skip "cursor hooks.json" "unchanged"
+      manifest_record_unchanged "$hooks_dest" "configs/cursor/hooks.json" "false"
       return
     fi
   fi

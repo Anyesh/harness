@@ -77,6 +77,7 @@ claude_config() {
     rm -f "$tmp_check"
     if [[ "$src_hash" == "$dest_hash" ]]; then
       log_skip "$tmpl_name" "unchanged"
+      manifest_record_unchanged "$dest" "configs/claude-code/$tmpl_name" "true"
       return
     fi
   fi
@@ -133,6 +134,7 @@ claude_scripts() {
       dest_hash=$(file_checksum "$dest")
       if [[ "$src_hash" == "$dest_hash" ]]; then
         log_skip "script $filename" "unchanged"
+        manifest_record_unchanged "$dest" "configs/claude-code/scripts/$filename" "false"
         continue
       fi
     fi
@@ -167,6 +169,7 @@ claude_verdant_rules() {
     dest_hash=$(file_checksum "$dest")
     if [[ "$src_hash" == "$dest_hash" ]]; then
       log_skip "verdant-bash.toml" "unchanged"
+      manifest_record_unchanged "$dest" "configs/claude-code/verdant-bash.toml" "false"
       return
     fi
   fi

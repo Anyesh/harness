@@ -84,3 +84,23 @@ manifest_list_files() {
   local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}"
   [[ -f "$manifest" ]] && jq -r '.files | keys[]' "$manifest" 2>/dev/null || true
 }
+
+manifest_record_unchanged() {
+  [[ "$DRY_RUN" == "true" ]] && return 0
+  manifest_add "$@"
+}
+
+manifest_prune_missing() {
+  local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}"
+  local dest tmp
+  for dest in $(manifest_list_files); do
+    [[ -e "$dest" ]] && continue
+    # WHY: a path that existed before the harness first touched it keeps its
+    # entry, because uninstall uses it to restore the user's original file.
+    [[ "$(preexist_state "$dest")" == "present" ]] && continue
+    tmp=$(mktemp)
+    jq --arg dest "$dest" 'del(.files[$dest])' "$manifest" > "$tmp"
+    mv "$tmp" "$manifest"
+    log_info "manifest: dropped $dest (file no longer exists)"
+  done
+}
