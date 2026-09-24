@@ -57,8 +57,8 @@ assert "turns 1-4 stay silent" '[ -z "$OUT" ]'
 assert "session start timestamp recorded" '[ -f "$START_FILE" ]'
 
 OUT=$(run_hook "$(claude_payload "$SESSION")")
-assert "turn 5 with no wiki writes fires" 'printf "%s" "$OUT" | grep -q "WIKI"'
-assert "turn count in message is honest" 'printf "%s" "$OUT" | grep -q "5 turns"'
+assert "turn 5 with no wiki writes fires" 'grep -q "WIKI" <<<"$OUT"'
+assert "turn count in message is honest" 'grep -q "5 turns" <<<"$OUT"'
 
 for _ in $(seq 1 4); do
   OUT=$(run_hook "$(claude_payload "$SESSION")")
@@ -66,7 +66,7 @@ done
 assert "turns 6-9 stay silent" '[ -z "$OUT" ]'
 
 OUT=$(run_hook "$(claude_payload "$SESSION")")
-assert "turn 10 still unwritten fires with cumulative count" 'printf "%s" "$OUT" | grep -q "10 turns"'
+assert "turn 10 still unwritten fires with cumulative count" 'grep -q "10 turns" <<<"$OUT"'
 
 # Wiki write 30 minutes ago, session started 60 minutes ago: counts as written
 # this session even though it is older than any rolling recency window.
@@ -81,7 +81,7 @@ echo "9" > "$COUNT_FILE"
 echo "$(( $(date +%s) - 60 ))" > "$START_FILE"
 touch -d "2 hours ago" "$WIKI_DIR/devlog.md"
 OUT=$(run_hook "$(claude_payload "$SESSION")")
-assert "pre-session wiki write still fires" 'printf "%s" "$OUT" | grep -q "WIKI"'
+assert "pre-session wiki write still fires" 'grep -q "WIKI" <<<"$OUT"'
 
 OUT=$(WIKI_NUDGE_STATE_DIR="$STATE_DIR" WIKI_VAULT="$VAULT" CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<'{"hook_event_name": "UserPromptSubmit", "prompt": "x"}')
 assert "missing session id exits silently" '[ -z "$OUT" ]'
