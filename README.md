@@ -148,7 +148,23 @@ cd path/to/repo
 This merges a `serena` MCP entry into that repo's own `.mcp.json` (Claude
 Code) and `.cursor/mcp.json` (Cursor), without touching any other keys
 already in those files. It takes an optional path argument and defaults to
-`$PWD`; `--force` and `--dry-run` work the same as everywhere else.
+`$PWD`; `--force` and `--dry-run` work the same as everywhere else (flags go
+before the path: `install.sh serena-project --dry-run path/to/repo`).
+
+It also sets up `.serena/project.yml` with every language the repo needs.
+Left to itself, Serena creates that file on the MCP server's first start with
+only the single most common language, so a Python API next to a TypeScript
+frontend silently loses symbol tools for one side. Detection runs under
+Serena's own interpreter (`lib/serena_detect_languages.py`) so it uses
+Serena's file matchers, language priorities and gitignore handling, then
+picks languages greedily: each one must cover at least 5% of source files
+that no already-picked language covers. That drops redundant servers (Vue and
+Svelte also match every `.ts` file) and stray scripts. A new repo gets
+`serena project create --language ...`; an existing `project.yml` only has
+missing languages appended (backed up first, nothing removed), so re-running
+the command on an old repo repairs it. Restart the serena MCP server
+afterwards. If detection fails, Serena's own inference is used and a warning
+says to check the file.
 
 There's deliberately no path registry (no list of "here's where webapp lives
 on this machine"): that set differs per machine, so this follows the same
@@ -159,7 +175,7 @@ running the command in an unlisted repo still works, just with a warning.
 
 **Include:** repos with deep call graphs where grep-based exploration is
 slow (`webapp`, `api-rating`, `api-accounting`, `second-brain`, `verdant`,
-`incr`, `animator`, `kiln`, `llama-cpp`).
+`incr`, `animator`, `kiln`, `llama-cpp`, `wardrobe`, `wardrowbe`).
 **Exclude:** bash/YAML/systemd-dominated infra repos, where grep already
 covers everything an LSP would add.
 

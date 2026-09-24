@@ -411,6 +411,12 @@ JSON
   deploy_merged_json "$cursor_tmp" "$abs_path/.cursor/mcp.json" "serena-project:cursor" "serena mcp.json ($abs_path/.cursor/mcp.json)" || true
 
   manifest_finalize
+
+  # WHY: left alone, the MCP server autogenerates project.yml on first start
+  # with only the single most common language, so mixed repos (Python API +
+  # TypeScript frontend) silently lose symbol tools for the rest.
+  source "$REPO_ROOT/modules/serena.sh"
+  serena_configure_languages "$abs_path"
 }
 
 case "$COMMAND" in
