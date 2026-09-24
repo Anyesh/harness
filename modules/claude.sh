@@ -74,8 +74,16 @@ claude_config() {
     local src_hash dest_hash
     src_hash=$(file_checksum "$tmp_check")
     dest_hash=$(file_checksum "$dest")
-    rm -f "$tmp_check"
+    # WHY: Claude Code rewrites settings.json in its own key order whenever a
+    # setting changes in its UI, so byte equality would redeploy identical config.
+    local same=false
     if [[ "$src_hash" == "$dest_hash" ]]; then
+      same=true
+    elif [[ "$dest" == *.json ]] && json_equivalent "$tmp_check" "$dest"; then
+      same=true
+    fi
+    rm -f "$tmp_check"
+    if [[ "$same" == "true" ]]; then
       log_skip "$tmpl_name" "unchanged"
       manifest_record_unchanged "$dest" "configs/claude-code/$tmpl_name" "true"
       return

@@ -73,7 +73,7 @@ assert "skipped rule gets its current sha" '[[ "$(entry "$RULE" sha256)" == "$(s
 assert "skipped rule gets its current source" '[[ "$(entry "$RULE" source)" == "configs/shared/rules/core.mdc" ]]'
 assert "skipped hook gets its moved source" '[[ "$(entry "$HOOK" source)" == "configs/shared/hooks/format-on-save.sh" ]]'
 status_out=$(harness status) || true
-assert "status is clean after re-recording" '! echo "$status_out" | grep -qE "DIRTY|MISSING|ORPHAN"'
+assert "status is clean after re-recording" '! grep -qE "DIRTY|MISSING|ORPHAN" <<<"$status_out"'
 
 echo ""
 echo "=== entries for deleted files are pruned ==="
@@ -100,8 +100,26 @@ ORPHAN="$FAKE_HOME/.cursor/rules/retired-rule.mdc"
 printf -- '---\nalwaysApply: true\n---\nretired\n' > "$ORPHAN"
 set_entry "$ORPHAN" "$(sha_of "$ORPHAN")" "configs/shared/rules/retired-rule.mdc"
 status_out=$(harness status) || true
-assert "file whose source was deleted is ORPHAN" 'echo "$status_out" | grep -E "ORPHAN" | grep -qF "$ORPHAN"'
-assert "live rule is not ORPHAN" '! echo "$status_out" | grep -E "ORPHAN" | grep -qF "$RULE"'
+orphan_lines=$(grep ORPHAN <<<"$status_out" || true)
+assert "file whose source was deleted is ORPHAN" 'grep -qF "$ORPHAN" <<<"$orphan_lines"'
+assert "live rule is not ORPHAN" '! grep -qF "$RULE" <<<"$orphan_lines"'
+
+echo ""
+echo "=== JSON configs compare by content ==="
+echo ""
+
+SETTINGS="$FAKE_HOME/.claude/settings.json"
+mkdir -p "$FAKE_HOME/.claude"
+harness --only claude > /dev/null
+[[ -f "$SETTINGS" ]] || { echo "baseline claude install did not deploy $SETTINGS"; exit 1; }
+# Claude Code rewrites settings.json in its own key order whenever a setting changes in its UI.
+reordered=$(jq -S . "$SETTINGS")
+printf '%s\n' "$reordered" > "$SETTINGS"
+dry_out=$(harness --only claude --dry-run)
+assert "reordered settings.json is not redeployed" '! grep -q "would deploy: settings.json.tmpl" <<<"$dry_out"'
+harness --only claude > /dev/null
+assert "reordered settings.json keeps its bytes" '[[ "$(cat "$SETTINGS")" == "$reordered" ]]'
+assert "reordered settings.json is recorded as clean" '[[ "$(entry "$SETTINGS" sha256)" == "$(sha_of "$SETTINGS")" ]]'
 
 echo ""
 echo "Manifest sync: $TOTAL total, $PASS passed, $FAIL failed"
