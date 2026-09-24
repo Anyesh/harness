@@ -17,33 +17,11 @@ opencode_deploy_config() {
   local config_src="$REPO_ROOT/configs/opencode/opencode.jsonc.tmpl"
 
   if [[ -f "$rules_src" ]]; then
-    local dest="$OPENCODE_CONFIG_DIR/AGENTS.md"
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy opencode AGENTS.md"
-    else
-      [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-      if deploy_template "$rules_src" "$dest"; then
-        manifest_add "$dest" "configs/opencode/AGENTS.md.tmpl" "true"
-        log_success "opencode AGENTS.md deployed"
-      else
-        log_error "failed to deploy opencode AGENTS.md"
-      fi
-    fi
+    deploy_rendered_template "$rules_src" "$OPENCODE_CONFIG_DIR/AGENTS.md" "configs/opencode/AGENTS.md.tmpl" "opencode AGENTS.md" || true
   fi
 
   if [[ -f "$config_src" ]] && ! head -1 "$config_src" | grep -q '^// harness does not manage'; then
-    local dest="$OPENCODE_CONFIG_DIR/opencode.jsonc"
-    if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[dry-run] would deploy opencode.jsonc"
-    else
-      [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-      if deploy_template "$config_src" "$dest"; then
-        manifest_add "$dest" "configs/opencode/opencode.jsonc.tmpl" "true"
-        log_success "opencode.jsonc deployed"
-      else
-        log_error "failed to deploy opencode.jsonc"
-      fi
-    fi
+    deploy_rendered_template "$config_src" "$OPENCODE_CONFIG_DIR/opencode.jsonc" "configs/opencode/opencode.jsonc.tmpl" "opencode.jsonc" || true
   fi
 }
 
