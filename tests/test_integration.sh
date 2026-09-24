@@ -24,6 +24,9 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 FAKE_HOME="$TMP_DIR/home"
+# WHY: opencode resolves its config dir from XDG_CONFIG_HOME, so without this
+# the install under test writes into the real ~/.config/opencode.
+export XDG_CONFIG_HOME="$FAKE_HOME/.config"
 mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.cursor" "$FAKE_HOME/.codex" "$FAKE_HOME/.local/bin"
 
 cat > "$FAKE_HOME/.harness.env" <<EOF
