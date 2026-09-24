@@ -32,7 +32,21 @@ case "$ext" in
     fi
     ;;
   js|jsx|ts|tsx|css|scss|html|json|yaml|yml|md)
-    if command -v prettier &>/dev/null; then
+    # A repo that formats with oxfmt must get oxfmt, because prettier's output fails its `oxfmt --check`.
+    oxfmt_root=""
+    if [[ "$ext" =~ ^(js|jsx|ts|tsx)$ ]]; then
+      dir=$(dirname "$(realpath "$file_path")")
+      while [ "$dir" != "/" ]; do
+        if [ -f "$dir/.oxfmtrc.json" ] || [ -f "$dir/.oxfmtrc.jsonc" ]; then
+          oxfmt_root="$dir"
+          break
+        fi
+        dir=$(dirname "$dir")
+      done
+    fi
+    if [ -n "$oxfmt_root" ] && [ -x "$oxfmt_root/node_modules/.bin/oxfmt" ]; then
+      (cd "$oxfmt_root" && ./node_modules/.bin/oxfmt "$(realpath "$file_path")" >/dev/null 2>&1) && formatted="oxfmt" || true
+    elif command -v prettier &>/dev/null; then
       prettier --write "$file_path" 2>/dev/null && formatted="prettier" || true
     fi
     ;;
