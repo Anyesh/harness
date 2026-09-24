@@ -24,11 +24,14 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 FAKE_HOME="$TMP_DIR/home"
+# WHY: opencode resolves its config dir from XDG_CONFIG_HOME, so without this
+# the install under test writes into the real ~/.config/opencode.
+export XDG_CONFIG_HOME="$FAKE_HOME/.config"
 MANIFEST="$TMP_DIR/manifest.json"
 BACKUPS="$TMP_DIR/backups"
 mkdir -p "$FAKE_HOME/.cursor" "$FAKE_HOME/.local/bin" "$BACKUPS"
 printf 'WIKI_VAULT=%s/vault\n' "$TMP_DIR" > "$FAKE_HOME/.harness.env"
-for tool in cursor claude sb; do
+for tool in cursor claude codex opencode sb; do
     printf '#!/bin/sh\necho "mock %s"\n' "$tool" > "$FAKE_HOME/.local/bin/$tool"
     chmod +x "$FAKE_HOME/.local/bin/$tool"
 done
@@ -120,6 +123,26 @@ assert "reordered settings.json is not redeployed" '! grep -q "would deploy: set
 harness --only claude > /dev/null
 assert "reordered settings.json keeps its bytes" '[[ "$(cat "$SETTINGS")" == "$reordered" ]]'
 assert "reordered settings.json is recorded as clean" '[[ "$(entry "$SETTINGS" sha256)" == "$(sha_of "$SETTINGS")" ]]'
+
+echo ""
+echo "=== codex and opencode skip unchanged files ==="
+echo ""
+
+CODEX_INSTRUCTIONS="$FAKE_HOME/.codex/instructions.md"
+CODEX_HOOK="$FAKE_HOME/.codex/hooks/cost-guard.sh"
+OPENCODE_AGENTS="$FAKE_HOME/.config/opencode/AGENTS.md"
+for module in codex opencode; do harness --only "$module" > /dev/null; done
+[[ -f "$CODEX_INSTRUCTIONS" && -f "$CODEX_HOOK" && -f "$OPENCODE_AGENTS" ]] || { echo "baseline codex/opencode install did not deploy their configs"; exit 1; }
+rm -rf "$BACKUPS"/[0-9]*
+dry_out=$(for module in codex opencode; do harness --only "$module" --dry-run; done)
+assert "dry-run after install deploys nothing to codex" '! grep -qiE "would deploy.*codex" <<<"$dry_out"'
+assert "dry-run after install deploys nothing to opencode" '! grep -qiE "would deploy.*opencode" <<<"$dry_out"'
+for module in codex opencode; do harness --only "$module" > /dev/null; done
+backed_up=$(find "$BACKUPS" -path '*/.codex/*' -o -path '*/.config/opencode/*' 2>/dev/null)
+assert "re-install takes no backup of unchanged codex/opencode files" '[[ -z "$backed_up" ]]'
+set_entry "$CODEX_INSTRUCTIONS" "$STALE_SHA" "configs/old/instructions.md.tmpl"
+harness --only codex > /dev/null
+assert "skipped codex instructions.md is re-recorded" '[[ "$(entry "$CODEX_INSTRUCTIONS" sha256)" == "$(sha_of "$CODEX_INSTRUCTIONS")" ]]'
 
 echo ""
 echo "Manifest sync: $TOTAL total, $PASS passed, $FAIL failed"

@@ -128,23 +128,6 @@ validate_template() {
   return 0
 }
 
-deploy_template() {
-  local src="$1" dest="$2"
-  local tmp
-  tmp=$(mktemp)
-
-  render_template "$src" "$tmp"
-
-  if ! validate_template "$tmp"; then
-    rm -f "$tmp"
-    return 1
-  fi
-
-  mkdir -p "$(dirname "$dest")"
-  mv "$tmp" "$dest"
-  return 0
-}
-
 validate_rendered() {
   local file="$1"
   local unresolved
