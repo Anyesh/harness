@@ -103,8 +103,10 @@ T_PARTIAL="$TMP_DIR/partial.jsonl"
 OUT=$(run_hook "$(payload "s-partial" "$T_PARTIAL")")
 assert "devlog written but index missing fires" \
   'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
-assert "message names the missing index" \
-  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md"'
+assert "message says the index file does not exist" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md does not exist"'
+assert "message does not list the written devlog" \
+  '! printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md does not exist\|devlog.md exists"'
 
 OUT=$(run_hook "$(payload "s-notranscript" "")")
 assert "claude session without transcript stays silent" '[ -z "$OUT" ]'
@@ -180,6 +182,18 @@ touch -d '-2 hours' "$VAULT/wiki/index.md" "$VAULT/wiki/projects/myproj/devlog.m
 OUT=$(run_hook "$(payload "s-stale" "$T_STALE")")
 assert "wiki pages older than session start still fire" \
   'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
+assert "stale devlog is reported as not updated, not missing" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md exists but was not updated this session"'
+assert "index without a project section says the entry is absent" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "has no \"### myproj:\" entry"'
+assert "no Missing heading when every file exists" \
+  '! printf "%s" "$OUT" | jq -r ".reason" | grep -qi "missing"'
+
+printf '### myproj: test project\n' > "$VAULT/wiki/index.md"
+touch -d '-2 hours' "$VAULT/wiki/index.md"
+OUT=$(run_hook "$(payload "s-stale-entry" "$T_STALE")")
+assert "index with a project section is reported as not updated" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md has a \"### myproj:\" entry but was not updated this session"'
 
 echo ""
 echo "stop-wiki-enforce: $PASS passed, $FAIL failed"

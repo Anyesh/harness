@@ -108,8 +108,24 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
         exit 0
     fi
 
-    [ "$INDEX_WRITTEN" -eq 0 ] && MISSING_PARTS+=("wiki/index.md (mandatory — no exceptions, every session that touches a project must update it)")
-    [ "$DEVLOG_WRITTEN" -eq 0 ] && MISSING_PARTS+=("${DEVLOG_PATH} (devlog entry for this session's work)")
+    # Each line states the file's actual state, because a bare "missing" for a
+    # file that exists sends the agent guessing at what the hook meant.
+    if [ "$INDEX_WRITTEN" -eq 0 ]; then
+        if [ ! -f "$INDEX_PATH" ]; then
+            MISSING_PARTS+=("${INDEX_PATH} does not exist. Create it with a \"### ${PROJECT_SLUG}:\" entry.")
+        elif ! grep -q "^### ${PROJECT_SLUG}:" "$INDEX_PATH" 2>/dev/null; then
+            MISSING_PARTS+=("${INDEX_PATH} has no \"### ${PROJECT_SLUG}:\" entry. Add one.")
+        else
+            MISSING_PARTS+=("${INDEX_PATH} has a \"### ${PROJECT_SLUG}:\" entry but was not updated this session. Add lines for any pages written this session.")
+        fi
+    fi
+    if [ "$DEVLOG_WRITTEN" -eq 0 ]; then
+        if [ -f "$DEVLOG_PATH" ]; then
+            MISSING_PARTS+=("${DEVLOG_PATH} exists but was not updated this session. Add an entry for this session's work.")
+        else
+            MISSING_PARTS+=("${DEVLOG_PATH} does not exist. Create it with an entry for this session's work.")
+        fi
+    fi
 else
     # No transcript. Only Cursor can be reliably evaluated here via wiki mtime,
     # because Cursor never passes transcript_path. Claude subagents also arrive
@@ -121,7 +137,7 @@ else
         RECENT=$(find "$WIKI_PATH" -name "*.md" -mmin -120 2>/dev/null | head -1)
         [ -n "$RECENT" ] && exit 0
     fi
-    MISSING_PARTS+=("wiki/index.md and project devlog (write both before finishing)")
+    MISSING_PARTS+=("No page under ${WIKI_PATH}/ was modified in the last 2 hours. Update ${WIKI_PATH}/devlog.md and ${WIKI_VAULT}/wiki/index.md.")
 fi
 
 # The FIRED guard is the only thing that stops this hook from re-firing on
@@ -142,17 +158,20 @@ if [ "${#MISSING_PARTS[@]}" -gt 0 ]; then
     MISSING_LIST=$(printf '  - %s\n' "${MISSING_PARTS[@]}")
 fi
 
+if [ -n "${CODE_EDITS:-}" ]; then
+    WORK_SUMMARY="this session made ${CODE_EDITS} file edits (Write/Edit calls) and did not update the project wiki."
+else
+    WORK_SUMMARY="the project wiki was not updated in the last 2 hours."
+fi
+
 MSG=$(cat <<EOF
-WIKI MAINTENANCE — substantial work this session but required wiki files were not written.
+WIKI MAINTENANCE: ${WORK_SUMMARY}
 
 ${WIKI_DIR_EXISTS}
 
-Missing:
 ${MISSING_LIST}
 
-Write a devlog entry at ${WIKI_PATH}/devlog.md summarizing what was accomplished. If any plans, decisions, or explorations happened, create the appropriate page. Then update ${WIKI_VAULT}/wiki/index.md.
-
-Both are mandatory. Do not stop without completing them.
+If any plans, decisions, or explorations happened, also create the matching page and list it in the index.
 EOF
 )
 
