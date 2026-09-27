@@ -52,7 +52,7 @@ try:
 
     sections = re.split(r'^(?=### )', index_content, flags=re.MULTILINE)
     project_section = next(
-        (s.strip() for s in sections if re.match(rf'### {re.escape(slug)}[ \n]', s)),
+        (s.strip() for s in sections if re.match(rf'### {re.escape(slug)}[: \n]', s)),
         ''
     )
 
