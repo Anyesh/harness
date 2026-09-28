@@ -59,6 +59,23 @@ T_IDLE="$TMP_DIR/idle.jsonl"
 OUT=$(run_hook "$(payload "s-idle" "$T_IDLE")")
 assert "zero-edit session stays silent" '[ -z "$OUT" ]'
 
+# The prompt_snapshot attachment Claude Code logs once per session embeds the
+# full tool schema list, so every available tool's name appears as bare
+# "name":"X" text even though none were ever invoked. A text-based count must
+# not mistake schema definitions for tool_use calls.
+T_SCHEMA="$TMP_DIR/schema.jsonl"
+{
+  jq -cn '{type:"attachment",attachment:{tools:[
+    {name:"Write",description:"writes a file"},
+    {name:"Write",description:"writes a file"},
+    {name:"Edit",description:"edits a file"},
+    {name:"Edit",description:"edits a file"}
+  ]}}'
+  printf '{"type":"user","message":{"content":"hi"}}\n'
+} > "$T_SCHEMA"
+OUT=$(run_hook "$(payload "s-schema" "$T_SCHEMA")")
+assert "tool schema names in a prompt snapshot are not counted as edits" '[ -z "$OUT" ]'
+
 T_EDITS="$TMP_DIR/edits.jsonl"
 {
   tool_use "Write" "/tmp/a"

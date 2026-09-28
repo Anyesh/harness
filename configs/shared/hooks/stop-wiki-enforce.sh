@@ -82,7 +82,11 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     # integer tests below silently failed, firing the hook on idle sessions.
     # The verdant tool names count too, because verdant-cached projects deny
     # native Write/Edit and route all mutations through the MCP equivalents.
-    CODE_EDITS=$(grep -o '"name": *"[^"]*"' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|NotebookEdit|mcp__verdant__(write|edit))"' 2>/dev/null || true)
+    # Must filter on type=="tool_use", not just grep "name":"X" over the raw
+    # file: a prompt_snapshot attachment embeds the full tool schema list, so
+    # a bare text match counts every tool definition's name as an invocation
+    # even when it was never called.
+    CODE_EDITS=$(jq -c '.. | objects | select(.type? == "tool_use") | .name' "$TRANSCRIPT" 2>/dev/null | grep -cE '"(Write|Edit|NotebookEdit|mcp__verdant__(write|edit))"' 2>/dev/null || true)
     [[ "$CODE_EDITS" =~ ^[0-9]+$ ]] || CODE_EDITS=0
     if [ "$CODE_EDITS" -lt 3 ]; then
         exit 0
