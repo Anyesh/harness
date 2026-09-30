@@ -33,6 +33,7 @@ codex_deploy_config() {
   local shared_hooks=("pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" \
     "session-start-wiki.sh" "session-end-ingest.sh" "load-harness-env.sh" "harness-project.sh" "detect-agent.sh")
   for hook in "${shared_hooks[@]}"; do
+    profile_skips_hook "$hook" && continue
     local hook_src="$REPO_ROOT/configs/shared/hooks/$hook"
     if [[ -f "$hook_src" ]]; then
       deploy_file "$hook_src" "$CODEX_CONFIG_DIR/hooks/$hook" "configs/shared/hooks/$hook" "false" "codex hook $hook" executable
@@ -52,9 +53,12 @@ codex_deploy_config() {
 codex_mcp() {
   local dest="$CODEX_CONFIG_DIR/config.toml"
 
-  declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
-  second_brain_find_binaries
-  local sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  local sb_mcp="" sb_api=""
+  if ! profile_no_memory; then
+    declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
+    second_brain_find_binaries
+    sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  fi
   local web_strip_path="$HOME/.harness/tools/web-strip/index.js"
 
   local tmp_out

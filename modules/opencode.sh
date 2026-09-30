@@ -38,9 +38,12 @@ opencode_mcp() {
     dest="$OPENCODE_CONFIG_DIR/opencode.jsonc"
   fi
 
-  declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
-  second_brain_find_binaries
-  local sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  local sb_mcp="" sb_api=""
+  if ! profile_no_memory; then
+    declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
+    second_brain_find_binaries
+    sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  fi
   local web_strip_path="$HOME/.harness/tools/web-strip/index.js"
 
   local fragment
@@ -72,6 +75,8 @@ opencode_mcp() {
 # opencode implementation for now, a real platform gap rather than something
 # skipped here.
 opencode_wiki_plugin() {
+  profile_no_memory && return 0
+
   local dest="$OPENCODE_CONFIG_DIR/plugins/harness-second-brain.js"
   local src="$REPO_ROOT/configs/opencode/plugins/harness-second-brain.js"
 
@@ -133,7 +138,7 @@ opencode_test() {
         return 1
     fi
 
-    if ! echo "$output" | grep -qi 'second-brain plugin'; then
+    if ! profile_no_memory && ! echo "$output" | grep -qi 'second-brain plugin'; then
         log_error "opencode_test: opencode_wiki_plugin produced no output"
         return 1
     fi
