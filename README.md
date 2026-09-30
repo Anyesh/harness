@@ -28,6 +28,18 @@ curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | ba
 
 First run clones the repo to `~/.harness`, detects installed tools, and deploys everything. Subsequent runs are idempotent (checksum-based skip).
 
+### Lite install (no memory)
+
+For a machine that should get the hooks, skills, commands and rules but neither second-brain nor the wiki (an interview laptop, say), pass `--no-memory`. Through the curl bootstrap the flag goes after `bash -s` and the double-hyphen separator:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash -s -- --no-memory
+```
+
+`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain and wiki modules (no cargo build, daemon, sync timer or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands, the `WIKI_VAULT` env entry, and the wiki block in `CLAUDE.md`. `--only second-brain` and `--only wiki` cannot be combined with it.
+
+Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain systemd unit and sync timer, the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
+
 ## What gets deployed
 
 ### Claude Code
@@ -174,6 +186,7 @@ HOME_DIR=/home/youruser
 ./install.sh --only claude      # Single module
 ./install.sh --force            # Redeploy even if unchanged
 ./install.sh --dry-run          # Preview without changes
+./install.sh --no-memory        # Skip second-brain and the wiki
 ./install.sh status             # Show managed file state
 ./install.sh uninstall          # Restore all backups
 ```
