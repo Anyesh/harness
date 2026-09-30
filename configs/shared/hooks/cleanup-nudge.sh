@@ -125,7 +125,7 @@ if [ "${#JUNK[@]}" -gt "${#SHOWN[@]}" ]; then
     EXTRA=" (and $(( ${#JUNK[@]} - ${#SHOWN[@]} )) more)"
 fi
 
-MSG="HYGIENE: untracked scratch artifacts are sitting in this repo: ${LIST}${EXTRA}. If any are leftover working files (temp docs, screenshots from testing, debug dumps, junk), delete them so they do not pollute the tree. Anything worth keeping belongs in the wiki or devlog, not as loose files in the project. Leave anything still in use."
+MSG="HYGIENE: untracked scratch artifacts are sitting in this repo: ${LIST}${EXTRA}. If any are leftover working files (temp docs, screenshots from testing, debug dumps, junk), delete them so they do not pollute the tree. Anything worth keeping belongs in the project's docs or notes, not as loose files in the repo. Leave anything still in use."
 
 if [ "$AGENT" = "cursor" ]; then
     jq -n --arg msg "$MSG" '{additional_context: $msg}'
