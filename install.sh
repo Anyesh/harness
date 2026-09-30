@@ -24,6 +24,7 @@ REPO_ROOT="$SCRIPT_DIR"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 source "$REPO_ROOT/lib/common.sh"
+source "$REPO_ROOT/lib/profile.sh"
 source "$REPO_ROOT/lib/template.sh"
 source "$REPO_ROOT/lib/deploy.sh"
 source "$REPO_ROOT/lib/manifest.sh"
@@ -50,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true ;;
     --no-plugins) NO_PLUGINS=true ;;
     --no-backup) NO_BACKUP=true ;;
+    --no-memory) NO_MEMORY=1 ;;
     --only) shift; ONLY_MODULE="${1:-}"; [[ -z "$ONLY_MODULE" ]] && die "--only requires a module name" ;;
     --claude-only) ONLY_MODULE="claude" ;;
     --cursor-only) ONLY_MODULE="cursor" ;;
@@ -66,9 +68,14 @@ done
 
 COMMAND_ARGS=("$@")
 
+if profile_no_memory && [[ -n "$ONLY_MODULE" ]] && profile_is_memory_module "$ONLY_MODULE"; then
+  die "--only $ONLY_MODULE cannot be combined with --no-memory (HARNESS_NO_MEMORY): $ONLY_MODULE is a memory module"
+fi
+
 MODULE_ORDER=(second-brain verdant claude cursor codex opencode wiki leakguard)
 
 HOOK_SKIP_FILES=()
+profile_no_memory && HOOK_SKIP_FILES=("${MEMORY_HOOKS[@]}")
 
 deploy_hooks_from() {
   local src_dir="$1"
@@ -109,6 +116,9 @@ deploy_shared_commands() {
     [[ ! -f "$cmd_file" ]] && continue
     local filename
     filename=$(basename "$cmd_file")
+    if profile_skips_command "$filename"; then
+      continue
+    fi
     local source_file="$cmd_file" manifest_source="configs/shared/commands/$filename"
     if [[ -n "$overlay_dir" && -f "$overlay_dir/$filename" ]]; then
       source_file="$overlay_dir/$filename"
@@ -134,6 +144,9 @@ deploy_shared_skills() {
     [[ ! -d "$skill_dir" ]] && continue
     local skill_name
     skill_name=$(basename "$skill_dir")
+    if profile_skips_skill "$skill_name"; then
+      continue
+    fi
     local dest="$dest_dir/$skill_name"
 
     # WHY: the overlay is composed before the skip check so diff compares what
@@ -382,6 +395,8 @@ else
   log_info "no $HARNESS_ENV found, using defaults (HOME_DIR=$HOME)"
 fi
 
+profile_no_memory && log_info "profile: no-memory (second-brain and wiki are not installed)"
+
 detect_tools
 
 if [[ -n "$ONLY_MODULE" ]]; then
@@ -397,6 +412,9 @@ manifest_init
 
 for mod in "${MODULE_ORDER[@]}"; do
   if [[ -n "$ONLY_MODULE" && "$mod" != "$ONLY_MODULE" ]]; then
+    continue
+  fi
+  if profile_no_memory && profile_is_memory_module "$mod"; then
     continue
   fi
   load_module "$mod"
