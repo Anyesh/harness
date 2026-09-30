@@ -19,7 +19,7 @@ $WIKI_VAULT/wiki/projects/<slug>/plans|decisions|spikes|concepts/
 $WIKI_VAULT/wiki/concepts/                   — cross-project concepts
 ```
 
-Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's SKILL.md; follow them exactly.
+Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's references/ files (plan.md, decide.md, spike.md, log.md); follow them exactly.
 
 **Anti-bloat:** no session narration, no timestamps in prose (frontmatter only), no AI attribution, no hedging, maximum 2 paragraphs per section, prefer lists for facts and tradeoffs; write as a knowledgeable colleague documenting for future reference.
 

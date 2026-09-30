@@ -107,7 +107,7 @@ version: 2
 
 # Wiki Schema
 
-LLM-maintained knowledge wiki (Karpathy pattern). The LLM reads this at the start of every wiki operation. See the /wiki skill (SKILL.md) for full operational instructions.
+LLM-maintained knowledge wiki (Karpathy pattern). The LLM reads this at the start of every wiki operation. See the /wiki skill (SKILL.md and its references/ files) for full operational instructions.
 
 ## Structure
 
