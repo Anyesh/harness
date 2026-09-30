@@ -1,5 +1,7 @@
 #!/bin/bash
 
+declare -f profile_skips_rule >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
+
 render_template() {
   local input="$1" output="$2"
   local env_file="${HARNESS_ENV:-$HOME/.harness.env}"
@@ -42,6 +44,7 @@ render_template() {
         local glob_file first_glob_file=true glob_match_count=0
         while IFS= read -r glob_file; do
           [[ -f "$glob_file" ]] || continue
+          profile_skips_rule "$(basename "$glob_file")" && continue
           glob_match_count=$((glob_match_count + 1))
           [[ "$first_glob_file" == false ]] && printf '\n'
           first_glob_file=false
@@ -97,6 +100,15 @@ render_template() {
     [[ "$found_include" == false ]] && break
   done
 
+  # {{MEMORY_BEGIN}} .. {{MEMORY_END}} wraps memory-only lines: the body is
+  # dropped under --no-memory, and the marker lines always go, so a default
+  # render gains no blank lines.
+  if profile_no_memory; then
+    sed -i '/{{MEMORY_BEGIN}}/,/{{MEMORY_END}}/d' "$output"
+  else
+    sed -i -e '/{{MEMORY_BEGIN}}/d' -e '/{{MEMORY_END}}/d' "$output"
+  fi
+
   local home_escaped="${HOME//\\/\\\\}"
   home_escaped="${home_escaped//&/\\&}"
   sed -i "s|{{HOME_DIR}}|${home_escaped}|g" "$output"
@@ -151,6 +163,7 @@ validate_all_templates() {
     local tmp
     tmp=$(mktemp)
     render_template "$tmpl" "$tmp"
+    [[ "$tmpl" == *.json.tmpl ]] && profile_no_memory && strip_memory_json "$tmp"
 
     checked=$((checked + 1))
     if ! validate_rendered "$tmp"; then
