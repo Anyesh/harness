@@ -170,9 +170,9 @@ claude_install() {
   claude_verdant_rules
   claude_hooks
   claude_scripts
-  deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills"
+  deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills" "$REPO_ROOT/configs/claude-code/skills"
   deploy_impeccable_skill "claude" "$CLAUDE_CONFIG_DIR/skills/impeccable"
-  deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands"
+  deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands" "$REPO_ROOT/configs/claude-code/commands"
 }
 
 claude_test() {

@@ -96,6 +96,7 @@ deploy_hooks_from() {
 
 deploy_shared_commands() {
   local dest_dir="$1"
+  local overlay_dir="${2:-}"
   local cmds_src="$REPO_ROOT/configs/shared/commands"
 
   if [[ ! -d "$cmds_src" ]]; then
@@ -108,12 +109,18 @@ deploy_shared_commands() {
     [[ ! -f "$cmd_file" ]] && continue
     local filename
     filename=$(basename "$cmd_file")
-    deploy_file "$cmd_file" "$dest_dir/$filename" "configs/shared/commands/$filename" "false" "command $filename"
+    local source_file="$cmd_file" manifest_source="configs/shared/commands/$filename"
+    if [[ -n "$overlay_dir" && -f "$overlay_dir/$filename" ]]; then
+      source_file="$overlay_dir/$filename"
+      manifest_source="${overlay_dir#"$REPO_ROOT"/}/$filename"
+    fi
+    deploy_file "$source_file" "$dest_dir/$filename" "$manifest_source" "false" "command $filename"
   done
 }
 
 deploy_shared_skills() {
   local dest_dir="$1"
+  local overlay_dir="${2:-}"
   local skills_src="$REPO_ROOT/configs/shared/skills"
 
   if [[ ! -d "$skills_src" ]]; then
@@ -129,18 +136,35 @@ deploy_shared_skills() {
     skill_name=$(basename "$skill_dir")
     local dest="$dest_dir/$skill_name"
 
-    if [[ "$FORCE" == "false" && -d "$dest" ]] && diff -rq "$skill_dir" "$dest" >/dev/null 2>&1; then
+    # WHY: the overlay is composed before the skip check so diff compares what
+    # would be deployed; copying it over the deployed dir instead would make the
+    # deployed tree differ from the shared one and redeploy on every run.
+    local source_tree="$skill_dir" composed=""
+    if [[ -n "$overlay_dir" && -d "$overlay_dir/$skill_name" ]]; then
+      composed=$(mktemp -d -t harness-overlay.XXXXXX)
+      if ! { cp -r "$skill_dir/." "$composed/" && cp -r "$overlay_dir/$skill_name/." "$composed/"; }; then
+        rm -rf "$composed"
+        log_error "failed to compose skill $skill_name with its overlay"
+        continue
+      fi
+      source_tree="$composed"
+    fi
+
+    if [[ "$FORCE" == "false" && -d "$dest" ]] && diff -rq "$source_tree" "$dest" >/dev/null 2>&1; then
+      [[ -n "$composed" ]] && rm -rf "$composed"
       log_skip "skill $skill_name" "unchanged"
       continue
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
+      [[ -n "$composed" ]] && rm -rf "$composed"
       log_info "[dry-run] would deploy skill: $skill_name"
       continue
     fi
 
     rm -rf "$dest"
-    cp -r "$skill_dir" "$dest"
+    cp -r "$source_tree" "$dest"
+    [[ -n "$composed" ]] && rm -rf "$composed"
     log_success "skill: $skill_name"
   done
 }
