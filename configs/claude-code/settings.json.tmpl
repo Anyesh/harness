@@ -117,6 +117,12 @@
             "command": "bash {{HOME_DIR}}/.claude/hooks/session-start-wiki.sh",
             "timeout": 5,
             "statusMessage": "Loading wiki index..."
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/session-start-handoff.sh",
+            "timeout": 15,
+            "statusMessage": "Linking previous session digest..."
           }
         ]
       }
