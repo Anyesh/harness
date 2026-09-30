@@ -55,6 +55,11 @@ deploy_rendered_template() {
   local tmp
   tmp=$(mktemp)
   render_template "$src" "$tmp"
+  if [[ "$dest" == *.json ]] && profile_no_memory && ! strip_memory_json "$tmp"; then
+    rm -f "$tmp"
+    log_error "failed to deploy $label (memory filter could not parse the JSON)"
+    return 1
+  fi
   if ! validate_template "$tmp"; then
     rm -f "$tmp"
     log_error "failed to deploy $label (unresolved template vars)"

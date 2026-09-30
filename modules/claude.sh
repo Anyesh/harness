@@ -163,9 +163,11 @@ claude_install() {
   claude_config "settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json"
   claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
   claude_mcp
-  # --claude-only skips loading the second-brain module, so source it for its mcp helper
-  declare -f second_brain_mcp >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
-  second_brain_mcp
+  if ! profile_no_memory; then
+    # --claude-only skips loading the second-brain module, so source it for its mcp helper
+    declare -f second_brain_mcp >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
+    second_brain_mcp
+  fi
 
   claude_verdant_rules
   claude_hooks

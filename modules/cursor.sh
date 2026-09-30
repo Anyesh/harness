@@ -37,6 +37,7 @@ cursor_rules() {
     [[ ! -f "$src" ]] && continue
     local filename
     filename=$(basename "$src")
+    profile_skips_rule "$filename" && continue
     deploy_rendered_template "$src" "$dest_dir/$filename" "configs/shared/rules/$filename" "cursor rule $filename" || true
   done
 }
@@ -52,6 +53,11 @@ cursor_mcp() {
   local tmp_rendered
   tmp_rendered=$(mktemp)
   render_template "$src" "$tmp_rendered"
+  if profile_no_memory && ! strip_memory_json "$tmp_rendered"; then
+    rm -f "$tmp_rendered"
+    log_error "failed to deploy cursor mcp.json (memory filter could not parse the JSON)"
+    return
+  fi
 
   if ! validate_template "$tmp_rendered"; then
     rm -f "$tmp_rendered"
@@ -85,7 +91,7 @@ cursor_hooks() {
     fi
   fi
 
-  deploy_file "$hooks_src" "$hooks_dest" "configs/cursor/hooks.json" "false" "cursor hooks.json"
+  deploy_rendered_template "$hooks_src" "$hooks_dest" "configs/cursor/hooks.json" "cursor hooks.json" || true
 }
 
 cursor_install() {
