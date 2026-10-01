@@ -52,6 +52,33 @@ OUT=$(run_hook)
 assert "slug prefix of another project does not count as an entry" \
   'grep -q "no index entry yet for myproj" <<<"$OUT"'
 
+python3 - "$VAULT" <<'PY'
+import sys
+vault = sys.argv[1]
+headers = ''.join(f'### proj{i}: ' + 'description words ' * 8 + '\n' for i in range(40))
+detail_lines = ''.join(f'- [Page {i}](projects/myproj/plans/p{i}.md): ' + 'long hook text ' * 30 + '\n' for i in range(20))
+open(f'{vault}/wiki/index.md', 'w').write(
+    '## Projects\n\n' + headers + '### myproj: Big project\n' + detail_lines + '\n### zzz: Last\n')
+entries = ''.join(f'## [2026-10-0{i}] Entry {i}\n\n' + 'devlog body line\n' * 120 for i in range(1, 6))
+open(f'{vault}/wiki/projects/myproj/devlog.md', 'w').write('---\ntype: devlog\n---\n\n# Devlog\n\n' + entries)
+PY
+OUT=$(run_hook)
+CHARS=$(printf '%s' "$OUT" | wc -m)
+assert "oversized index and devlog stay under the 10000-char additionalContext cap" \
+  '[ "$CHARS" -lt 9500 ]'
+assert "oversized output keeps the project detail header" \
+  'grep -q "## myproj detail:" <<<"$OUT"'
+assert "oversized output keeps the newest devlog entry heading" \
+  'grep -q "## \[2026-10-01\] Entry 1" <<<"$OUT"'
+assert "oversized output says where the rest lives" \
+  'grep -q "truncated" <<<"$OUT"'
+
+printf '## Projects\n\n### myproj: Test project\n- [[devlog]]: dated entries\n' > "$VAULT/wiki/index.md"
+printf '# Devlog\n\n## [2026-10-02] Small\n\nbody\n' > "$VAULT/wiki/projects/myproj/devlog.md"
+OUT=$(run_hook)
+assert "small vault output carries no truncation marker" \
+  '! grep -q "truncated" <<<"$OUT"'
+
 echo ""
 echo "session-start-wiki: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
