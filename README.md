@@ -36,7 +36,7 @@ For a machine that should get the hooks, skills, commands and rules but neither 
 curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash -s -- --no-memory
 ```
 
-`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain and wiki modules (no cargo build, daemon, sync timer or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands, the `WIKI_VAULT` env entry, and the wiki block in `CLAUDE.md`. `--only second-brain` and `--only wiki` cannot be combined with it.
+`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain and wiki modules (no cargo build, daemon, sync timer or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands and the `WIKI_VAULT` env entry. `--only second-brain` and `--only wiki` cannot be combined with it.
 
 Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain systemd unit and sync timer, the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
 

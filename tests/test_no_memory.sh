@@ -110,11 +110,11 @@ assert "lite: permissions arrays survive" 'jq -e ".permissions.allow == [] and .
 assert "lite: .mcp.json valid and lacks second-brain" 'jq -e "(.mcpServers | has(\"second-brain\") | not) and (.mcpServers | has(\"web-strip\"))" "$LH/.claude/.mcp.json" > /dev/null'
 
 CM="$LH/.claude/CLAUDE.md"
-assert "lite: CLAUDE.md has no wiki skill block" '! grep -q "^# wiki" "$CM" && ! grep -q "skills/wiki/SKILL.md" "$CM"'
+assert "lite: CLAUDE.md does not mention the wiki skill" '! grep -q "skills/wiki/SKILL.md" "$CM"'
 assert "lite: CLAUDE.md has no marker left" '! grep -q "MEMORY_" "$CM"'
 assert "lite: CLAUDE.md lacks the second-brain rule" '! grep -q "^## Second Brain (MCP)" "$CM"'
 assert "lite: CLAUDE.md lacks the wiki-maintenance rule" '! grep -q "^## Wiki Maintenance" "$CM"'
-assert "lite: CLAUDE.md keeps other rules and skills" 'grep -q "^# ownit" "$CM" && grep -q "^## Scope Gate" "$CM"'
+assert "lite: CLAUDE.md keeps the other rules" 'grep -q "^## Scope Gate" "$CM" && grep -q "^## Code Design" "$CM"'
 assert "lite: no wiki skill in claude or agents dirs" '[[ ! -e "$LH/.claude/skills/wiki" && ! -e "$LH/.agents/skills/wiki" && ! -e "$LH/.cursor/skills/wiki" ]]'
 
 cmds_ok=true
@@ -162,7 +162,7 @@ assert "control: memory hooks deployed" '[[ -x "$FH/.claude/hooks/wiki-nudge.sh"
 assert "control: settings.json registers memory hooks and WIKI_VAULT" 'grep -q wiki-nudge "$FH/.claude/settings.json" && grep -q "WIKI_VAULT\": \"$TMP_DIR/vault\"" "$FH/.claude/settings.json"'
 assert "control: enabledMcpjsonServers has second-brain" 'jq -e ".enabledMcpjsonServers | index(\"second-brain\") != null" "$FH/.claude/settings.json" > /dev/null'
 assert "control: .mcp.json, cursor mcp.json have second-brain" 'jq -e ".mcpServers | has(\"second-brain\")" "$FH/.claude/.mcp.json" > /dev/null && jq -e ".mcpServers | has(\"second-brain\")" "$FH/.cursor/mcp.json" > /dev/null'
-assert "control: CLAUDE.md has wiki block and both rules" 'grep -q "^# wiki" "$FH/.claude/CLAUDE.md" && grep -q "^## Second Brain (MCP)" "$FH/.claude/CLAUDE.md" && grep -q "^## Wiki Maintenance" "$FH/.claude/CLAUDE.md"'
+assert "control: CLAUDE.md has both memory rules" 'grep -q "^## Second Brain (MCP)" "$FH/.claude/CLAUDE.md" && grep -q "^## Wiki Maintenance" "$FH/.claude/CLAUDE.md"'
 assert "control: wiki skill and memory commands deployed" '[[ -d "$FH/.claude/skills/wiki" && -f "$FH/.claude/commands/devlog.md" && -f "$FH/.claude/commands/plan.md" && -f "$FH/.claude/commands/decision.md" ]]'
 assert "control: cursor rules and hooks carry memory" '[[ -f "$FH/.cursor/rules/second-brain.mdc" && -f "$FH/.cursor/rules/wiki-maintenance.mdc" ]] && grep -q wiki-nudge "$FH/.cursor/hooks.json"'
 assert "control: codex hooks and scripts carry memory" 'grep -q session-start-wiki "$FH/.codex/hooks.json" && [[ -x "$FH/.codex/hooks/session-start-wiki.sh" ]]'
@@ -173,7 +173,6 @@ echo ""
 echo "=== default output identity ==="
 echo ""
 
-assert "identity: CLAUDE.md has no blank line opening the ownit-to-wiki block seam" '! grep -B1 "^# wiki" "$FH/.claude/CLAUDE.md" | head -1 | grep -q "^$"'
 assert "identity: CLAUDE.md has no marker text" '! grep -q "MEMORY_" "$FH/.claude/CLAUDE.md"'
 ident_ok=true
 for pair in "claude-code/settings.json.tmpl:$FH/.claude/settings.json" "claude-code/.mcp.json.tmpl:$FH/.claude/.mcp.json" "codex/hooks.json:$FH/.codex/hooks.json"; do
@@ -221,7 +220,7 @@ add_fake_second_brain "$UH"
 install_all "$UH" --no-memory
 assert "switch: lite first has no wiki skill or memory hook" '[[ ! -e "$UH/.claude/skills/wiki" && ! -e "$UH/.claude/hooks/wiki-nudge.sh" ]]'
 install_all "$UH"
-assert "switch: lite then full gains the memory pieces" '[[ -d "$UH/.claude/skills/wiki" && -x "$UH/.claude/hooks/wiki-nudge.sh" && -f "$UH/.claude/commands/devlog.md" ]] && grep -q wiki-nudge "$UH/.claude/settings.json" && grep -q "^# wiki" "$UH/.claude/CLAUDE.md"'
+assert "switch: lite then full gains the memory pieces" '[[ -d "$UH/.claude/skills/wiki" && -x "$UH/.claude/hooks/wiki-nudge.sh" && -f "$UH/.claude/commands/devlog.md" ]] && grep -q wiki-nudge "$UH/.claude/settings.json" && grep -q "^## Wiki Maintenance" "$UH/.claude/CLAUDE.md"'
 
 DNH="$TMP_DIR/switchdown"
 new_home "$DNH" vault
