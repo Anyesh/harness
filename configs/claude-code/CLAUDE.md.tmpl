@@ -1,18 +1,3 @@
 # Global Claude Code Instructions
 
 {{INCLUDE_BODY_GLOB:shared/rules/*.mdc}}
-
-# ownit
-- **ownit** (`~/.claude/skills/ownit/SKILL.md`) - Ownership mindset reset. Snaps out of shortcut-seeking, sloppy behavior. On-demand corrective tool. Trigger: `/ownit`
-When the user types `/ownit`, invoke the Skill tool with `skill: "ownit"` before doing anything else.
-# humanize
-- **humanize** (`~/.claude/skills/humanize/SKILL.md`) - Structure questions as digestible single/multi-choice interactive prompts. One question at a time. Trigger: `/humanize`
-When the user types `/humanize`, invoke the Skill tool with `skill: "humanize"` before doing anything else.
-# converge
-- **converge** (`~/.claude/skills/converge/SKILL.md`) - Iteratively refine a short-form artifact (abstract, README, plan, commit message, copy, prompt) through fresh parallel multi-persona reviewer rounds until all-green or honest asymptote. Trigger: `/converge`
-When the user types `/converge`, invoke the Skill tool with `skill: "converge"` before doing anything else.
-{{MEMORY_BEGIN}}
-# wiki
-- **wiki** (`~/.claude/skills/wiki/SKILL.md`) - LLM-maintained knowledge wiki (Karpathy pattern). Ingest sources, query with citations, lint for quality. Trigger: `/wiki`
-When the user types `/wiki`, invoke the Skill tool with `skill: "wiki"` before doing anything else.
-{{MEMORY_END}}

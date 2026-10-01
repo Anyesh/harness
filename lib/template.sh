@@ -100,15 +100,6 @@ render_template() {
     [[ "$found_include" == false ]] && break
   done
 
-  # {{MEMORY_BEGIN}} .. {{MEMORY_END}} wraps memory-only lines: the body is
-  # dropped under --no-memory, and the marker lines always go, so a default
-  # render gains no blank lines.
-  if profile_no_memory; then
-    sed -i '/{{MEMORY_BEGIN}}/,/{{MEMORY_END}}/d' "$output"
-  else
-    sed -i -e '/{{MEMORY_BEGIN}}/d' -e '/{{MEMORY_END}}/d' "$output"
-  fi
-
   local home_escaped="${HOME//\\/\\\\}"
   home_escaped="${home_escaped//&/\\&}"
   sed -i "s|{{HOME_DIR}}|${home_escaped}|g" "$output"
