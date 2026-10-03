@@ -66,84 +66,90 @@ fi
 if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   COMMAND=$(printf '%s' "$INPUT" | jq -r '.command // .tool_input.command // empty' 2>/dev/null)
   [[ -z "$COMMAND" ]] && exit 0
+  # shellcheck source=shell-code.sh
+  source "$HOOK_DIR/shell-code.sh"
+  # Checks run on the code that executes, so quoted text and heredoc bodies
+  # (commit messages, scripts being written) never look like a big read.
+  CODE=$(printf '%s\n' "$COMMAND" | shell_code keep)
+  at="$SHELL_CMD_START"
 
   # Safe: command is piped to something that limits output
   # Match: | head, | tail (without huge -n), | wc, | grep, | sort | head, | cut
-  if echo "$COMMAND" | grep -qE '\|\s*(head|wc|grep|cut|awk|sort\s*\|)' ; then
+  if printf '%s\n' "$CODE" | grep -qE '\|\s*(head|wc|grep|cut|awk|sort\s*\|)' ; then
     exit 0
   fi
   # tail with small number is fine
-  if echo "$COMMAND" | grep -qE '\|\s*tail\s+(-n\s*)?[0-9]{1,2}\b'; then
+  if printf '%s\n' "$CODE" | grep -qE '\|\s*tail\s+(-n\s*)?[0-9]{1,2}\b'; then
     exit 0
   fi
 
   # Safe: grep with -l (filenames only), -c (counts), -L (non-matching files)
-  if echo "$COMMAND" | grep -qE 'grep\s+(-[a-zA-Z]*[lcL])'; then
+  if printf '%s\n' "$CODE" | grep -qE 'grep\s+(-[a-zA-Z]*[lcL])'; then
     exit 0
   fi
   # Also safe: grep -rl, grep --count, grep --files-with-matches
-  if echo "$COMMAND" | grep -qE 'grep\s+--?(files-with|count)'; then
+  if printf '%s\n' "$CODE" | grep -qE 'grep\s+--?(files-with|count)'; then
     exit 0
   fi
 
   # Safe: find with -name filter (scoped, not a full tree dump)
-  if echo "$COMMAND" | grep -qE 'find\s+\S+.*-name'; then
+  if printf '%s\n' "$CODE" | grep -qE 'find\s+\S+.*-name'; then
     exit 0
   fi
 
   # Safe: tail/head with small numbers (default or <100 lines)
-  if echo "$COMMAND" | grep -qE '(^|\s)(tail|head)(\s+-[0-9]{1,2}\b|\s+-n\s*[0-9]{1,2}\b|\s+[^-[:space:]])'; then
+  if printf '%s\n' "$CODE" | grep -qE '(^|\s)(tail|head)(\s+-[0-9]{1,2}\b|\s+-n\s*[0-9]{1,2}\b|\s+[^-[:space:]])'; then
     exit 0
   fi
 
   # Safe: commands with explicit --limit, --max-count, --tail flags
-  if echo "$COMMAND" | grep -qE -- '--(limit|max-count|tail|max-results)\s*[=\s]?[0-9]'; then
+  if printf '%s\n' "$CODE" | grep -qE -- '--(limit|max-count|tail|max-results)\s*[=\s]?[0-9]'; then
     exit 0
   fi
 
   # Now check for dangerous patterns (unbounded output)
 
   # docker/kubectl logs without --tail
-  if echo "$COMMAND" | grep -qEi '^(docker|kubectl)\s+logs' ; then
-    if ! echo "$COMMAND" | grep -qE -- '--tail'; then
+  if printf '%s\n' "$CODE" | grep -qEi "${at}(docker|kubectl)\s+logs" ; then
+    if ! printf '%s\n' "$CODE" | grep -qE -- '--tail'; then
       block_with_message "Unbounded container logs (add --tail N)" "$COMMAND"
     fi
   fi
 
   # journalctl without -n or --lines limit
-  if echo "$COMMAND" | grep -qE '^\s*journalctl' ; then
-    if ! echo "$COMMAND" | grep -qE '(-n\s*[0-9]|--lines)'; then
+  if printf '%s\n' "$CODE" | grep -qE "${at}journalctl" ; then
+    if ! printf '%s\n' "$CODE" | grep -qE '(-n\s*[0-9]|--lines)'; then
       block_with_message "Unbounded journalctl (add -n N)" "$COMMAND"
     fi
   fi
 
   # cat/less on log files
-  if echo "$COMMAND" | grep -qEi '\b(cat|less)\b.*\.(log|jsonl|csv|out)\b'; then
+  if printf '%s\n' "$CODE" | grep -qEi "${at}(cat|less)\s[^;&|<>]*\.(log|jsonl|csv|out)\b"; then
     block_with_message "Unbounded read of log file (use head/tail or subagent)" "$COMMAND"
   fi
 
   # tail with large line count (100+)
-  if echo "$COMMAND" | grep -qE 'tail\s+(-n\s*|-)[0-9]{3,}'; then
+  if printf '%s\n' "$CODE" | grep -qE 'tail\s+(-n\s*|-)[0-9]{3,}'; then
     block_with_message "Large tail (100+ lines enters context)" "$COMMAND"
   fi
 
   # find from root (/) without pipe
-  if echo "$COMMAND" | grep -qE '\bfind\s+/\s' ; then
+  if printf '%s\n' "$CODE" | grep -qE '\bfind\s+/\s' ; then
     block_with_message "find from / produces massive output (scope to specific dir)" "$COMMAND"
   fi
 
   # Recursive grep without output-limiting flags, on broad scope
   # Block: grep -r "pattern" . (whole repo, no -l/-c, no pipe)
-  if echo "$COMMAND" | grep -qE '\bgrep\s+(-[a-zA-Z]*r|-[a-zA-Z]*-recursive)'; then
+  if printf '%s\n' "$CODE" | grep -qE '\bgrep\s+(-[a-zA-Z]*r|-[a-zA-Z]*-recursive)'; then
     # Already passed the "safe" checks above (piped, -l, -c)
     # Block only if targeting broad directories (., ./, entire repo)
-    if echo "$COMMAND" | grep -qE '\s[.]\s*$|\s[.]/\s*$|\s\.$'; then
+    if printf '%s\n' "$CODE" | grep -qE '\s[.]\s*$|\s[.]/\s*$|\s\.$'; then
       block_with_message "Recursive grep on entire directory without output limit (add -l, -c, or | head)" "$COMMAND"
     fi
   fi
 
   # npm list --all (massive dependency tree)
-  if echo "$COMMAND" | grep -qE 'npm\s+list\s+--all'; then
+  if printf '%s\n' "$CODE" | grep -qE 'npm\s+list\s+--all'; then
     block_with_message "npm list --all dumps entire dep tree (use --depth=0)" "$COMMAND"
   fi
 
@@ -151,7 +157,7 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   # Not blocking — it's typically <100 lines
 
   # ag/rg on broad scope without pipe
-  if echo "$COMMAND" | grep -qE '\b(ag|rg)\s+\S+\s+\.\s*$'; then
+  if printf '%s\n' "$CODE" | grep -qE '\b(ag|rg)\s+\S+\s+\.\s*$'; then
     block_with_message "Broad search without output limit (add | head or -l)" "$COMMAND"
   fi
 fi

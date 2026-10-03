@@ -16,35 +16,45 @@ HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$HOOK_DIR/log-block.sh"
 harness_log_block_on_exit pre-bash-guard "$input"
 
-# Dangerous patterns — block and tell the agent to ask the user to run manually
+# shellcheck source=shell-code.sh
+source "$HOOK_DIR/shell-code.sh"
+# Match the code that runs, not quoted text or heredocs fed to other programs,
+# so commit messages and grep patterns that mention these commands pass.
+code=$(printf '%s\n' "$command" | shell_code keep)
+
+# A command word only counts at a command position (so `wsl.exe --shutdown`
+# passes), and $seg keeps a match inside one simple command so `;` or `&&`
+# cannot join a feature-branch push to a later `git checkout master`.
+at="$SHELL_CMD_START"
+seg='[^;&|]*'
+force='(\s-f\b|\s--force)'
+
 dangerous=(
-  'mkfs\.'
-  'dd\s+if=/dev'
+  "${at}mkfs(\.|\s)"
+  "${at}dd\s${seg}if=/dev"
   '>\s*/dev/sd'
-  'chmod\s+-R\s+777\s+/'
-  'chown\s+-R\s+.*\s+/'
-  'git\s+push\s+.*--force.*\b(main|master)\b'
-  'git\s+push\s+-f.*\b(main|master)\b'
-  'git\s+push\s+--force-with-lease.*\b(main|master)\b'
-  '\bshutdown\b'
-  '\breboot\b'
-  '\binit\s+[06]\b'
+  "${at}chmod\s+-R\s+777\s+/"
+  "${at}chown\s+-R\s${seg}\s/"
+  "${at}git\s+push\b(${seg}${force}${seg}\b(main|master)\b|${seg}\b(main|master)\b${seg}${force})"
+  "${at}shutdown\b"
+  "${at}reboot\b"
+  "${at}init\s+[06]\b"
   ':\(\)\s*\{'
-  '\bsystemctl\s+(stop|disable|mask)\s+(docker|sshd|network)'
-  '\biptables\s+-F\b'
+  "${at}systemctl\s+(stop|disable|mask)\s+(docker|sshd|network)"
+  "${at}iptables\s+-F\b"
 )
 
 for pattern in "${dangerous[@]}"; do
-  if echo "$command" | grep -qEi "$pattern"; then
-    msg="BLOCKED by pre-bash-guard: matches dangerous pattern. If this is intentional, run the command manually."
+  if printf '%s\n' "$code" | grep -qEi "$pattern"; then
+    msg="BLOCKED by pre-bash-guard: matches dangerous pattern /$pattern/. If this is intentional, run the command manually."
     if [[ "$hook_event" == "beforeShellExecution" ]]; then
       # Cursor beforeShellExecution uses permission/user_message output
       harness_log_block pre-bash-guard "$input"
-      echo "{\"permission\": \"deny\", \"user_message\": \"$msg\"}"
+      jq -cn --arg m "$msg" '{permission: "deny", user_message: $m}'
       exit 0
     else
       # Claude Code PreToolUse uses decision/reason output
-      echo "{\"decision\": \"deny\", \"reason\": \"$msg\"}" >&2
+      jq -cn --arg m "$msg" '{decision: "deny", reason: $m}' >&2
       exit 2
     fi
   fi

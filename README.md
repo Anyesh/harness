@@ -101,6 +101,11 @@ reference template lives at `configs/opencode/opencode.jsonc.tmpl`.
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
 
+Guards match on the code a command runs, not on quoted text or heredoc bodies (`shell-code.sh`), and every block is appended to `~/.local/state/harness/hook-blocks.jsonl` (`log-block.sh`; override with `HARNESS_BLOCK_LOG`). Two scripts keep false positives visible:
+
+- `scripts/hook-blocks.sh [--days N]` summarises recent blocks per hook.
+- `scripts/guard-replay.sh [--transcripts N] [--hook NAME]` replays real tool calls from Claude Code transcripts through the repo's current guards and lists what each would block. Run it before shipping a guard change and read every sample.
+
 ## MCP Servers
 
 | Server | Transport | Purpose |

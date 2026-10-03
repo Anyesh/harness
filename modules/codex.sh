@@ -31,7 +31,7 @@ codex_deploy_config() {
   fi
 
   local shared_hooks=("pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" \
-    "session-start-wiki.sh" "session-end-ingest.sh" "load-harness-env.sh" "harness-project.sh" "detect-agent.sh" "log-block.sh")
+    "session-start-wiki.sh" "session-end-ingest.sh" "load-harness-env.sh" "harness-project.sh" "detect-agent.sh" "log-block.sh" "shell-code.sh")
   for hook in "${shared_hooks[@]}"; do
     profile_skips_hook "$hook" && continue
     local hook_src="$REPO_ROOT/configs/shared/hooks/$hook"
