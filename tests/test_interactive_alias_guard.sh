@@ -60,15 +60,16 @@ denied() { run_hook "$1" "$2"; [[ $RC -eq 2 ]]; }
 allowed() { run_hook "$1" "$2"; [[ $RC -eq 0 && -z "$ERR" ]]; }
 
 echo ""
-echo "## aliased rm/cp/mv (interactive)"
+echo "## aliased rm (interactive)"
 assert "bare rm is denied" 'denied "$ALIASED_HOME" "rm foo.txt"'
 assert "rm -r without -f is denied" 'denied "$ALIASED_HOME" "rm -r build"'
 assert "denial message names the fix" 'run_hook "$ALIASED_HOME" "rm foo"; grep -q "command rm" <<<"$ERR"'
 assert "denial message says the alias is interactive" 'run_hook "$ALIASED_HOME" "rm foo"; grep -q "rm -i" <<<"$ERR"'
-assert "bare cp is denied" 'denied "$ALIASED_HOME" "cp a b"'
-assert "bare mv is denied" 'denied "$ALIASED_HOME" "mv a b"'
+assert "denial message says rm exits 0 without deleting" 'run_hook "$ALIASED_HOME" "rm foo"; grep -q "still exits 0" <<<"$ERR"'
+assert "aliased cp is allowed because a declined overwrite exits 1" 'allowed "$ALIASED_HOME" "cp a b"'
+assert "aliased mv is allowed because a declined overwrite exits 1" 'allowed "$ALIASED_HOME" "mv a b"'
 assert "rm after && is denied" 'denied "$ALIASED_HOME" "cd x && rm y"'
-assert "rm after ; is denied" 'denied "$ALIASED_HOME" "echo hi; mv a b"'
+assert "rm after ; is denied" 'denied "$ALIASED_HOME" "echo hi; rm b"'
 assert "rm in a pipe segment is denied" 'denied "$ALIASED_HOME" "ls | rm"'
 assert "rm on a later line is denied" 'denied "$ALIASED_HOME" $'"'"'echo hi\nrm x'"'"
 assert "rm -f is allowed because -f overrides the alias -i" 'allowed "$ALIASED_HOME" "rm -f foo"'
@@ -79,7 +80,6 @@ assert "mv -f is allowed" 'allowed "$ALIASED_HOME" "mv -f a b"'
 assert "rm -fi is denied because the later -i wins" 'denied "$ALIASED_HOME" "rm -fi foo"'
 assert "rm -f -I is denied" 'denied "$ALIASED_HOME" "rm -f -I foo"'
 assert "-f after -- is a filename, so rm is denied" 'denied "$ALIASED_HOME" "rm -- -f"'
-assert "cp -f is denied because cp -f does not cancel -i" 'denied "$ALIASED_HOME" "cp -f a b"'
 assert "a forced rm does not excuse a later bare rm" 'denied "$ALIASED_HOME" "rm -f a; rm b"'
 assert "bare rm before ; is denied" 'denied "$ALIASED_HOME" "rm a; echo done"'
 assert "command rm is allowed" 'allowed "$ALIASED_HOME" "command rm -f foo"'
@@ -106,7 +106,6 @@ echo ""
 echo "## systems without the alias"
 assert "no snapshot dir allows rm" 'allowed "$PLAIN_HOME" "rm foo"'
 assert "non-interactive aliases allow rm" 'allowed "$VERBOSE_HOME" "rm foo"'
-assert "non-interactive aliases allow cp" 'allowed "$VERBOSE_HOME" "cp a b"'
 
 echo ""
 echo "## alias syntax variants"

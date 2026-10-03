@@ -60,6 +60,21 @@ assert "allows a bare tail on a log file" '[ "$RC" -eq 0 ]'
 run_hook 'tail -n 20 build/server.log'
 assert "allows a small tail on a log file" '[ "$RC" -eq 0 ]'
 
+run_hook 'cd /srv && docker logs web'
+assert "blocks docker logs after cd" '[ "$RC" -eq 2 ]'
+
+run_hook 'K=$(cat ~/.config/app/token); curl -s -o /tmp/b.out http://x'
+assert "allows cat of a token when a later word ends in .out" '[ "$RC" -eq 0 ]'
+
+run_hook $'cat > poll.sh <<\'E\'\ncurl -o r.out http://x\nE'
+assert "allows writing a file with cat" '[ "$RC" -eq 0 ]'
+
+run_hook 'git commit -m "explain why tail -n 500 build.log is blocked"'
+assert "allows a commit message that quotes a big tail" '[ "$RC" -eq 0 ]'
+
+run_hook 'cat notes.txt > run.log'
+assert "allows cat redirected into a log" '[ "$RC" -eq 0 ]'
+
 echo ""
 echo "Passed: $PASS  Failed: $FAIL"
 [[ $FAIL -eq 0 ]]
