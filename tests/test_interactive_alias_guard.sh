@@ -59,15 +59,26 @@ allowed() { run_hook "$1" "$2"; [[ $RC -eq 0 && -z "$ERR" ]]; }
 echo ""
 echo "## aliased rm/cp/mv (interactive)"
 assert "bare rm is denied" 'denied "$ALIASED_HOME" "rm foo.txt"'
-assert "bare rm -rf is denied" 'denied "$ALIASED_HOME" "rm -rf build"'
+assert "rm -r without -f is denied" 'denied "$ALIASED_HOME" "rm -r build"'
 assert "denial message names the fix" 'run_hook "$ALIASED_HOME" "rm foo"; grep -q "command rm" <<<"$ERR"'
 assert "denial message says the alias is interactive" 'run_hook "$ALIASED_HOME" "rm foo"; grep -q "rm -i" <<<"$ERR"'
 assert "bare cp is denied" 'denied "$ALIASED_HOME" "cp a b"'
 assert "bare mv is denied" 'denied "$ALIASED_HOME" "mv a b"'
-assert "rm after && is denied" 'denied "$ALIASED_HOME" "cd x && rm -f y"'
+assert "rm after && is denied" 'denied "$ALIASED_HOME" "cd x && rm y"'
 assert "rm after ; is denied" 'denied "$ALIASED_HOME" "echo hi; mv a b"'
 assert "rm in a pipe segment is denied" 'denied "$ALIASED_HOME" "ls | rm"'
 assert "rm on a later line is denied" 'denied "$ALIASED_HOME" $'"'"'echo hi\nrm x'"'"
+assert "rm -f is allowed because -f overrides the alias -i" 'allowed "$ALIASED_HOME" "rm -f foo"'
+assert "rm -rf is allowed" 'allowed "$ALIASED_HOME" "rm -rf build"'
+assert "rm --force is allowed" 'allowed "$ALIASED_HOME" "rm --force foo"'
+assert "rm with -f after the operand is allowed" 'allowed "$ALIASED_HOME" "rm foo -f"'
+assert "mv -f is allowed" 'allowed "$ALIASED_HOME" "mv -f a b"'
+assert "rm -fi is denied because the later -i wins" 'denied "$ALIASED_HOME" "rm -fi foo"'
+assert "rm -f -I is denied" 'denied "$ALIASED_HOME" "rm -f -I foo"'
+assert "-f after -- is a filename, so rm is denied" 'denied "$ALIASED_HOME" "rm -- -f"'
+assert "cp -f is denied because cp -f does not cancel -i" 'denied "$ALIASED_HOME" "cp -f a b"'
+assert "a forced rm does not excuse a later bare rm" 'denied "$ALIASED_HOME" "rm -f a; rm b"'
+assert "bare rm before ; is denied" 'denied "$ALIASED_HOME" "rm a; echo done"'
 assert "command rm is allowed" 'allowed "$ALIASED_HOME" "command rm -f foo"'
 assert "backslash rm is allowed" 'allowed "$ALIASED_HOME" "\\rm -f foo"'
 assert "absolute-path rm is allowed" 'allowed "$ALIASED_HOME" "/bin/rm -f foo"'
@@ -78,6 +89,14 @@ assert "sudo rm is allowed" 'allowed "$ALIASED_HOME" "sudo rm foo"'
 assert "unrelated command is allowed" 'allowed "$ALIASED_HOME" "ls -la"'
 assert "word containing rm is allowed" 'allowed "$ALIASED_HOME" "echo confirm; npm run format"'
 assert "unaliased ln is allowed" 'allowed "$ALIASED_HOME" "ln -s a b"'
+assert "rm inside a double-quoted message is allowed" 'allowed "$ALIASED_HOME" "git commit -m \"done; rm stays\""'
+assert "rm inside single quotes is allowed" 'allowed "$ALIASED_HOME" "echo '"'"'a; rm b'"'"'"'
+assert "escaped quote does not end the string" 'allowed "$ALIASED_HOME" "echo \"a \\\" ; rm b\""'
+assert "rm after a closed quote is denied" 'denied "$ALIASED_HOME" "echo \"hi\"; rm x"'
+assert "rm in a heredoc body is allowed" 'allowed "$ALIASED_HOME" $'"'"'python3 - <<EOF\nx = 1 && rm y\nEOF'"'"
+QUOTED_HEREDOC=$'cat <<\'EOF\'\nrm y\nEOF'
+assert "rm in a quoted-delimiter heredoc body is allowed" 'allowed "$ALIASED_HOME" "$QUOTED_HEREDOC"'
+assert "rm after the heredoc ends is denied" 'denied "$ALIASED_HOME" $'"'"'cat <<EOF\nhi\nEOF\nrm x'"'"
 assert "quoted rm inside bash -c is allowed" 'allowed "$ALIASED_HOME" "bash -c \"rm x\""'
 
 echo ""
