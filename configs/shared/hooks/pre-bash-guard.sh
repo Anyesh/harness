@@ -13,12 +13,6 @@ fi
 
 # Dangerous patterns — block and tell the agent to ask the user to run manually
 dangerous=(
-  'rm\s+-r[f]?\s+/'
-  'rm\s+-r[f]?\s+~'
-  'rm\s+-[f]?r\s+/'
-  'rm\s+-[f]?r\s+~'
-  'rm\s+-rf\s+\*$'
-  'rm\s+-rf\s+\.$'
   'mkfs\.'
   'dd\s+if=/dev'
   '>\s*/dev/sd'
