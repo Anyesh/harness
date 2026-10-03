@@ -5,6 +5,7 @@
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -408,9 +409,27 @@ def check_content(path, content):
     return unique
 
 
-def main():
+def log_block(raw: str) -> None:
+    # log-block.sh owns the record format so every guard writes the same shape;
+    # a failed log must never change the decision, so only report it.
+    helper = Path(__file__).resolve().parent / "log-block.sh"
     try:
-        data = json.load(sys.stdin)
+        subprocess.run(
+            ["bash", str(helper), "pre-edit-comment-guard"],
+            input=raw,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"[hook:comment-guard] block log not written: {exc}", file=sys.stderr)
+
+
+def main():
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw)
     except Exception:
         sys.exit(0)
 
@@ -483,6 +502,7 @@ def main():
         file=out,
     )
     print("'invariant:' marker). Otherwise remove it and trust the code.", file=out)
+    log_block(raw)
     sys.exit(2)
 
 

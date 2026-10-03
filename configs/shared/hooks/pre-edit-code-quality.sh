@@ -12,6 +12,11 @@ if [ -z "$FILE_PATH" ]; then
     exit 0
 fi
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block_on_exit pre-edit-code-quality "$INPUT"
+
 # Scratch/working output isn't user-facing prose, so it's exempt from the em dash check below.
 case "$FILE_PATH" in
     /tmp/*scratchpad*|*/scratchpad/*) exit 0 ;;

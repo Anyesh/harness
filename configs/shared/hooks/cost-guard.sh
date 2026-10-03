@@ -17,6 +17,11 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block_on_exit cost-guard "$INPUT"
+
 block_with_message() {
   local reason="$1" command="$2"
   cat >&2 <<EOF

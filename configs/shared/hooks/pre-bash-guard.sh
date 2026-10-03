@@ -11,6 +11,11 @@ if [ -z "$command" ]; then
   exit 0
 fi
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block_on_exit pre-bash-guard "$input"
+
 # Dangerous patterns — block and tell the agent to ask the user to run manually
 dangerous=(
   'mkfs\.'
@@ -34,6 +39,7 @@ for pattern in "${dangerous[@]}"; do
     msg="BLOCKED by pre-bash-guard: matches dangerous pattern. If this is intentional, run the command manually."
     if [[ "$hook_event" == "beforeShellExecution" ]]; then
       # Cursor beforeShellExecution uses permission/user_message output
+      harness_log_block pre-bash-guard "$input"
       echo "{\"permission\": \"deny\", \"user_message\": \"$msg\"}"
       exit 0
     else
