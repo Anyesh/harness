@@ -179,6 +179,10 @@ If any plans, decisions, or explorations happened, also create the matching page
 EOF
 )
 
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block stop-wiki-enforce "$INPUT" "wiki not updated: $WORK_SUMMARY"
+
 if [ "$AGENT" = "cursor" ]; then
     jq -n --arg msg "$MSG" '{followup_message: $msg}'
 else

@@ -123,6 +123,10 @@ EOF
 )
 fi
 
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block stop-sloppiness-guard "$INPUT" "$KIND: $(head -n 1 <<<"$FOUND")"
+
 if [[ "$HOOK_EVENT" == "stop" ]]; then
     # Cursor stop hook cannot block — send a followup_message to re-engage the agent
     jq -n --arg msg "$REASON" '{followup_message: $msg}'

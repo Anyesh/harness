@@ -3,6 +3,11 @@ input=$(cat)
 command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -n "$command" ] || exit 0
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block_on_exit pre-bash-interactive-alias "$input"
+
 watched=(rm cp mv ln)
 
 mentioned=()

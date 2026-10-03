@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HOOK="$REPO_ROOT/configs/claude-code/hooks/pre-bash-interactive-alias.sh"
 
 PASS=0
 FAIL=0
@@ -21,6 +20,10 @@ assert() {
 }
 
 TMP_DIR=$(mktemp -d)
+HOOK_STAGE="$TMP_DIR/hooks"
+mkdir -p "$HOOK_STAGE"
+command cp "$REPO_ROOT"/configs/shared/hooks/* "$REPO_ROOT"/configs/claude-code/hooks/* "$HOOK_STAGE/"
+HOOK="$HOOK_STAGE/pre-bash-interactive-alias.sh"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 ALIASED_HOME="$TMP_DIR/aliased"

@@ -13,6 +13,11 @@ if ! echo "$command" | grep -qE '(uv publish|twine upload|hatch publish|flit pub
   exit 0
 fi
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=log-block.sh
+source "$HOOK_DIR/log-block.sh"
+harness_log_block_on_exit publish-leak-guard "$input"
+
 cwd=$(echo "$input" | jq -r '.cwd // empty')
 # The publish often arrives as "cd /repo && uv publish"; the artifacts live
 # under the cd target, not the session cwd, so scan both.
