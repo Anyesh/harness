@@ -27,5 +27,6 @@ Turn this session into a multi-agent orchestrator: escalate the plan to a bigger
 ## Rules
 
 - The main session reviews, splits, spawns, and consolidates. It does not implement a workstream itself unless the split leaves exactly one.
+- Size every workstream to finish within minutes, because a subagent's prompt cache expires after 5 idle minutes and the main session's after an hour. A workstream that would run for hours gets split into rounds. Subagents never wait on builds, full suites, locks or live runs; the main session runs those as background shells. Fixes after review go on the main thread or to a fresh agent with a tight brief, never to a resumed large agent.
 - Don't invent parallelism that isn't there; a single dependency chain gets the bigger-model review and stays single-threaded.
 - An unused worktree cleans itself up. A used one leaves you its path and branch, so decide with the user whether to merge, keep, or discard it rather than discarding silently.
