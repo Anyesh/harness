@@ -87,12 +87,12 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   fi
 
   # Safe: tail/head with small numbers (default or <100 lines)
-  if echo "$COMMAND" | grep -qE '(^|\s)(tail|head)(\s+-[0-9]{1,2}\b|\s+-n\s*[0-9]{1,2}\b|\s+)'; then
+  if echo "$COMMAND" | grep -qE '(^|\s)(tail|head)(\s+-[0-9]{1,2}\b|\s+-n\s*[0-9]{1,2}\b|\s+[^-[:space:]])'; then
     exit 0
   fi
 
   # Safe: commands with explicit --limit, --max-count, --tail flags
-  if echo "$COMMAND" | grep -qE '--(limit|max-count|tail|max-results)\s*[=\s]?[0-9]'; then
+  if echo "$COMMAND" | grep -qE -- '--(limit|max-count|tail|max-results)\s*[=\s]?[0-9]'; then
     exit 0
   fi
 
@@ -100,7 +100,7 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
 
   # docker/kubectl logs without --tail
   if echo "$COMMAND" | grep -qEi '^(docker|kubectl)\s+logs' ; then
-    if ! echo "$COMMAND" | grep -qE '--tail'; then
+    if ! echo "$COMMAND" | grep -qE -- '--tail'; then
       block_with_message "Unbounded container logs (add --tail N)" "$COMMAND"
     fi
   fi
@@ -117,9 +117,9 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
     block_with_message "Unbounded read of log file (use head/tail or subagent)" "$COMMAND"
   fi
 
-  # tail with large line count (>200)
+  # tail with large line count (100+)
   if echo "$COMMAND" | grep -qE 'tail\s+(-n\s*|-)[0-9]{3,}'; then
-    block_with_message "Large tail (>200 lines enters context)" "$COMMAND"
+    block_with_message "Large tail (100+ lines enters context)" "$COMMAND"
   fi
 
   # find from root (/) without pipe
