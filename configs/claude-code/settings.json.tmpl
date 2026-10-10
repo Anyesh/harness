@@ -131,6 +131,16 @@
             "statusMessage": "Linking previous session digest..."
           }
         ]
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{HOME_DIR}}/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
