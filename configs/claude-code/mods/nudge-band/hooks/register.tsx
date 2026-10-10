@@ -87,7 +87,7 @@ export const register: Register = on => {
       : ''
     const modes = [snap.humanize && `humanize ${snap.humanize}`, snap.ownit && `ownit ${snap.ownit}`].filter(Boolean).join(', ')
 
-    return (
+    const row = (
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         {scope && (
           <Text dimColor>scope: {scope.kind === 'missing' ? 'missing' : `${scope.ageHours}h old`}</Text>
@@ -99,6 +99,12 @@ export const register: Register = on => {
         {junk.length > 0 && <Button key="junk" label="Clean up" dimColor onPress={fill(cleanupDraft(junk))} />}
         {modes && <Text dimColor>{modes}</Text>}
         <Button key="hide" label="Hide" dimColor role="dismiss" onPress={() => update($, isHidden, () => true)} />
+      </Box>
+    )
+    return (
+      <Box flexDirection="column">
+        {row}
+        {await next(e)}
       </Box>
     )
   })

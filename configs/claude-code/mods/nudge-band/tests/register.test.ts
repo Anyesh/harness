@@ -19,6 +19,7 @@ type World = {
   messages: SessionMessage[]
   filled: string[]
   contexts: (readonly string[] | undefined)[]
+  beneath?: string
 }
 
 function world(on: On, env: Record<string, string>, seed: Partial<World> = {}): World {
@@ -42,7 +43,11 @@ function world(on: On, env: Record<string, string>, seed: Partial<World> = {}): 
   on('fs.read', (_$, e) => ({ value: w.files[e.path]?.text ?? '' }))
   on('session.cwd', () => ({ value: ROOT }))
   on('session.messages', () => ({ value: w.messages }))
-  on('ui.render', () => ({ type: 'engine' as const, ref: 0 }))
+  on('ui.render', ($, e) => {
+    if (!w.beneath) return { type: 'engine' as const, ref: 0 }
+    const { Text } = $.ui.resolve(e as never)
+    return h(Text, { key: 'beneath' }, w.beneath) as never
+  })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('prompt.submit', (_$, e) => {
     w.contexts.push(e.context)
@@ -113,6 +118,14 @@ describe('band', () => {
       await ui.unmount()
     }
     expect(w.filled.slice(0, 2)).toEqual(['/scope', '/devlog'])
+  })
+
+  test('keeps a band drawn beneath it', async ($, on) => {
+    world(on, {}, { untracked: ['notes.md'], beneath: 'another mod' })
+    await prompts($, 1)
+    const ui = await $.ui.mount({ plugin: 'nudge-band', surface: 'terminal', ...BAND })
+    expect(await ui.find({ key: 'junk' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'another mod' })).toBeDefined()
   })
 
   test('passes when nothing needs attention, and hides on Hide', async ($, on) => {
