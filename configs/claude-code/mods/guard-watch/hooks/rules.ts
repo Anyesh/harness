@@ -5,7 +5,7 @@ const DETAIL_CHARS = 80
 export type Tone = 'normal' | 'warn'
 export type Segment = { text: string; tone: Tone }
 
-// [hook:global] is shared by several pre-edit checks, so the script path names the guard better when present.
+// The script path names the guard better than [hook:global], because several pre-edit checks share that tag.
 export function guardName(reason: string): string {
   const named = /BLOCKED by ([\w-]+)/.exec(reason) ?? /\[hook:([\w-]+)\]/.exec(reason)
   if (named?.[1] && named[1] !== 'global') return named[1]

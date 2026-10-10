@@ -21,7 +21,7 @@ async function showSegment($: EngineInterface): Promise<void> {
   }
 }
 
-// The session folder is shared with other mods, so rmdir is expected to fail while theirs remain.
+// rmdir fails harmlessly while other mods' files remain, because the session folder is shared.
 async function removeSegment($: EngineInterface, sessionId: string): Promise<void> {
   const path = await segmentPath($, sessionId)
   try {
@@ -45,7 +45,7 @@ async function record($: EngineInterface, denied: Denied): Promise<void> {
   }
   await update($, blocks, list => [...list, block])
   await showSegment($)
-  // A main-thread block already shows as a tool error in the transcript; a subagent's never reaches it.
+  // Only subagent blocks toast, because a main-thread block already shows as a tool error in the transcript.
   if (denied.agentId === undefined) return
   const type = (await $.agent.list()).find(a => a.id === denied.agentId)?.type ?? 'a subagent'
   $.ui.toast(blockToast(block, type))
@@ -69,7 +69,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // An observer, never a decider: it reads the verdict the settings guards reached and returns it unchanged.
+  // Invariant: the verdict the settings guards reached is returned unchanged; this hook only observes it.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     if (verdict.decision === 'deny' && verdict.hook === 'PreToolUse') {
