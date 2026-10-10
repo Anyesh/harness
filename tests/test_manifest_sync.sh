@@ -108,6 +108,45 @@ assert "file whose source was deleted is ORPHAN" 'grep -qF "$ORPHAN" <<<"$orphan
 assert "live rule is not ORPHAN" '! grep -qF "$RULE" <<<"$orphan_lines"'
 
 echo ""
+echo "=== install removes orphans it can safely remove ==="
+echo ""
+
+orphan() {
+    local dest="$1" state="$2" text="${3:-retired}"
+    mkdir -p "$(dirname "$dest")"
+    printf '%s\n' "$text" > "$dest"
+    set_entry "$dest" "$(sha_of "$dest")" "configs/shared/rules/$(basename "$dest")"
+    [[ -n "$state" ]] && printf '%s\t%s\n' "$state" "$dest" >> "$BACKUPS/.preexist"
+    return 0
+}
+
+CREATED="$FAKE_HOME/.cursor/rules/retired-dir/created.mdc"
+EDITED="$FAKE_HOME/.cursor/rules/edited.mdc"
+REPLACED="$FAKE_HOME/.cursor/rules/replaced.mdc"
+UNKNOWN="$FAKE_HOME/.cursor/rules/unknown.mdc"
+orphan "$CREATED" absent
+orphan "$EDITED" absent
+printf 'my edit\n' >> "$EDITED"
+orphan "$REPLACED" present "harness copy"
+mkdir -p "$BACKUPS/20000101_000000/.cursor/rules"
+printf 'user original\n' > "$BACKUPS/20000101_000000/.cursor/rules/replaced.mdc"
+orphan "$UNKNOWN" ""
+
+dry_out=$(harness --only cursor --dry-run)
+assert "dry-run removes no orphan" '[[ -f "$CREATED" && "$(cat "$REPLACED")" == "harness copy" ]]'
+assert "dry-run says which orphan it would remove" 'grep -qF "would remove orphan: $CREATED" <<<"$dry_out"'
+
+harness --only cursor > /dev/null
+assert "unchanged harness-created orphan is removed" '[[ ! -e "$CREATED" && "$(entry "$CREATED" source)" == "absent" ]]'
+assert "the folder it leaves empty is removed" '[[ ! -e "$(dirname "$CREATED")" && -d "$FAKE_HOME/.cursor/rules" ]]'
+assert "orphan that replaced a user file gets the original back" '[[ "$(cat "$REPLACED")" == "user original" && "$(entry "$REPLACED" source)" == "absent" ]]'
+assert "edited orphan is kept and still tracked" '[[ -f "$EDITED" && "$(entry "$EDITED" source)" != "absent" ]]'
+assert "orphan with no pre-existence record is kept" '[[ -f "$UNKNOWN" && "$(entry "$UNKNOWN" source)" != "absent" ]]'
+assert "the earlier status-only orphan is kept, having no record" '[[ -f "$ORPHAN" ]]'
+status_out=$(harness status) || true
+assert "status still flags the kept orphans" 'grep -qF "$EDITED" <<<"$status_out" && grep -qF "$UNKNOWN" <<<"$status_out"'
+
+echo ""
 echo "=== JSON configs compare by content ==="
 echo ""
 

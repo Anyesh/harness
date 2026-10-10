@@ -98,9 +98,66 @@ manifest_prune_missing() {
     # WHY: a path that existed before the harness first touched it keeps its
     # entry, because uninstall uses it to restore the user's original file.
     [[ "$(preexist_state "$dest")" == "present" ]] && continue
-    tmp=$(mktemp)
-    jq --arg dest "$dest" 'del(.files[$dest])' "$manifest" > "$tmp"
-    mv "$tmp" "$manifest"
+    manifest_drop "$dest"
     log_info "manifest: dropped $dest (file no longer exists)"
   done
+}
+
+manifest_drop() {
+  local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}"
+  local tmp
+  tmp=$(mktemp)
+  jq --arg dest "$1" 'del(.files[$dest])' "$manifest" > "$tmp"
+  mv "$tmp" "$manifest"
+}
+
+# Stops below $HOME and the config home so that a top-level folder such as ~/.cursor survives.
+remove_empty_parents() {
+  local dir
+  dir=$(dirname "$1")
+  local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  while [[ "$dir" == "$HOME"/* ]]; do
+    local parent
+    parent=$(dirname "$dir")
+    [[ "$parent" == "$HOME" || "$parent" == "$config_home" ]] && break
+    rmdir "$dir" 2>/dev/null || break
+    dir="$parent"
+  done
+}
+
+# A deployed file whose configs/ source is gone. Only an unchanged copy with a
+# known pre-harness state is touched, because anything else may hold the user's work.
+manifest_prune_orphans() {
+  local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}"
+  [[ -f "$manifest" ]] || return 0
+  local dest source state orig
+  while IFS=$'\t' read -r dest source; do
+    [[ -n "$dest" && "$source" == configs/* && -f "$dest" ]] || continue
+    [[ -e "$REPO_ROOT/$source" ]] && continue
+    if manifest_check_changed "$dest"; then
+      log_warn "orphan edited since deploy, left in place: $dest"
+      continue
+    fi
+    state=$(preexist_state "$dest")
+    if [[ "$state" == "absent" ]]; then
+      if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "would remove orphan: $dest"
+        continue
+      fi
+      rm -f "$dest"
+      remove_empty_parents "$dest"
+      manifest_drop "$dest"
+      log_info "removed orphan: $dest (source $source is gone)"
+    elif [[ "$state" == "present" ]] && orig=$(find_original "$dest"); then
+      if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "would restore the original over orphan: $dest"
+        continue
+      fi
+      cp -p "$orig" "$dest"
+      manifest_drop "$dest"
+      log_info "restored the original over orphan: $dest (source $source is gone)"
+    else
+      log_warn "orphan with no record of what it replaced, left in place: $dest"
+    fi
+  done < <(jq -r '.files | to_entries[] | [.key, .value.source] | @tsv' "$manifest")
 }

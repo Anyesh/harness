@@ -427,6 +427,7 @@ setup_global_gitignore
 log_section "Tools"
 deploy_tools
 
+manifest_prune_orphans
 [[ "$DRY_RUN" == "true" ]] || manifest_prune_missing
 manifest_finalize
 report_summary
