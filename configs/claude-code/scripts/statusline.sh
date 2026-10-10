@@ -9,8 +9,7 @@ COST_FMT=$(printf '%.2f' "$COST")
 CTX_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 CTX_USED_PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
 
-INPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-OUTPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
+CTX_USED=$(echo "$input" | jq -r '(.context_window.current_usage // {}) | (.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)')
 
 DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 DURATION_MIN=$(( DURATION_MS / 60000 ))
@@ -28,9 +27,10 @@ mini_bar() {
 
 CTX_BAR=$(mini_bar "$CTX_USED_PCT" 8)
 
-IN_K=$(( INPUT_TOKENS / 1000 ))
-OUT_K=$(( OUTPUT_TOKENS / 1000 ))
-CTX_K=$(( CTX_SIZE / 1000 ))
+if [ "$CTX_USED" -eq 0 ]; then
+    CTX_USED=$(( CTX_SIZE * CTX_USED_PCT / 100 ))
+fi
+USED_K=$(( CTX_USED / 1000 ))
 
 FIVE_H=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
@@ -65,4 +65,25 @@ if [ -n "$SEVEN_D" ] && [ "$SEVEN_D" != "null" ]; then
     QUOTA="${QUOTA}  week: ${SEVEN_BAR} ${SEVEN_D_INT}%"
 fi
 
-echo "${MODEL}  │  \$${COST_FMT}  │  ctx: ${CTX_BAR} ${CTX_USED_PCT}%  ${IN_K}k/${OUT_K}k of ${CTX_K}k  │  ${DURATION_MIN}m${QUOTA}"
+# Mods write one segment file per session (see configs/claude-code/mods); the
+# order here is fixed so segments do not jump around, and a file untouched for
+# 10 minutes is skipped because a crashed session never empties its own.
+SEGMENTS=""
+SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
+if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    STATUS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/harness/status/$SESSION_ID"
+    NOW_MS=$(( $(date +%s) * 1000 ))
+    for mod in cache-guard guard-watch; do
+        file="$STATUS_DIR/$mod.json"
+        [ -s "$file" ] || continue
+        IFS=$'\t' read -r text tone at < <(jq -r '[.text // "", .tone // "normal", (.at // 0 | floor)] | @tsv' "$file" 2>/dev/null) || continue
+        [ -n "$text" ] || continue
+        (( NOW_MS - at <= 600000 )) || continue
+        if [ "$tone" = "warn" ]; then
+            text=$'\033[33m'"$text"$'\033[0m'
+        fi
+        SEGMENTS="${SEGMENTS}  │  ${text}"
+    done
+fi
+
+echo "${MODEL}  │  \$${COST_FMT}  │  ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k  │  ${DURATION_MIN}m${QUOTA}${SEGMENTS}"

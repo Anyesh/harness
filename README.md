@@ -95,6 +95,8 @@ Mods are Claude Code plugins with an in-process hooks module (CLI 2.1.287+). The
 
 Develop a mod with `claude --plugin-dir configs/claude-code/mods/<mod>` (hot reload), and check it with `claude plugin validate --strict <dir>` and `claude plugin test <dir>`; `tests/test_harness_mods.sh` runs both for every mod. A mod must not register a Bash `tool.call` hook while anthropics/claude-code#92533 is open, because that breaks worktree-isolated subagents.
 
+A mod cannot draw on the status line itself, so a mod with something to show there writes `{ "text", "tone", "at" }` to `${XDG_STATE_HOME:-~/.local/state}/harness/status/<session id>/<mod>.json` and removes it when the session ends. `statusline.sh` appends each segment in a fixed order, draws `warn` in yellow, and skips a file older than 10 minutes.
+
 ## Hooks
 
 | Hook | Trigger | Purpose |
