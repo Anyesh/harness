@@ -1,7 +1,7 @@
 {
   "name": "cache-guard",
   "version": "0.1.0",
-  "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state under the prompt",
+  "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state on the status line",
   "author": { "name": "Anish Shrestha" },
   "types": "./types/index.d.ts",
   "userConfig": {

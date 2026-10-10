@@ -11,7 +11,7 @@
     {
       "name": "cache-guard",
       "source": "./cache-guard",
-      "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state under the prompt"
+      "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state on the status line"
     }
   ]
 }

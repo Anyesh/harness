@@ -148,12 +148,19 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(ms / MINUTE)}m`
 }
 
-export function statusText(last: LastResponse | null, now: number, ttlMs: number): string | undefined {
-  if (!last || last.ctx < MIN_STATUS_CTX) return undefined
+export type Tone = 'normal' | 'warn'
+export type Segment = { text: string; tone: Tone }
+
+export function segmentFor(last: LastResponse | null, now: number, ttlMs: number): Segment | null {
+  if (!last || last.ctx < MIN_STATUS_CTX) return null
   const left = last.at + ttlMs - now
-  if (left > 0) return `cache warm · ${formatDuration(left)} left · ${formatTokens(last.ctx)} ctx`
-  const usd = rewriteUsd(last.model, last.ctx, ttlMs)
-  return `cache cold · next send re-writes ${formatTokens(last.ctx)} ≈ ${formatUsd(usd)}`
+  if (left > 0) return { text: `cache ${formatDuration(left)}`, tone: 'normal' }
+  return { text: `cache cold ≈ ${formatUsd(rewriteUsd(last.model, last.ctx, ttlMs))}`, tone: 'warn' }
+}
+
+// The format must match what statusline.sh reads; tests/test_statusline.sh pins that side.
+export function segmentFile(segment: Segment | null, at: number): string {
+  return segment ? JSON.stringify({ text: segment.text, tone: segment.tone, at }) : ''
 }
 
 export function gateQuestion(gate: Gate): string {

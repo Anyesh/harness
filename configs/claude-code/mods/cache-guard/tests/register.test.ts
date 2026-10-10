@@ -8,6 +8,7 @@ const OPUS = 'claude-opus-5-5'
 const SEND = 'Send anyway'
 const COMPACT = 'Compact first'
 const DRAFT = 'Keep as draft'
+const SEGMENT = '/state/harness/status/sess-1/cache-guard.json'
 
 type World = {
   clock: MockClock
@@ -18,6 +19,8 @@ type World = {
   filled: string[]
   toasts: string[]
   statuses: (string | undefined)[]
+  files: Record<string, string>
+  commands: string[][]
   compactions: number
   stored: Record<string, unknown>
 }
@@ -26,7 +29,7 @@ function usage(read: number, write: number): TurnUsage {
   return { input_tokens: 0, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: 10, model: OPUS }
 }
 
-function world(on: On): World {
+function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state', HOME: '/home/user' }): World {
   const w: World = {
     clock: mock.clock(on, { now: NOW }),
     usage: null,
@@ -36,6 +39,8 @@ function world(on: On): World {
     filled: [],
     toasts: [],
     statuses: [],
+    files: {},
+    commands: [],
     compactions: 0,
     stored: {},
   }
@@ -73,6 +78,17 @@ function world(on: On): World {
   on('ui.status', (_$, e) => {
     w.statuses.push(e.text)
     return { value: undefined }
+  })
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('env.get', (_$, e) => ({ value: env[e.name] }))
+  on('fs.write', (_$, e) => {
+    w.files[e.path] = e.text
+    return { value: undefined }
+  })
+  on('process.run', (_$, e) => {
+    w.commands.push([...e.argv])
+    if (e.argv[0] === 'rm') delete w.files[e.argv[2] ?? '']
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   return w
 }
@@ -204,14 +220,38 @@ describe('misses', () => {
   })
 })
 
-describe('status line', () => {
-  test('shows warm after a turn and cold once the TTL passes', async ($, on) => {
+function segment(w: World) {
+  const text = w.files[SEGMENT]
+  return text ? JSON.parse(text) : text
+}
+
+describe('status segment', () => {
+  test('writes warm after a turn and cold once the TTL passes, never a ui.status', async ($, on) => {
     const w = world(on)
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
     await warmed($, w, 18)
-    expect(w.statuses).toContain('cache warm · 60m left · 380k ctx')
+    expect(segment(w)).toEqual({ text: 'cache 42m', tone: 'normal', at: NOW + 18 * MINUTE })
     await w.clock.advance(43 * MINUTE)
-    expect(w.statuses.at(-1)).toBe('cache cold · next send re-writes 380k ≈ $3.04')
+    expect(segment(w)).toMatchObject({ text: 'cache cold ≈ $3.04', tone: 'warn' })
+    expect(w.statuses).toEqual([])
+  })
+
+  test('falls back to HOME when XDG_STATE_HOME is unset', async ($, on) => {
+    const w = world(on, { HOME: '/home/user' })
+    await warmed($, w, 1)
+    expect(Object.keys(w.files)).toEqual(['/home/user/.local/state/harness/status/sess-1/cache-guard.json'])
+  })
+
+  test('removes the segment file when the session ends', async ($, on) => {
+    const w = world(on)
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
+    await warmed($, w, 1)
+    await $.session.end({ reason: 'exit', sessionId: 'sess-1' } as never)
+    expect(w.files[SEGMENT]).toBeUndefined()
+    expect(w.commands).toEqual([
+      ['rm', '-f', SEGMENT],
+      ['rmdir', '/state/harness/status/sess-1'],
+    ])
   })
 })
