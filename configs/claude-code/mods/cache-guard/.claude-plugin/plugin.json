@@ -1,7 +1,7 @@
 {
   "name": "cache-guard",
   "version": "0.1.0",
-  "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state on the status line",
+  "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache and subagent state on the status line",
   "author": { "name": "Anish Shrestha" },
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -16,6 +16,12 @@
       "title": "Assumed cache lifetime (minutes)",
       "description": "How long the prompt cache is assumed to live before any expiry has been observed; observed hits and misses adjust it.",
       "default": 60
+    },
+    "agentTtlMinutes": {
+      "type": "number",
+      "title": "Assumed subagent cache lifetime (minutes)",
+      "description": "How long a subagent's prompt cache is assumed to live before any expiry has been observed; observed hits and misses adjust it.",
+      "default": 5
     }
   }
 }

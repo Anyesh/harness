@@ -1,7 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer, TurnUsage } from 'claude-code'
+import type { AgentInfo, EngineInterface, Register, Timer, TurnUsage } from 'claude-code'
 
 import {
+  agentAlerts,
+  agentMissToast,
+  agentSegment,
   MINUTE,
   MISSES_KEPT,
   asBounds,
@@ -9,24 +12,33 @@ import {
   effectiveTtl,
   gateDecision,
   gateQuestion,
+  joinSegments,
   missToast,
   observeStep,
+  pruneTracks,
   segmentFile,
   segmentFor,
 } from './rules'
 
 const last = atom({ plugin: 'cache-guard', key: 'last' } as const, null)
 const misses = atom({ plugin: 'cache-guard', key: 'misses' } as const, [])
+const agents = atom({ plugin: 'cache-guard', key: 'agents' } as const, {})
+const listed = atom({ plugin: 'cache-guard', key: 'listed' } as const, [])
+const dismissed = atom({ plugin: 'cache-guard', key: 'dismissed' } as const, [])
 
 const SEND = 'Send anyway'
 const COMPACT = 'Compact first'
 const DRAFT = 'Keep as draft'
 const SEGMENT_EVERY_MS = 30_000
 
-type Config = { defaultTtlMs: number; gateUsd: number }
+type Config = { defaultTtlMs: number; agentTtlMs: number; gateUsd: number }
 
 async function ttlMs($: EngineInterface, config: Config): Promise<number> {
   return effectiveTtl(asBounds(await $.store.get('ttl')), config.defaultTtlMs)
+}
+
+async function agentTtlMs($: EngineInterface, config: Config): Promise<number> {
+  return effectiveTtl(asBounds(await $.store.get('agentTtl')), config.agentTtlMs)
 }
 
 async function segmentPath($: EngineInterface, sessionId: string): Promise<string> {
@@ -35,7 +47,11 @@ async function segmentPath($: EngineInterface, sessionId: string): Promise<strin
 }
 
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {
-  const segment = segmentFor(await read($, last), await $.clock.now(), await ttlMs($, config))
+  const now = await $.clock.now()
+  const segment = joinSegments(
+    segmentFor(await read($, last), now, await ttlMs($, config)),
+    agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config)),
+  )
   await $.fs.write(await segmentPath($, await $.session.id()), segmentFile(segment, await $.clock.now()))
 }
 
@@ -57,6 +73,26 @@ async function removeSegment($: EngineInterface, sessionId: string): Promise<voi
     $.ui.log(`cache-guard: could not remove ${path} (${String(err)}), emptying it`, { to: 'debug' })
     await $.fs.write(path, '')
   }
+}
+
+function listedAgent(info: AgentInfo) {
+  return { id: info.id, type: info.type, description: info.description, status: info.status }
+}
+
+async function refreshAgents($: EngineInterface): Promise<void> {
+  const list = (await $.agent.list()).map(listedAgent)
+  const now = await $.clock.now()
+  await update($, listed, () => list)
+  await update($, agents, tracked => pruneTracks(tracked, now))
+}
+
+async function tick($: EngineInterface, config: Config): Promise<void> {
+  try {
+    await refreshAgents($)
+  } catch (err) {
+    $.ui.log(`cache-guard: could not list agents: ${String(err)}`, { to: 'debug' })
+  }
+  await showSegment($, config)
 }
 
 async function forget($: EngineInterface, config: Config): Promise<void> {
@@ -82,6 +118,33 @@ async function observe($: EngineInterface, config: Config, startedAt: number, us
   $.ui.toast(missToast(miss))
 }
 
+async function observeAgent(
+  $: EngineInterface,
+  config: Config,
+  agentId: string,
+  startedAt: number,
+  usage: TurnUsage,
+): Promise<void> {
+  const prev = (await read($, agents))[agentId] ?? null
+  const seen = observeStep({
+    prev,
+    startedAt,
+    now: await $.clock.now(),
+    usage,
+    bounds: asBounds(await $.store.get('agentTtl')),
+    defaultTtlMs: config.agentTtlMs,
+  })
+  const track = { ...seen.last, firstAt: prev?.firstAt ?? startedAt }
+  await update($, agents, tracked => ({ ...tracked, [agentId]: track }))
+  await $.store.set('agentTtl', seen.bounds)
+  if (!seen.miss) return
+  const miss = { ...seen.miss, agentId }
+  const kept = await update($, misses, list => [...list, miss].slice(-MISSES_KEPT))
+  await $.store.set('misses', kept)
+  const type = (await $.agent.list()).find(a => a.id === agentId)?.type ?? 'subagent'
+  $.ui.toast(agentMissToast(type, miss))
+}
+
 async function compactThenRestore($: EngineInterface, config: Config, text: string): Promise<void> {
   try {
     const compacted = await $.session.compact()
@@ -96,6 +159,7 @@ async function compactThenRestore($: EngineInterface, config: Config, text: stri
 export const register: Register = (on, options) => {
   const config: Config = {
     defaultTtlMs: Number(options.ttlMinutes ?? 60) * MINUTE,
+    agentTtlMs: Number(options.agentTtlMinutes ?? 5) * MINUTE,
     gateUsd: Number(options.gateUsd ?? 1),
   }
   let ticker: Timer | undefined
@@ -103,9 +167,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const stored = asMisses(await $.store.get('misses'))
     await update($, misses, () => stored)
-    await showSegment($, config)
+    await tick($, config)
     ticker?.cancel()
-    ticker = $.clock.every(SEGMENT_EVERY_MS, () => void showSegment($, config))
+    ticker = $.clock.every(SEGMENT_EVERY_MS, () => void tick($, config))
     return next(e)
   })
 
@@ -120,12 +184,12 @@ export const register: Register = (on, options) => {
   // Per-step usage, because turn.complete sums every request of the turn and a
   // cold first request would hide behind the warm reads of the steps after it.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) return yield* next(e)
     const startedAt = await $.clock.now()
     const response = yield* next(e)
     if (response.usage) {
       try {
-        await observe($, config, startedAt, response.usage)
+        if (e.agentId === undefined) await observe($, config, startedAt, response.usage)
+        else await observeAgent($, config, e.agentId, startedAt, response.usage)
       } catch (err) {
         $.ui.log(`cache-guard: could not record step usage: ${String(err)}`, { to: 'debug' })
       }
@@ -134,7 +198,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId === undefined) await showSegment($, config)
+    await tick($, config)
     return next(e)
   })
 
@@ -169,4 +233,35 @@ export const register: Register = (on, options) => {
     }
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const alerts = agentAlerts(
+      await read($, agents),
+      await read($, listed),
+      await $.clock.now(),
+      await agentTtlMs($, config),
+      await read($, dismissed),
+    )
+    if (alerts.rows.length === 0) return next(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {alerts.rows.map(row => (
+          <Box key={row.key} flexDirection="row" flexWrap="wrap" columnGap={1}>
+            <Text color="warning">{row.text}</Text>
+            <Button
+              key={`dismiss-${row.key}`}
+              label="Dismiss"
+              dimColor
+              role="dismiss"
+              onPress={() => update($, dismissed, keys => [...keys, row.key])}
+            />
+          </Box>
+        ))}
+        {alerts.more > 0 && <Text dimColor>+{alerts.more} more</Text>}
+        {await next(e)}
+      </Box>
+    )
+  })
 }

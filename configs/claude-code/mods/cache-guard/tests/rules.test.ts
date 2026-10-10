@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  agentAlerts,
+  agentMissToast,
+  agentSegment,
   asBounds,
   classifyStep,
   effectiveTtl,
   formatUsd,
+  joinSegments,
+  pruneTracks,
   gateDecision,
   learnTtl,
   noBounds,
@@ -13,7 +18,7 @@ import {
   segmentFile,
   segmentFor,
 } from '../hooks/rules'
-import type { LastResponse } from '../types'
+import type { AgentTrack, LastResponse, ListedAgent } from '../types'
 
 const MINUTE = 60_000
 
@@ -51,12 +56,16 @@ describe('classifyStep', () => {
     expect(classifyStep(100_000, usage(50_000, 2_000))).toBe('warm')
   })
 
-  test('cold when almost nothing was read and most was written', () => {
+  test('cold when most was written and under half read', () => {
     expect(classifyStep(100_000, usage(9_000, 95_000))).toBe('cold')
   })
 
-  test('neither in between, or without a previous context', () => {
-    expect(classifyStep(100_000, usage(20_000, 80_000))).toBeNull()
+  test('cold when only a shared system prefix was still cached (a resumed subagent)', () => {
+    expect(classifyStep(148_000, usage(27_886, 121_000))).toBe('cold')
+  })
+
+  test('neither when little was written, or without a previous context', () => {
+    expect(classifyStep(100_000, usage(20_000, 30_000))).toBeNull()
     expect(classifyStep(100_000, usage(0, 30_000))).toBeNull()
     expect(classifyStep(0, usage(0, 30_000))).toBeNull()
   })
@@ -175,5 +184,88 @@ describe('segmentFile', () => {
   test('writes text, tone and time as JSON, and nothing for no segment', () => {
     expect(JSON.parse(segmentFile({ text: 'cache 42m', tone: 'normal' }, 5))).toEqual({ text: 'cache 42m', tone: 'normal', at: 5 })
     expect(segmentFile(null, 5)).toBe('')
+  })
+})
+
+describe('agents', () => {
+  const ttl = 5 * MINUTE
+  const now = 100 * MINUTE
+  const track = (lastAt: number, ctx = 120_000, firstAt = lastAt): AgentTrack => ({ at: lastAt, firstAt, ctx, model: OPUS })
+  const listed = (id: string, status: ListedAgent['status'], type = 'Explore'): ListedAgent => ({
+    id,
+    type,
+    description: `task ${id}`,
+    status,
+  })
+
+  test('alerts an idle or waiting agent past the TTL with a large context', () => {
+    const agents = { a: track(now - 9 * MINUTE), b: track(now - 9 * MINUTE) }
+    const { rows, more } = agentAlerts(agents, [listed('a', 'idle'), listed('b', 'waiting')], now, ttl, [])
+    expect(rows.map(r => r.text)).toEqual([
+      'Explore "task a" idle 9m · resuming re-writes 120k ≈ $0.60',
+      'Explore "task b" idle 9m · resuming re-writes 120k ≈ $0.60',
+    ])
+    expect(more).toBe(0)
+  })
+
+  test('skips running, ended, small, fresh and untracked agents', () => {
+    const agents = {
+      run: track(now - 9 * MINUTE),
+      done: track(now - 9 * MINUTE),
+      small: track(now - 9 * MINUTE, 40_000),
+      fresh: track(now - MINUTE),
+    }
+    const list = [listed('run', 'running'), listed('done', 'completed'), listed('small', 'idle'), listed('fresh', 'idle'), listed('ghost', 'idle')]
+    expect(agentAlerts(agents, list, now, ttl, []).rows).toEqual([])
+  })
+
+  test('alerts an agent that has run over an hour', () => {
+    const agents = { a: track(now - MINUTE, 10_000, now - 72 * MINUTE) }
+    expect(agentAlerts(agents, [listed('a', 'running')], now, ttl, []).rows.map(r => r.text)).toEqual([
+      'Explore "task a" has run 72m',
+    ])
+  })
+
+  test('caps rows at three and counts the rest', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e']
+    const agents = Object.fromEntries(ids.map(id => [id, track(now - 9 * MINUTE)]))
+    const { rows, more } = agentAlerts(agents, ids.map(id => listed(id, 'idle')), now, ttl, [])
+    expect(rows).toHaveLength(3)
+    expect(more).toBe(2)
+  })
+
+  test('a dismissed alert stays hidden until the agent goes idle again', () => {
+    const agents = { a: track(now - 9 * MINUTE) }
+    const [row] = agentAlerts(agents, [listed('a', 'idle')], now, ttl, []).rows
+    expect(agentAlerts(agents, [listed('a', 'idle')], now, ttl, [row?.key ?? '']).rows).toEqual([])
+    const later = { a: track(now + MINUTE) }
+    expect(agentAlerts(later, [listed('a', 'idle')], now + 10 * MINUTE, ttl, [row?.key ?? '']).rows).toHaveLength(1)
+  })
+
+  test('the segment counts live agents and warns on cold ones', () => {
+    const agents = { a: track(now - 9 * MINUTE), b: track(now - MINUTE) }
+    const list = [listed('a', 'idle'), listed('b', 'running'), listed('c', 'pending'), listed('d', 'completed')]
+    expect(agentSegment(agents, list, now, ttl)).toEqual({ text: 'agents 3 · 1 cold', tone: 'warn' })
+    expect(agentSegment({}, list, now, ttl)).toEqual({ text: 'agents 3', tone: 'normal' })
+    expect(agentSegment(agents, [listed('d', 'completed')], now, ttl)).toBeNull()
+  })
+
+  test('segments join in order and warn when either warns', () => {
+    expect(joinSegments({ text: 'cache 42m', tone: 'normal' }, { text: 'agents 1 · 1 cold', tone: 'warn' })).toEqual({
+      text: 'cache 42m · agents 1 · 1 cold',
+      tone: 'warn',
+    })
+    expect(joinSegments(null, { text: 'agents 2', tone: 'normal' })).toEqual({ text: 'agents 2', tone: 'normal' })
+    expect(joinSegments(null, null)).toBeNull()
+  })
+
+  test('tracks outlive the agent list for a day, so a late resume is still classified', () => {
+    const tracks = { recent: track(now - 23 * 60 * MINUTE), old: track(now - 25 * 60 * MINUTE) }
+    expect(Object.keys(pruneTracks(tracks, now))).toEqual(['recent'])
+  })
+
+  test('a cold agent step toasts with the agent type', () => {
+    const miss = { at: 0, gapMs: 9 * MINUTE, tokens: 120_000, usd: 0.96, model: OPUS, agentId: 'a' }
+    expect(agentMissToast('Explore', miss)).toBe('Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.96)')
   })
 })

@@ -15,6 +15,19 @@ export type Miss = {
   tokens: number
   usd: number
   model: string
+  agentId?: string
+}
+
+export type AgentTrack = LastResponse & {
+  firstAt: number
+}
+
+export type ListedAgent = {
+  id: string
+  type: string
+  description: string
+  // AgentStatus spelled out, because the validator requires a contract with no imports.
+  status: 'pending' | 'running' | 'waiting' | 'idle' | 'completed' | 'failed' | 'killed'
 }
 
 declare module 'claude-code' {
@@ -22,6 +35,9 @@ declare module 'claude-code' {
     'cache-guard': {
       last: LastResponse | null
       misses: Miss[]
+      agents: Record<string, AgentTrack>
+      listed: ListedAgent[]
+      dismissed: string[]
     }
   }
 }
