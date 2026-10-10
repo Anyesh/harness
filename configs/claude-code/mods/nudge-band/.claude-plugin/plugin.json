@@ -1,0 +1,7 @@
+{
+  "name": "nudge-band",
+  "version": "0.1.0",
+  "description": "Scope, wiki and repo hygiene state in a band above the prompt, with edge-triggered reminders for Claude",
+  "author": { "name": "Anish Shrestha" },
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "harness-mods",
+  "owner": { "name": "Anish Shrestha" },
+  "description": "Claude Code mods deployed by the harness",
+  "plugins": [
+    {
+      "name": "nudge-band",
+      "source": "./nudge-band",
+      "description": "Scope, wiki and repo hygiene state in a band above the prompt, with edge-triggered reminders for Claude"
+    }
+  ]
+}
