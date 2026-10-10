@@ -27,6 +27,15 @@ mkdir -p "$TMP_DIR/tmpdir"
 
 REAL_CLAUDE=$(command -v claude || true)
 
+MODS=()
+for dir in "$MODS_SRC"/*/; do
+    [[ -f "$dir/.claude-plugin/plugin.json" ]] && MODS+=("$(basename "$dir")")
+done
+
+mod_files() {
+    (cd "$MODS_SRC/$1" && find . -type f -not -path './tests/*' -not -path './.claude-plugin/types/*' -not -name tsconfig.json | sort)
+}
+
 # The mock claude records whether the marketplace folder already existed when
 # it was called, because `marketplace add` must run after the files deploy.
 new_home() {
@@ -64,12 +73,17 @@ echo ""
 echo "=== mod source ==="
 echo ""
 
+assert "marketplace lists every mod folder" \
+    '[[ "$(jq -r ".plugins[].name" "$MODS_SRC/.claude-plugin/marketplace.json" | sort | tr "\n" " ")" == "$(printf "%s\n" "${MODS[@]}" | sort | tr "\n" " ")" ]]'
+
 if [[ -n "$REAL_CLAUDE" ]]; then
-    assert "marketplace and mod validate in strict mode" \
-        '"$REAL_CLAUDE" plugin validate --strict "$MODS_SRC" >/dev/null 2>&1 && "$REAL_CLAUDE" plugin validate --strict "$MODS_SRC/nudge-band" >/dev/null 2>&1'
-    assert "mod tests pass" '"$REAL_CLAUDE" plugin test "$MODS_SRC/nudge-band" >/dev/null 2>&1'
-    assert "mod registers no tool.call hook (issue #92533)" \
-        '! "$REAL_CLAUDE" plugin validate "$MODS_SRC/nudge-band" 2>&1 | grep -E "hooks:" | grep -q "tool.call"'
+    assert "marketplace validates in strict mode" '"$REAL_CLAUDE" plugin validate --strict "$MODS_SRC" >/dev/null 2>&1'
+    for mod in "${MODS[@]}"; do
+        assert "$mod validates in strict mode" '"$REAL_CLAUDE" plugin validate --strict "$MODS_SRC/$mod" >/dev/null 2>&1'
+        assert "$mod tests pass" '"$REAL_CLAUDE" plugin test "$MODS_SRC/$mod" >/dev/null 2>&1'
+        assert "$mod registers no tool.call hook (issue #92533)" \
+            '! "$REAL_CLAUDE" plugin validate "$MODS_SRC/$mod" 2>&1 | grep -E "hooks:" | grep -q "tool.call"'
+    done
 else
     printf "  SKIP  claude CLI not found, mod validate and test not run\n"
 fi
@@ -85,12 +99,14 @@ DEST="$H/.claude/harness-mods"
 S="$H/.claude/settings.json"
 
 assert "marketplace manifest deployed" '[[ -f "$DEST/.claude-plugin/marketplace.json" ]]'
-assert "mod files deployed byte-identical" \
-    '(for f in .claude-plugin/plugin.json hooks/hooks.json hooks/register.tsx hooks/rules.ts hooks/probe.ts types/index.d.ts; do cmp -s "$MODS_SRC/nudge-band/$f" "$DEST/nudge-band/$f" || exit 1; done)'
-assert "mod tests are not deployed" '[[ ! -e "$DEST/nudge-band/tests" ]]'
+for mod in "${MODS[@]}"; do
+    assert "$mod files deployed byte-identical" \
+        '(while read -r f; do cmp -s "$MODS_SRC/$mod/$f" "$DEST/$mod/$f" || exit 1; done < <(mod_files "$mod"))'
+    assert "$mod tests are not deployed" '[[ ! -e "$DEST/$mod/tests" ]]'
+    assert "settings enable $mod" '[[ "$(jq -r ".enabledPlugins[\"$mod@harness-mods\"]" "$S")" == "true" ]]'
+done
 assert "settings register the harness-mods marketplace at the deployed folder" \
     '[[ "$(jq -r ".extraKnownMarketplaces[\"harness-mods\"].source.path" "$S")" == "$DEST" ]]'
-assert "settings enable nudge-band" '[[ "$(jq -r ".enabledPlugins[\"nudge-band@harness-mods\"]" "$S")" == "true" ]]'
 assert "claude settings no longer wire the shell nudges" \
     '! jq -r ".hooks.UserPromptSubmit[].hooks[].command" "$S" | grep -qE "scope-drift-detector|wiki-nudge|cleanup-nudge"'
 assert "claude settings keep the humanize and ownit trackers" \
@@ -112,16 +128,17 @@ new_home "$P"
 harness "$P" --only claude >/dev/null
 assert "registers the local marketplace after its files deploy" \
     'grep -qF "claude plugin marketplace add $P/.claude/harness-mods [marketplace present]" "$P/calls.log"'
-assert "installs nudge-band from the local marketplace" \
-    'grep -qF "claude plugin install nudge-band@harness-mods" "$P/calls.log"'
+for mod in "${MODS[@]}"; do
+    assert "installs $mod from the local marketplace" 'grep -qF "claude plugin install $mod@harness-mods" "$P/calls.log"'
+done
 
 echo ""
 echo "=== uninstall ==="
 echo ""
 
 harness "$H" uninstall >/dev/null || true
-assert "uninstall removes deployed mod files" '[[ ! -f "$DEST/nudge-band/hooks/register.tsx" ]]'
+assert "uninstall removes deployed mod files" '[[ -z "$(find "$DEST" -path "*/hooks/*" -type f 2>/dev/null)" ]]'
 
 echo ""
-echo "nudge-band: $PASS/$TOTAL passed"
+echo "harness mods: $PASS/$TOTAL passed"
 [[ "$FAIL" -eq 0 ]]

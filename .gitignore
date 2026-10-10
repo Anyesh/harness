@@ -8,3 +8,4 @@ tools/web-strip/node_modules/
 .scope-turn-count
 .playwright-mcp/
 configs/claude-code/mods/**/.claude-plugin/types/
+configs/claude-code/mods/*/tsconfig.json

@@ -62,7 +62,7 @@ claude_plugins() {
 }
 
 # Tests stay in the repo: `claude plugin test` runs them from the source tree,
-# and the engine writes its generated types beside a mod it is developing.
+# and the engine writes its generated types and tsconfig beside a mod it is developing.
 claude_mods() {
   local mods_src="$REPO_ROOT/configs/claude-code/mods"
   local mods_dest="$CLAUDE_CONFIG_DIR/harness-mods"
@@ -72,7 +72,7 @@ claude_mods() {
   while IFS= read -r -d '' file; do
     rel="${file#"$mods_src"/}"
     deploy_file "$file" "$mods_dest/$rel" "configs/claude-code/mods/$rel" "false" "mod $rel"
-  done < <(find "$mods_src" -type f -not -path '*/tests/*' -not -path '*/.claude-plugin/types/*' -print0 | sort -z)
+  done < <(find "$mods_src" -type f -not -path '*/tests/*' -not -path '*/.claude-plugin/types/*' -not -name tsconfig.json -print0 | sort -z)
 }
 
 claude_config() {
