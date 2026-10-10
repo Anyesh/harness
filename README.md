@@ -237,8 +237,9 @@ harness/
 2. Detects installed tools via PATH and config dirs
 3. Reads `~/.harness.env` for template variables
 4. Per module: renders templates → checksums → skips if unchanged → backs up → deploys
-5. Writes `~/.harness-manifest.json` with file hashes
-6. Idempotent: re-run anytime, only changed files get touched
+5. Removes orphans, deployed files whose `configs/` source was renamed or deleted: an unchanged copy the harness created is deleted along with any folder it leaves empty, one that replaced a file you had is swapped back to your original, and an edited copy or one with no pre-existence record stays in place for `status` to flag
+6. Writes `~/.harness-manifest.json` with file hashes
+7. Idempotent: re-run anytime, only changed files get touched
 
 ## New Machine Setup
 
