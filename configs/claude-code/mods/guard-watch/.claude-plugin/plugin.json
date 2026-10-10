@@ -1,0 +1,7 @@
+{
+  "name": "guard-watch",
+  "version": "0.1.0",
+  "description": "Counts settings-hook guard blocks on the status line, and toasts the ones that hit a subagent",
+  "author": { "name": "Anish Shrestha" },
+  "types": "./types/index.d.ts"
+}

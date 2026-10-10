@@ -12,6 +12,11 @@
       "name": "cache-guard",
       "source": "./cache-guard",
       "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache and subagent state on the status line"
+    },
+    {
+      "name": "guard-watch",
+      "source": "./guard-watch",
+      "description": "Counts settings-hook guard blocks on the status line, and toasts the ones that hit a subagent"
     }
   ]
 }
