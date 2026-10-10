@@ -17,6 +17,11 @@
       "name": "guard-watch",
       "source": "./guard-watch",
       "description": "Counts settings-hook guard blocks on the status line, and toasts the ones that hit a subagent"
+    },
+    {
+      "name": "context-audit",
+      "source": "./context-audit",
+      "description": "/context-audit totals the context by MCP server, plugin skills, memory files, agents and commands, and lists what to trim"
     }
   ]
 }

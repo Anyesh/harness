@@ -1,0 +1,6 @@
+{
+  "name": "context-audit",
+  "version": "0.1.0",
+  "description": "/context-audit totals the context by MCP server, plugin skills, memory files, agents and commands, and lists what to trim",
+  "author": { "name": "Anish Shrestha" }
+}
