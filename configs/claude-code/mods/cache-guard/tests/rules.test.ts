@@ -10,7 +10,8 @@ import {
   noBounds,
   observeStep,
   priceFor,
-  statusText,
+  segmentFile,
+  segmentFor,
 } from '../hooks/rules'
 import type { LastResponse } from '../types'
 
@@ -153,19 +154,26 @@ describe('formatUsd', () => {
   })
 })
 
-describe('statusText', () => {
+describe('segmentFor', () => {
   const last: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
 
-  test('warm shows the time left and the context', () => {
-    expect(statusText(last, 18 * MINUTE, 60 * MINUTE)).toBe('cache warm · 42m left · 380k ctx')
+  test('warm shows the time left', () => {
+    expect(segmentFor(last, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache 42m', tone: 'normal' })
   })
 
-  test('cold shows what the next send re-writes', () => {
-    expect(statusText(last, 61 * MINUTE, 60 * MINUTE)).toBe('cache cold · next send re-writes 380k ≈ $3.04')
+  test('cold shows what the next send re-writes, as a warning', () => {
+    expect(segmentFor(last, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $3.04', tone: 'warn' })
   })
 
   test('hides under 20k tokens of context', () => {
-    expect(statusText({ ...last, ctx: 19_000 }, 0, 60 * MINUTE)).toBeUndefined()
-    expect(statusText(null, 0, 60 * MINUTE)).toBeUndefined()
+    expect(segmentFor({ ...last, ctx: 19_000 }, 0, 60 * MINUTE)).toBeNull()
+    expect(segmentFor(null, 0, 60 * MINUTE)).toBeNull()
+  })
+})
+
+describe('segmentFile', () => {
+  test('writes text, tone and time as JSON, and nothing for no segment', () => {
+    expect(JSON.parse(segmentFile({ text: 'cache 42m', tone: 'normal' }, 5))).toEqual({ text: 'cache 42m', tone: 'normal', at: 5 })
+    expect(segmentFile(null, 5)).toBe('')
   })
 })

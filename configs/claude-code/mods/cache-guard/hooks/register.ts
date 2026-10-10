@@ -11,7 +11,8 @@ import {
   gateQuestion,
   missToast,
   observeStep,
-  statusText,
+  segmentFile,
+  segmentFor,
 } from './rules'
 
 const last = atom({ plugin: 'cache-guard', key: 'last' } as const, null)
@@ -20,7 +21,7 @@ const misses = atom({ plugin: 'cache-guard', key: 'misses' } as const, [])
 const SEND = 'Send anyway'
 const COMPACT = 'Compact first'
 const DRAFT = 'Keep as draft'
-const STATUS_EVERY_MS = MINUTE
+const SEGMENT_EVERY_MS = 30_000
 
 type Config = { defaultTtlMs: number; gateUsd: number }
 
@@ -28,13 +29,39 @@ async function ttlMs($: EngineInterface, config: Config): Promise<number> {
   return effectiveTtl(asBounds(await $.store.get('ttl')), config.defaultTtlMs)
 }
 
-async function showStatus($: EngineInterface, config: Config): Promise<void> {
-  $.ui.status(statusText(await read($, last), await $.clock.now(), await ttlMs($, config)))
+async function segmentPath($: EngineInterface, sessionId: string): Promise<string> {
+  const state = (await $.env.get('XDG_STATE_HOME')) || `${await $.env.get('HOME')}/.local/state`
+  return `${state}/harness/status/${sessionId}/cache-guard.json`
+}
+
+async function writeSegment($: EngineInterface, config: Config): Promise<void> {
+  const segment = segmentFor(await read($, last), await $.clock.now(), await ttlMs($, config))
+  await $.fs.write(await segmentPath($, await $.session.id()), segmentFile(segment, await $.clock.now()))
+}
+
+async function showSegment($: EngineInterface, config: Config): Promise<void> {
+  try {
+    await writeSegment($, config)
+  } catch (err) {
+    $.ui.log(`cache-guard: could not write the status segment: ${String(err)}`, { to: 'debug' })
+  }
+}
+
+// The session folder is shared with other mods, so rmdir is expected to fail while theirs remain.
+async function removeSegment($: EngineInterface, sessionId: string): Promise<void> {
+  const path = await segmentPath($, sessionId)
+  try {
+    await $.process.run(['rm', '-f', path])
+    await $.process.run(['rmdir', path.slice(0, path.lastIndexOf('/'))])
+  } catch (err) {
+    $.ui.log(`cache-guard: could not remove ${path} (${String(err)}), emptying it`, { to: 'debug' })
+    await $.fs.write(path, '')
+  }
 }
 
 async function forget($: EngineInterface, config: Config): Promise<void> {
   await update($, last, () => null)
-  await showStatus($, config)
+  await showSegment($, config)
 }
 
 async function observe($: EngineInterface, config: Config, startedAt: number, usage: TurnUsage): Promise<void> {
@@ -76,14 +103,17 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const stored = asMisses(await $.store.get('misses'))
     await update($, misses, () => stored)
-    await showStatus($, config)
+    await showSegment($, config)
     ticker?.cancel()
-    ticker = $.clock.every(STATUS_EVERY_MS, () => void showStatus($, config))
+    ticker = $.clock.every(SEGMENT_EVERY_MS, () => void showSegment($, config))
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') await forget($, config)
+    ticker?.cancel()
+    ticker = undefined
+    if (e.reason === 'clear') await update($, last, () => null)
+    await removeSegment($, e.sessionId)
     return next(e)
   })
 
@@ -104,7 +134,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId === undefined) await showStatus($, config)
+    if (e.agentId === undefined) await showSegment($, config)
     return next(e)
   })
 
