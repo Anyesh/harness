@@ -179,3 +179,10 @@ function decideCleanup(turns: number, snapshot: Snapshot, armed: Armed): Step {
       'in the repo. Leave anything still in use.',
   }
 }
+
+export function modeLabels(snap: Pick<Snapshot, 'humanize' | 'ownit'>): string[] {
+  const labels: string[] = []
+  if (snap.humanize) labels.push(`humanize ${snap.humanize}`)
+  if (snap.ownit) labels.push(`ownit ${snap.ownit}`)
+  return labels
+}

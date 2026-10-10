@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { probe } from './probe'
 import type { ProbeIO } from './probe'
-import { countTurnEdits, decide, initialArmed } from './rules'
+import { countTurnEdits, decide, initialArmed, modeLabels } from './rules'
 import type { Snapshot } from '../types'
 
 const turns = atom({ plugin: 'nudge-band', key: 'turns' } as const, 0)
@@ -85,7 +85,6 @@ export const register: Register = on => {
     const unwritten = wiki
       ? [!wiki.devlogWritten && 'devlog', !wiki.indexWritten && 'index'].filter(Boolean).join(', ')
       : ''
-    const modes = [snap.humanize && `humanize ${snap.humanize}`, snap.ownit && `ownit ${snap.ownit}`].filter(Boolean).join(', ')
 
     const row = (
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
@@ -97,7 +96,6 @@ export const register: Register = on => {
         {wiki && <Button key="wiki" label="Log it" dimColor onPress={fill('/devlog')} />}
         {junk.length > 0 && <Text dimColor>junk: {junk.length} {junk.length === 1 ? 'file' : 'files'}</Text>}
         {junk.length > 0 && <Button key="junk" label="Clean up" dimColor onPress={fill(cleanupDraft(junk))} />}
-        {modes && <Text dimColor>{modes}</Text>}
         <Button key="hide" label="Hide" dimColor role="dismiss" onPress={() => update($, isHidden, () => true)} />
       </Box>
     )
@@ -107,5 +105,12 @@ export const register: Register = on => {
         {await next(e)}
       </Box>
     )
+  })
+
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const snap = await read($, snapshot)
+    const ours = snap ? modeLabels(snap) : []
+    if (ours.length === 0) return next(e)
+    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, ...ours] } })
   })
 }
