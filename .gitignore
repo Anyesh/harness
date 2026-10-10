@@ -7,3 +7,4 @@ tools/web-strip/node_modules/
 .scope.md
 .scope-turn-count
 .playwright-mcp/
+configs/claude-code/mods/**/.claude-plugin/types/
