@@ -1,0 +1,21 @@
+{
+  "name": "cache-guard",
+  "version": "0.1.0",
+  "description": "Warns before a cold prompt cache re-bills the whole context, and shows the cache state under the prompt",
+  "author": { "name": "Anish Shrestha" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "gateUsd": {
+      "type": "number",
+      "title": "Ask above (USD)",
+      "description": "Ask before sending to a cold cache when re-writing the context would cost at least this much at API prices.",
+      "default": 1
+    },
+    "ttlMinutes": {
+      "type": "number",
+      "title": "Assumed cache lifetime (minutes)",
+      "description": "How long the prompt cache is assumed to live before any expiry has been observed; observed hits and misses adjust it.",
+      "default": 60
+    }
+  }
+}

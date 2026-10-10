@@ -1,0 +1,142 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register, Timer, TurnUsage } from 'claude-code'
+
+import {
+  MINUTE,
+  MISSES_KEPT,
+  asBounds,
+  asMisses,
+  effectiveTtl,
+  gateDecision,
+  gateQuestion,
+  missToast,
+  observeStep,
+  statusText,
+} from './rules'
+
+const last = atom({ plugin: 'cache-guard', key: 'last' } as const, null)
+const misses = atom({ plugin: 'cache-guard', key: 'misses' } as const, [])
+
+const SEND = 'Send anyway'
+const COMPACT = 'Compact first'
+const DRAFT = 'Keep as draft'
+const STATUS_EVERY_MS = MINUTE
+
+type Config = { defaultTtlMs: number; gateUsd: number }
+
+async function ttlMs($: EngineInterface, config: Config): Promise<number> {
+  return effectiveTtl(asBounds(await $.store.get('ttl')), config.defaultTtlMs)
+}
+
+async function showStatus($: EngineInterface, config: Config): Promise<void> {
+  $.ui.status(statusText(await read($, last), await $.clock.now(), await ttlMs($, config)))
+}
+
+async function forget($: EngineInterface, config: Config): Promise<void> {
+  await update($, last, () => null)
+  await showStatus($, config)
+}
+
+async function observe($: EngineInterface, config: Config, startedAt: number, usage: TurnUsage): Promise<void> {
+  const seen = observeStep({
+    prev: await read($, last),
+    startedAt,
+    now: await $.clock.now(),
+    usage,
+    bounds: asBounds(await $.store.get('ttl')),
+    defaultTtlMs: config.defaultTtlMs,
+  })
+  await update($, last, () => seen.last)
+  await $.store.set('ttl', seen.bounds)
+  const miss = seen.miss
+  if (!miss) return
+  const kept = await update($, misses, list => [...list, miss].slice(-MISSES_KEPT))
+  await $.store.set('misses', kept)
+  $.ui.toast(missToast(miss))
+}
+
+async function compactThenRestore($: EngineInterface, config: Config, text: string): Promise<void> {
+  try {
+    const compacted = await $.session.compact()
+    if (compacted.messages) await forget($, config)
+    else $.ui.toast(`Compaction skipped: ${compacted.skip}`)
+  } catch (err) {
+    $.ui.toast(`Compaction failed: ${String(err)}`)
+  }
+  await $.prompt.fill({ text })
+}
+
+export const register: Register = (on, options) => {
+  const config: Config = {
+    defaultTtlMs: Number(options.ttlMinutes ?? 60) * MINUTE,
+    gateUsd: Number(options.gateUsd ?? 1),
+  }
+  let ticker: Timer | undefined
+
+  on('session.start', async ($, e, next) => {
+    const stored = asMisses(await $.store.get('misses'))
+    await update($, misses, () => stored)
+    await showStatus($, config)
+    ticker?.cancel()
+    ticker = $.clock.every(STATUS_EVERY_MS, () => void showStatus($, config))
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') await forget($, config)
+    return next(e)
+  })
+
+  // Per-step usage, because turn.complete sums every request of the turn and a
+  // cold first request would hide behind the warm reads of the steps after it.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId !== undefined) return yield* next(e)
+    const startedAt = await $.clock.now()
+    const response = yield* next(e)
+    if (response.usage) {
+      try {
+        await observe($, config, startedAt, response.usage)
+      } catch (err) {
+        $.ui.log(`cache-guard: could not record step usage: ${String(err)}`, { to: 'debug' })
+      }
+    }
+    return response
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined) await showStatus($, config)
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.messages) await forget($, config)
+    return result
+  }).catch(($, e, next) => next(e))
+
+  // Fails open because this is a cost warning: a broken guard must never eat a prompt.
+  on('prompt.submit', async ($, e, next) => {
+    // Attachments cannot be put back in the prompt box, so a prompt carrying them is never held.
+    if (e.origin.kind !== 'composer' || e.turnId !== undefined || e.attachments) return next(e)
+    const gate = gateDecision(await read($, last), await $.clock.now(), await ttlMs($, config), config.gateUsd)
+    if (!gate) return next(e)
+
+    const choice = await $.ui
+      .ask(gateQuestion(gate), { header: 'Cold cache', options: [SEND, COMPACT, DRAFT] })
+      .catch((err: unknown) => {
+        $.ui.log(`cache-guard: cold cache question unanswered (${String(err)}), sending`, { to: 'debug' })
+        return SEND
+      })
+
+    if (choice === COMPACT) {
+      // The host refuses a compaction under the prompt this hook is holding, so it runs once the prompt is dropped.
+      $.clock.after(0, () => void compactThenRestore($, config, e.text))
+      return { drop: 'Compacting first; your prompt will be back in the box.' }
+    }
+    if (choice === DRAFT) {
+      await $.prompt.fill({ text: e.text })
+      return { drop: 'Kept as a draft; the prompt cache is still cold.' }
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+}
