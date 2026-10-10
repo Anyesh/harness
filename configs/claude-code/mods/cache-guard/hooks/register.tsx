@@ -63,7 +63,7 @@ async function showSegment($: EngineInterface, config: Config): Promise<void> {
   }
 }
 
-// The session folder is shared with other mods, so rmdir is expected to fail while theirs remain.
+// rmdir fails harmlessly while other mods' files remain, because the session folder is shared.
 async function removeSegment($: EngineInterface, sessionId: string): Promise<void> {
   const path = await segmentPath($, sessionId)
   try {

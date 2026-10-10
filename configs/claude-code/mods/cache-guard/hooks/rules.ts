@@ -59,7 +59,7 @@ export type StepKind = 'warm' | 'cold'
 export function classifyStep(prevCtx: number, usage: ModelUsage): StepKind | null {
   if (prevCtx <= 0) return null
   if (usage.cache_read_input_tokens >= 0.5 * prevCtx) return 'warm'
-  // Not "nothing read": the system prompt and tools prefix can stay cached on its own, and in a subagent it is a large share.
+  // A cold step may still read some cache, because the system and tools prefix can stay cached on its own, a large share in a subagent.
   if (usage.cache_creation_input_tokens >= 0.5 * prevCtx) return 'cold'
   return null
 }
@@ -196,7 +196,7 @@ function isCold(agent: ListedAgent, track: AgentTrack | undefined, now: number, 
 
 export type AgentAlert = { key: string; text: string }
 
-// An idle alert is keyed by the agent's last response, so dismissing it lasts until the agent works and rests again.
+// An idle alert is keyed by the agent's last response so that a dismissal lasts only until the agent works and rests again.
 export function agentAlerts(
   agents: Readonly<Record<string, AgentTrack>>,
   listed: readonly ListedAgent[],
@@ -236,7 +236,7 @@ export function agentSegment(
   return { text: `agents ${live.length} · ${cold} cold`, tone: 'warn' }
 }
 
-// Ended agents leave $.agent.list within a minute yet can be resumed by message much later, so tracks age out instead.
+// Tracks age out by time, not by listing, because ended agents leave $.agent.list within a minute yet can be resumed much later.
 export function pruneTracks(tracks: Readonly<Record<string, AgentTrack>>, now: number): Record<string, AgentTrack> {
   return Object.fromEntries(Object.entries(tracks).filter(([, track]) => now - track.at < TRACK_KEEP_MS))
 }

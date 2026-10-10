@@ -48,7 +48,7 @@ export function skillGroups(skills: readonly ContextSkill[]): SkillGroup[] {
   return [...groups.values()].sort((a, b) => b.tokens - a.tokens)
 }
 
-// Deferred MCP tools cost only their name until loaded, so a server is judged by its loaded tokens.
+// A server is judged by its loaded tokens, because a deferred MCP tool costs only its name until loaded.
 export function trimCandidates(breakdown: SessionContextBreakdown): Candidate[] {
   const window = breakdown.maxTokens || 1
   const candidates = [
