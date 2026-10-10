@@ -20,6 +20,9 @@ claude_plugins() {
   fi
 
   local marketplaces=("anthropics/claude-plugins-official")
+  if [[ -d "$CLAUDE_CONFIG_DIR/harness-mods" || "$DRY_RUN" == "true" ]]; then
+    marketplaces+=("$CLAUDE_CONFIG_DIR/harness-mods")
+  fi
   for mp in "${marketplaces[@]}"; do
     local mp_name="${mp##*/}"
     if claude plugin marketplace list 2>/dev/null | grep -qi "$mp_name"; then
@@ -42,7 +45,7 @@ claude_plugins() {
     local plugin
     plugin=$(echo "$line" | xargs)
 
-    if claude plugin list 2>/dev/null | grep -qi "${plugin%%@*}"; then
+    if claude plugin list 2>/dev/null | grep -qF -- "$plugin"; then
       log_skip "plugin $plugin" "already installed"
     else
       if [[ "$DRY_RUN" == "true" ]]; then
@@ -56,6 +59,20 @@ claude_plugins() {
       fi
     fi
   done < "$plugins_file"
+}
+
+# Tests stay in the repo: `claude plugin test` runs them from the source tree,
+# and the engine writes its generated types beside a mod it is developing.
+claude_mods() {
+  local mods_src="$REPO_ROOT/configs/claude-code/mods"
+  local mods_dest="$CLAUDE_CONFIG_DIR/harness-mods"
+  [[ -d "$mods_src" ]] || return 0
+
+  local file rel
+  while IFS= read -r -d '' file; do
+    rel="${file#"$mods_src"/}"
+    deploy_file "$file" "$mods_dest/$rel" "configs/claude-code/mods/$rel" "false" "mod $rel"
+  done < <(find "$mods_src" -type f -not -path '*/tests/*' -not -path '*/.claude-plugin/types/*' -print0 | sort -z)
 }
 
 claude_config() {
@@ -153,6 +170,7 @@ claude_mcp() {
 }
 
 claude_install() {
+  claude_mods
   if [[ "$NO_PLUGINS" == "false" ]]; then
     claude_plugins
   else

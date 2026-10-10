@@ -159,7 +159,7 @@ add_fake_second_brain "$FH"
 harness "$FH" --no-plugins > /dev/null || true
 
 assert "control: memory hooks deployed" '[[ -x "$FH/.claude/hooks/wiki-nudge.sh" && -x "$FH/.claude/hooks/stop-wiki-enforce.sh" && -x "$FH/.claude/hooks/session-end-ingest.sh" && -x "$FH/.claude/hooks/session-start-wiki.sh" ]]'
-assert "control: settings.json registers memory hooks and WIKI_VAULT" 'grep -q wiki-nudge "$FH/.claude/settings.json" && grep -q "WIKI_VAULT\": \"$TMP_DIR/vault\"" "$FH/.claude/settings.json"'
+assert "control: settings.json registers memory hooks and WIKI_VAULT" 'grep -q stop-wiki-enforce "$FH/.claude/settings.json" && grep -q "WIKI_VAULT\": \"$TMP_DIR/vault\"" "$FH/.claude/settings.json"'
 assert "control: enabledMcpjsonServers has second-brain" 'jq -e ".enabledMcpjsonServers | index(\"second-brain\") != null" "$FH/.claude/settings.json" > /dev/null'
 assert "control: .mcp.json, cursor mcp.json have second-brain" 'jq -e ".mcpServers | has(\"second-brain\")" "$FH/.claude/.mcp.json" > /dev/null && jq -e ".mcpServers | has(\"second-brain\")" "$FH/.cursor/mcp.json" > /dev/null'
 assert "control: CLAUDE.md has both memory rules" 'grep -q "^## Second Brain (MCP)" "$FH/.claude/CLAUDE.md" && grep -q "^## Wiki Maintenance" "$FH/.claude/CLAUDE.md"'
@@ -220,7 +220,7 @@ add_fake_second_brain "$UH"
 install_all "$UH" --no-memory
 assert "switch: lite first has no wiki skill or memory hook" '[[ ! -e "$UH/.claude/skills/wiki" && ! -e "$UH/.claude/hooks/wiki-nudge.sh" ]]'
 install_all "$UH"
-assert "switch: lite then full gains the memory pieces" '[[ -d "$UH/.claude/skills/wiki" && -x "$UH/.claude/hooks/wiki-nudge.sh" && -f "$UH/.claude/commands/devlog.md" ]] && grep -q wiki-nudge "$UH/.claude/settings.json" && grep -q "^## Wiki Maintenance" "$UH/.claude/CLAUDE.md"'
+assert "switch: lite then full gains the memory pieces" '[[ -d "$UH/.claude/skills/wiki" && -x "$UH/.claude/hooks/wiki-nudge.sh" && -f "$UH/.claude/commands/devlog.md" ]] && grep -q stop-wiki-enforce "$UH/.claude/settings.json" && grep -q "^## Wiki Maintenance" "$UH/.claude/CLAUDE.md"'
 
 DNH="$TMP_DIR/switchdown"
 new_home "$DNH" vault

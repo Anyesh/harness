@@ -147,21 +147,6 @@
             "command": "node \"{{HOME_DIR}}/.claude/hooks/ownit-mode-tracker.js\"",
             "timeout": 5,
             "statusMessage": "Tracking ownit mode..."
-          },
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/scope-drift-detector.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/wiki-nudge.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/cleanup-nudge.sh",
-            "timeout": 5
           }
         ]
       }
@@ -207,7 +192,16 @@
     "claude-md-management@claude-plugins-official": false,
     "claude-code-setup@claude-plugins-official": false,
     "skill-creator@claude-plugins-official": false,
-    "plugin-dev@claude-plugins-official": false
+    "plugin-dev@claude-plugins-official": false,
+    "nudge-band@harness-mods": true
+  },
+  "extraKnownMarketplaces": {
+    "harness-mods": {
+      "source": {
+        "source": "directory",
+        "path": "{{HOME_DIR}}/.claude/harness-mods"
+      }
+    }
   },
   "modelSettings": {
     "claude-opus-5-5": {

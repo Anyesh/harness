@@ -14,7 +14,7 @@ Single-command bootstrap for AI coding tools. One repo, one install, full enviro
 | Hooks (Claude Code) | 23 |
 | Hooks (Cursor events) | 11 |
 | Skills (shared) | 19 |
-| Plugins (Claude Code) | 15 |
+| Plugins (Claude Code) | 10 |
 | MCP servers | 5 |
 | Modules | 9 |
 | Template variables | 5 |
@@ -50,7 +50,8 @@ Lite mode is for machines that never had the full install. Switching from full t
 ~/.claude/CLAUDE.md            ← global instructions (exploration-first, TDD, scope gates, no AI comments)
 ~/.claude/hooks/               ← 23 hook scripts (see below)
 ~/.claude/skills/              ← 19 skill definitions
-~/.claude/plugins/             ← 15 plugins from 2 marketplaces
+~/.claude/plugins/             ← 10 plugins from 2 marketplaces (claude-plugins-official, harness-mods)
+~/.claude/harness-mods/        ← local folder marketplace holding the harness's own mods
 ```
 
 ### Cursor
@@ -83,6 +84,16 @@ Lite mode is for machines that never had the full install. Switching from full t
 opencode.json(c) stays unmanaged (model/provider config is machine-specific); a
 reference template lives at `configs/opencode/opencode.jsonc.tmpl`.
 
+## Mods (Claude Code)
+
+Mods are Claude Code plugins with an in-process hooks module (CLI 2.1.287+). The harness keeps them in `configs/claude-code/mods/`, a folder marketplace named `harness-mods`. `install.sh` copies it to `~/.claude/harness-mods/` (tests excluded), registers and installs each mod, and `settings.json.tmpl` carries the matching `extraKnownMarketplaces` and `enabledPlugins` entries so a redeploy never drops them. Claude Code reads an installed mod straight from that folder, so after a redeploy `/reload-plugins` picks up the change.
+
+| Mod | What it does |
+|-----|--------------|
+| `nudge-band` | Band above the prompt showing scope (`.scope.md` missing or stale), wiki (devlog and index not written this session) and untracked junk, with buttons that pre-fill `/scope`, `/devlog` or a cleanup prompt. Claude gets one reminder when a condition first holds; the wiki reminder repeats after 3 more edits or 10 more turns without a wiki write. |
+
+Develop a mod with `claude --plugin-dir configs/claude-code/mods/<mod>` (hot reload), and check it with `claude plugin validate --strict <dir>` and `claude plugin test <dir>`; `tests/test_nudge_band.sh` runs both. A mod must not register a Bash `tool.call` hook while anthropics/claude-code#92533 is open, because that breaks worktree-isolated subagents.
+
 ## Hooks
 
 | Hook | Trigger | Purpose |
@@ -100,6 +111,8 @@ reference template lives at `configs/opencode/opencode.jsonc.tmpl`.
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
+
+On Claude Code the scope, wiki and hygiene nudges (`scope-drift-detector.sh`, `wiki-nudge.sh`, `cleanup-nudge.sh`) are replaced by the `nudge-band` mod below; Cursor and Codex keep the shell scripts.
 
 Guards match on the code a command runs, not on quoted text or heredoc bodies (`shell-code.sh`), and every block is appended to `~/.local/state/harness/hook-blocks.jsonl` (`log-block.sh`; override with `HARNESS_BLOCK_LOG`). Two scripts keep false positives visible:
 
