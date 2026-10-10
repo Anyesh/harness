@@ -11,6 +11,9 @@ const BAND = {
   component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } as never,
 } as const
+const FOOTER = { component: 'SessionMode', props: { modes: ['plan mode'] } } as const
+const HUMANIZE = '/home/user/.claude/.humanize-active'
+const OWNIT = '/home/user/.claude/.ownit-active'
 
 type World = {
   files: Record<string, { mtimeMs: number; text?: string }>
@@ -20,6 +23,7 @@ type World = {
   filled: string[]
   contexts: (readonly string[] | undefined)[]
   beneath?: string
+  footer?: readonly string[]
 }
 
 function world(on: On, env: Record<string, string>, seed: Partial<World> = {}): World {
@@ -44,6 +48,10 @@ function world(on: On, env: Record<string, string>, seed: Partial<World> = {}): 
   on('session.cwd', () => ({ value: ROOT }))
   on('session.messages', () => ({ value: w.messages }))
   on('ui.render', ($, e) => {
+    if (e.component === 'SessionMode') {
+      w.footer = (e.props as { modes: readonly string[] }).modes
+      return { type: 'engine' as const, ref: 0 }
+    }
     if (!w.beneath) return { type: 'engine' as const, ref: 0 }
     const { Text } = $.ui.resolve(e as never)
     return h(Text, { key: 'beneath' }, w.beneath) as never
@@ -141,5 +149,26 @@ describe('band', () => {
     expect(await ui.find({ key: 'junk' })).toBeDefined()
     await ui.press({ key: 'hide' })
     expect(await ui.find({ key: 'junk' })).toBeUndefined()
+  })
+})
+
+describe('footer modes', () => {
+  test('adds humanize and ownit after the engine modes, and leaves them out of the band', async ($, on) => {
+    const w = world(on, {}, { untracked: ['notes.md'], files: { [HUMANIZE]: { mtimeMs: NOW, text: 'on' }, [OWNIT]: { mtimeMs: NOW, text: 'strict' } } })
+    await prompts($, 1)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ plugin: 'nudge-band', surface, ...FOOTER })
+      expect(w.footer).toEqual(['plan mode', 'humanize on', 'ownit strict'])
+      await ui.unmount()
+    }
+    const band = await $.ui.mount({ plugin: 'nudge-band', surface: 'terminal', ...BAND })
+    expect(await band.find({ type: 'Text', text: /humanize/ })).toBeUndefined()
+  })
+
+  test('passes the footer unchanged with no mode active', async ($, on) => {
+    const w = world(on, {})
+    await prompts($, 1)
+    await $.ui.mount({ plugin: 'nudge-band', surface: 'terminal', ...FOOTER })
+    expect(w.footer).toEqual(['plan mode'])
   })
 })
