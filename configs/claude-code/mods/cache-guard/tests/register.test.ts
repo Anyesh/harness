@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
-import type { On, TurnUsage } from 'claude-code'
+import type { AgentInfo, On, TurnUsage } from 'claude-code'
 
 const MINUTE = 60_000
 const NOW = 1_000 * MINUTE
@@ -20,6 +20,7 @@ type World = {
   toasts: string[]
   statuses: (string | undefined)[]
   files: Record<string, string>
+  agents: AgentInfo[]
   commands: string[][]
   compactions: number
   stored: Record<string, unknown>
@@ -40,6 +41,7 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     toasts: [],
     statuses: [],
     files: {},
+    agents: [],
     commands: [],
     compactions: 0,
     stored: {},
@@ -80,6 +82,7 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     return { value: undefined }
   })
   on('session.id', () => ({ value: 'sess-1' }))
+  on('agent.list', () => ({ value: w.agents }))
   on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('fs.write', (_$, e) => {
     w.files[e.path] = e.text
@@ -188,7 +191,7 @@ describe('gate', () => {
     expect(w.asked).toEqual([])
   })
 
-  test('ignores subagent steps', async ($, on) => {
+  test('subagent steps do not gate the main thread', async ($, on) => {
     const w = world(on)
     await step($, w, usage(0, 380_000), 'agent-1')
     await complete($, 'agent-1')
@@ -253,5 +256,90 @@ describe('status segment', () => {
       ['rm', '-f', SEGMENT],
       ['rmdir', '/state/harness/status/sess-1'],
     ])
+  })
+})
+
+const BAND = {
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } as never,
+} as const
+
+function agent(id: string, status: AgentInfo['status']): AgentInfo {
+  return { id, type: 'Explore', description: 'Research agent APIs', status }
+}
+
+async function start($: Engine, on: On) {
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
+}
+
+describe('agents', () => {
+  test('a subagent step shows in the segment while the agent is listed', async ($, on) => {
+    const w = world(on)
+    await start($, on)
+    w.agents = [agent('a1', 'running')]
+    await step($, w, usage(0, 120_000), 'a1')
+    await complete($, 'a1')
+    expect(segment(w)).toMatchObject({ text: 'agents 1', tone: 'normal' })
+    w.agents = [agent('a1', 'idle')]
+    await w.clock.advance(6 * MINUTE)
+    expect(segment(w)).toMatchObject({ text: 'agents 1 · 1 cold', tone: 'warn' })
+  })
+
+  test('an agent leaves the segment once unlisted, and a later cold resume still toasts', async ($, on) => {
+    const w = world(on)
+    await start($, on)
+    w.agents = [agent('a1', 'running')]
+    await step($, w, usage(0, 120_000), 'a1')
+    w.agents = []
+    await w.clock.advance(30_000)
+    expect(segment(w)).toBe('')
+    await w.clock.advance(9 * MINUTE)
+    w.agents = [agent('a1', 'running')]
+    await step($, w, usage(0, 120_000), 'a1')
+    expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
+  })
+
+  test('a cold agent step toasts and records the miss', async ($, on) => {
+    const w = world(on)
+    w.agents = [agent('a1', 'idle')]
+    await step($, w, usage(0, 120_000), 'a1')
+    await w.clock.advance(9 * MINUTE)
+    await step($, w, usage(0, 120_000), 'a1')
+    expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
+    expect(w.stored.misses).toMatchObject([{ agentId: 'a1', tokens: 120_000 }])
+  })
+
+  test('the band alerts an idle agent past its TTL, passes next(e), and dismisses', async ($, on) => {
+    const w = world(on)
+    on('ui.render', ($, e) => {
+      const { Text } = $.ui.resolve(e as never)
+      return h(Text, { key: 'beneath' }, 'another mod') as never
+    })
+    await start($, on)
+    w.agents = [agent('a1', 'idle')]
+    await step($, w, usage(0, 120_000), 'a1')
+    await w.clock.advance(9 * MINUTE)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ plugin: 'cache-guard', surface, ...BAND })
+      const row = 'Explore "Research agent APIs" idle 9m · resuming re-writes 120k ≈ $0.60'
+      expect(await ui.find({ type: 'Text', text: row })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'another mod' })).toBeDefined()
+      await ui.unmount()
+    }
+    const ui = await $.ui.mount({ plugin: 'cache-guard', surface: 'terminal', ...BAND })
+    await ui.press({ key: `dismiss-a1@${NOW}` })
+    expect(await ui.find({ type: 'Text', text: /idle 9m/ })).toBeUndefined()
+  })
+
+  test('the band stays out of the way of a survey', async ($, on) => {
+    const w = world(on)
+    on('ui.render', () => ({ type: 'engine' as const, ref: 0 }))
+    await start($, on)
+    w.agents = [agent('a1', 'idle')]
+    await step($, w, usage(0, 120_000), 'a1')
+    await w.clock.advance(9 * MINUTE)
+    const ui = await $.ui.mount({ plugin: 'cache-guard', surface: 'terminal', ...BAND, props: { hasSurvey: true, isWorking: false, maxRows: 10, bodyColumns: 120 } as never })
+    expect(await ui.find({ type: 'Text', text: /idle 9m/ })).toBeUndefined()
   })
 })

@@ -1,6 +1,6 @@
 import type { ModelUsage, TurnUsage } from 'claude-code'
 
-import type { LastResponse, Miss, TtlBounds } from '../types'
+import type { AgentTrack, LastResponse, ListedAgent, Miss, TtlBounds } from '../types'
 
 export const MINUTE = 60_000
 export const MISSES_KEPT = 20
@@ -8,6 +8,10 @@ const MILLION = 1_000_000
 const FIVE_MINUTES = 5 * MINUTE
 const MIN_MISS_TOKENS = 50_000
 const MIN_STATUS_CTX = 20_000
+const MIN_AGENT_ALERT_TOKENS = 50_000
+const LONG_AGENT_MS = 60 * MINUTE
+const MAX_ALERT_ROWS = 3
+const TRACK_KEEP_MS = 24 * 60 * MINUTE
 
 export type Prices = { input: number; write1h: number; write5m: number; read: number }
 
@@ -55,7 +59,8 @@ export type StepKind = 'warm' | 'cold'
 export function classifyStep(prevCtx: number, usage: ModelUsage): StepKind | null {
   if (prevCtx <= 0) return null
   if (usage.cache_read_input_tokens >= 0.5 * prevCtx) return 'warm'
-  if (usage.cache_read_input_tokens < 0.1 * prevCtx && usage.cache_creation_input_tokens >= 0.5 * prevCtx) return 'cold'
+  // Not "nothing read": the system prompt and tools prefix can stay cached on its own, and in a subagent it is a large share.
+  if (usage.cache_creation_input_tokens >= 0.5 * prevCtx) return 'cold'
   return null
 }
 
@@ -175,5 +180,76 @@ export function missToast(miss: Miss): string {
   return (
     `Cache went cold after ${formatDuration(miss.gapMs)}: ` +
     `re-wrote ${formatTokens(miss.tokens)} tokens (≈ ${formatUsd(miss.usd)} at API prices)`
+  )
+}
+
+const ENDED: ReadonlySet<ListedAgent['status']> = new Set(['completed', 'failed', 'killed'])
+const RESTING: ReadonlySet<ListedAgent['status']> = new Set(['idle', 'waiting'])
+
+function isLive(agent: ListedAgent): boolean {
+  return !ENDED.has(agent.status)
+}
+
+function isCold(agent: ListedAgent, track: AgentTrack | undefined, now: number, ttlMs: number): track is AgentTrack {
+  return track !== undefined && RESTING.has(agent.status) && now - track.at >= ttlMs
+}
+
+export type AgentAlert = { key: string; text: string }
+
+// An idle alert is keyed by the agent's last response, so dismissing it lasts until the agent works and rests again.
+export function agentAlerts(
+  agents: Readonly<Record<string, AgentTrack>>,
+  listed: readonly ListedAgent[],
+  now: number,
+  ttlMs: number,
+  dismissed: readonly string[],
+): { rows: AgentAlert[]; more: number } {
+  const alerts: AgentAlert[] = []
+  for (const agent of listed) {
+    const track = agents[agent.id]
+    if (!track || !isLive(agent)) continue
+    const label = `${agent.type} "${agent.description}"`
+    if (isCold(agent, track, now, ttlMs) && track.ctx >= MIN_AGENT_ALERT_TOKENS) {
+      const usd = formatUsd(rewriteUsd(track.model, track.ctx, ttlMs))
+      alerts.push({
+        key: `${agent.id}@${track.at}`,
+        text: `${label} idle ${formatDuration(now - track.at)} · resuming re-writes ${formatTokens(track.ctx)} ≈ ${usd}`,
+      })
+    } else if (now - track.firstAt >= LONG_AGENT_MS) {
+      alerts.push({ key: `${agent.id}:long`, text: `${label} has run ${formatDuration(now - track.firstAt)}` })
+    }
+  }
+  const open = alerts.filter(alert => !dismissed.includes(alert.key))
+  return { rows: open.slice(0, MAX_ALERT_ROWS), more: Math.max(0, open.length - MAX_ALERT_ROWS) }
+}
+
+export function agentSegment(
+  agents: Readonly<Record<string, AgentTrack>>,
+  listed: readonly ListedAgent[],
+  now: number,
+  ttlMs: number,
+): Segment | null {
+  const live = listed.filter(isLive)
+  if (live.length === 0) return null
+  const cold = live.filter(agent => isCold(agent, agents[agent.id], now, ttlMs)).length
+  if (cold === 0) return { text: `agents ${live.length}`, tone: 'normal' }
+  return { text: `agents ${live.length} · ${cold} cold`, tone: 'warn' }
+}
+
+// Ended agents leave $.agent.list within a minute yet can be resumed by message much later, so tracks age out instead.
+export function pruneTracks(tracks: Readonly<Record<string, AgentTrack>>, now: number): Record<string, AgentTrack> {
+  return Object.fromEntries(Object.entries(tracks).filter(([, track]) => now - track.at < TRACK_KEEP_MS))
+}
+
+export function joinSegments(...segments: (Segment | null)[]): Segment | null {
+  const shown = segments.filter((s): s is Segment => s !== null)
+  if (shown.length === 0) return null
+  return { text: shown.map(s => s.text).join(' · '), tone: shown.some(s => s.tone === 'warn') ? 'warn' : 'normal' }
+}
+
+export function agentMissToast(type: string, miss: Miss): string {
+  return (
+    `Agent ${type} went cold after ${formatDuration(miss.gapMs)}: ` +
+    `re-wrote ${formatTokens(miss.tokens)} tokens (≈ ${formatUsd(miss.usd)})`
   )
 }
