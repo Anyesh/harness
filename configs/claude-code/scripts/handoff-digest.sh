@@ -193,4 +193,5 @@ grep -E '"type":"(user|assistant)"' "$transcript" \
 jq -rs --argjson budget "$TAIL_CHARS" --arg sid "$session_id" --arg src "$transcript" \
   --arg cwd "$cwd" --arg repo "$repo_block" "$RENDER" "$events" > "$tmp"
 mv "$tmp" "$dest_dir/$session_id.md"
+find "$OUT_ROOT" -mindepth 2 -maxdepth 2 -name '*.md' -mtime +14 -delete 2>/dev/null || true
 printf '%s\n' "$dest_dir/$session_id.md"
