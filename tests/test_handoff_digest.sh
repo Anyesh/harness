@@ -111,6 +111,13 @@ assert "a session id finds its transcript under the config dir's projects" \
 assert "an unknown session id fails" \
   '! CLAUDE_CONFIG_DIR="$TMP_DIR" "$DIGEST" no-such-sid 2>/dev/null'
 
+mkdir -p "$HANDOFFS/other-proj"
+touch -d '20 days ago' "$HANDOFFS/other-proj/ancient.md" "$HANDOFFS/my-proj/ancient.handoff-1.md"
+touch "$HANDOFFS/other-proj/recent.md"
+"$DIGEST" "$SMALL" >/dev/null
+assert "digests and handoffs older than 14 days are pruned in every project, recent ones kept" \
+  '[ ! -e "$HANDOFFS/other-proj/ancient.md" ] && [ ! -e "$HANDOFFS/my-proj/ancient.handoff-1.md" ] && [ -e "$HANDOFFS/other-proj/recent.md" ] && [ -e "$DIGEST_FILE" ]'
+
 GITREPO="$TMP_DIR/repo"
 mkdir -p "$GITREPO"
 git -C "$GITREPO" init -q
