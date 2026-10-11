@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: handoff-digest.sh [transcript.jsonl]
+# Usage: handoff-digest.sh [transcript.jsonl | session-id]
 # Writes a compact digest of a Claude Code session transcript and prints its path.
 # Shell and jq only: no model call happens anywhere in this script.
 set -euo pipefail
@@ -17,10 +17,13 @@ for candidate in "$SCRIPT_DIR/../hooks" "$SCRIPT_DIR/../../shared/hooks"; do
 done
 declare -F harness_project_slug >/dev/null || { echo "handoff-digest: harness-project.sh not found" >&2; exit 1; }
 
+projects_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 transcript="${1:-}"
 if [[ -z "$transcript" ]]; then
   encoded="$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
-  transcript="$(ls -t "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$encoded"/*.jsonl 2>/dev/null | head -1 || true)"
+  transcript="$(ls -t "$projects_dir/$encoded"/*.jsonl 2>/dev/null | head -1 || true)"
+elif [[ ! -f "$transcript" && "$transcript" != */* ]]; then
+  transcript="$(ls -t "$projects_dir"/*/"$transcript.jsonl" 2>/dev/null | head -1 || true)"
 fi
 [[ -n "$transcript" && -f "$transcript" ]] || { echo "handoff-digest: no transcript found" >&2; exit 1; }
 

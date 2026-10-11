@@ -103,6 +103,12 @@ assert "big digest index has every prompt" \
   '[ "$(sed -n "/^## Prompt index/,\$p" "$HANDOFFS/my-proj/big-sid.md" | grep -c "prompt number")" -eq 850 ]'
 rm -f "$BIG"
 
+ID_PATH=$(CLAUDE_CONFIG_DIR="$TMP_DIR" "$DIGEST" small-sid)
+assert "a session id finds its transcript under the config dir's projects" \
+  '[ "$ID_PATH" = "$DIGEST_FILE" ] && grep -q "^transcript: $SMALL$" "$DIGEST_FILE"'
+assert "an unknown session id fails" \
+  '! CLAUDE_CONFIG_DIR="$TMP_DIR" "$DIGEST" no-such-sid 2>/dev/null'
+
 GITREPO="$TMP_DIR/repo"
 mkdir -p "$GITREPO"
 git -C "$GITREPO" init -q
