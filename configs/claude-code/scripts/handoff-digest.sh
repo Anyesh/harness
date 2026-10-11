@@ -56,6 +56,8 @@ if [[ -d "$cwd" ]] && GIT_OPTIONAL_LOCKS=0 git -C "$cwd" rev-parse --is-inside-w
   [[ -n "$git_stat" ]] && repo_block+=$'\n\ndiff vs HEAD:\n'"$git_stat"
 fi
 
+# A user message starting with "[handoff] " is the handoff mod's compaction answer. It is skipped like a
+# core summary because the engine does not flag a hook-built message isCompactSummary.
 EXTRACT='
 def cut($n): if length > $n then .[0:$n] + "..." else . end;
 def first_line: split("\n") | map(select(test("\\S"))) | (.[0] // "");
@@ -82,7 +84,8 @@ fromjson?
       else
         ($c | text_of | clean) as $t
         | select($t != "")
-        | if ($t | test("^\\[Request interrupted")) then {k: "i", t: ($t | cut(160))}
+        | if ($t | test("^\\[handoff\\] ")) then empty
+        elif ($t | test("^\\[Request interrupted")) then {k: "i", t: ($t | cut(160))}
                     elif ($t | test("<command-name>")) then
             ($t | command_text) as $cmd
             | if $cmd == "/clear" then empty else {k: "u", t: ($cmd | cut(8000))} end
