@@ -35,8 +35,5 @@ handoff_claude_pid() {
 }
 
 handoff_prune() {
-  local root
-  root="$(handoff_out_root)"
   find "$(handoff_pending_dir)" -maxdepth 1 -name '*.json' -mtime +0 -delete 2>/dev/null || true
-  find "$root" -mindepth 2 -maxdepth 2 -name '*.md' -mtime +14 -delete 2>/dev/null || true
 }
