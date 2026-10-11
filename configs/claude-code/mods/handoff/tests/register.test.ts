@@ -16,6 +16,7 @@ type World = {
   files: Record<string, string>
   core: SessionCompactInput[]
   toasts: string[]
+  spinner: (string | null)[]
 }
 
 function world(on: On): World {
@@ -27,6 +28,7 @@ function world(on: On): World {
     files: { [DIGEST_PATH]: DIGEST },
     core: [],
     toasts: [],
+    spinner: [],
   }
   on('session.id', () => ({ value: 'sess-1' }))
   on('session.cwd', () => ({ value: '/work' }))
@@ -58,6 +60,14 @@ function world(on: On): World {
   on('session.compact', (_$, e) => {
     w.core.push(e)
     return { messages: [CORE] }
+  })
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: { ...USAGE, model: 'claude-opus-5-5' } }
+  })
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('ui.render', (_$, e) => {
+    w.spinner.push((e.props as { message: string | null }).message)
+    return { type: 'engine' as const, ref: 0 }
   })
   return w
 }
@@ -148,5 +158,63 @@ describe('session.compact', () => {
     expect(result.messages).toEqual([CORE])
     expect(w.core[0]?.instructions).toContain('stress the migration')
     expect(w.core[0]?.instructions).toContain('DECISIONS AND REASONS')
+  })
+})
+
+const SESSION_START = 'Running SessionStart hooks…'
+
+async function step($: Engine, agentId?: string) {
+  const stream = $.turn.step({ turnId: 't', index: 1, model: 'claude-opus-5-5', messageCount: 1, ...(agentId ? { agentId } : {}) })
+  for await (const _chunk of stream) {
+    // The stub yields nothing; draining the stream lets its result settle.
+  }
+  await stream.result
+}
+
+async function spinner($: Engine, w: World, message: string | null) {
+  await $.ui.render({ surface: 'terminal', component: 'Spinner', requestId: 'main', props: { word: 'Baking', message, suffix: '…', mode: 'thinking' } } as never)
+  return w.spinner.at(-1)
+}
+
+async function endTurn($: Engine) {
+  await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer', text: 'ok' } as never)
+}
+
+describe('spinner after an auto handoff', () => {
+  test('drops the stale SessionStart label once the turn steps on', async ($, on) => {
+    const w = world(on)
+    await compact($, { trigger: 'auto' })
+    expect(await spinner($, w, SESSION_START)).toBe(SESSION_START)
+    await step($)
+    expect(await spinner($, w, SESSION_START)).toBe(null)
+  })
+
+  test('leaves other spinner messages alone', async ($, on) => {
+    const w = world(on)
+    await compact($, { trigger: 'auto' })
+    await step($)
+    expect(await spinner($, w, 'Compacting conversation')).toBe('Compacting conversation')
+  })
+
+  test('a subagent step does not count as the main turn stepping on', async ($, on) => {
+    const w = world(on)
+    await compact($, { trigger: 'auto' })
+    await step($, 'agent-1')
+    expect(await spinner($, w, SESSION_START)).toBe(SESSION_START)
+  })
+
+  test('a manual compaction leaves the label to core', async ($, on) => {
+    const w = world(on)
+    await compact($, { trigger: 'manual' })
+    await step($)
+    expect(await spinner($, w, SESSION_START)).toBe(SESSION_START)
+  })
+
+  test('the end of the turn stops the rewrite', async ($, on) => {
+    const w = world(on)
+    await compact($, { trigger: 'auto' })
+    await step($)
+    await endTurn($)
+    expect(await spinner($, w, SESSION_START)).toBe(SESSION_START)
   })
 })
