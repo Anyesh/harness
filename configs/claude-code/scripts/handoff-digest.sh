@@ -73,7 +73,7 @@ def notification_text:
 def target: (.input | (.command // .file_path // .pattern // .path // .url // .description // tojson)) | tostring | gsub("\n"; " ") | cut(160);
 
 fromjson?
-| select(.isSidechain != true and .isMeta != true)
+| select(.isSidechain != true and .isMeta != true and .isCompactSummary != true)
 | if .type == "user" then
     .message.content as $c
     | if ($c | type) == "array" and ([$c[] | .type] | index("tool_result")) then
