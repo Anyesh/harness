@@ -1,0 +1,6 @@
+{
+  "name": "handoff",
+  "version": "0.1.0",
+  "description": "Answers compaction with the no-model handoff digest plus a reasoning section written by a fork of the session",
+  "author": { "name": "Anish Shrestha" }
+}

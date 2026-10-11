@@ -22,6 +22,11 @@
       "name": "context-audit",
       "source": "./context-audit",
       "description": "/context-audit totals the context by MCP server, plugin skills, memory files, agents and commands, and lists what to trim"
+    },
+    {
+      "name": "handoff",
+      "source": "./handoff",
+      "description": "Answers compaction with the no-model handoff digest plus a reasoning section written by a fork of the session"
     }
   ]
 }
