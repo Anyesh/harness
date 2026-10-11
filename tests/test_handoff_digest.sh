@@ -45,6 +45,7 @@ gen_transcript() {
       if (i == 2) {
         printf "{\"type\":\"user\",\"isMeta\":true,\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"user\",\"content\":\"METASECRET\"}}\n", sid, cwd
         printf "{\"type\":\"user\",\"isCompactSummary\":true,\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"user\",\"content\":\"COMPACTSECRET\"}}\n", sid, cwd
+        printf "{\"type\":\"user\",\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"user\",\"content\":\"[handoff] HANDOFFSECRET\"}}\n", sid, cwd
         printf "{\"type\":\"user\",\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<system-reminder>REMSECRET</system-reminder>\"}]}}\n", sid, cwd
       }
       printf "{\"type\":\"assistant\",\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"THINKSECRET\"}]}}\n", sid, cwd
@@ -74,8 +75,8 @@ assert "tail holds the newest turns that fit the character budget" \
   'grep -q "answer number 10" <<<"$TAIL_PART" && grep -q "answer number 9" <<<"$TAIL_PART" && ! grep -q "answer number 8" <<<"$TAIL_PART"'
 assert "tail holds the full last prompt" \
   'grep -q "prompt number 10 x" <<<"$TAIL_PART"'
-assert "attachments, thinking, system-reminder, isMeta, compact summaries excluded" \
-  '! grep -qE "ATTACHSECRET|THINKSECRET|REMSECRET|METASECRET|COMPACTSECRET" "$DIGEST_FILE"'
+assert "attachments, thinking, system-reminder, isMeta, compact summaries and handoffs excluded" \
+  '! grep -qE "ATTACHSECRET|THINKSECRET|REMSECRET|METASECRET|COMPACTSECRET|HANDOFFSECRET" "$DIGEST_FILE"'
 assert "tool call rendered as a one-liner" \
   'grep -qE "^- Bash: ls dir10$" <<<"$TAIL_PART"'
 assert "tool result cut to its first line" \
