@@ -18,6 +18,7 @@ nudge-band@harness-mods
 cache-guard@harness-mods
 guard-watch@harness-mods
 context-audit@harness-mods
+handoff@harness-mods
 
 # Meta plugins disabled 2026-07: rarely used, and their agent/skill
 # descriptions cost ~2k tokens of system prompt every session.
