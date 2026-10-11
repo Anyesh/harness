@@ -155,6 +155,7 @@ Type=simple
 ExecStart=$sb_api
 Environment=SECOND_BRAIN_DB=$HOME/.second-brain/brain.db
 Environment=SECOND_BRAIN_BIND=127.0.0.1:7200
+Environment=FASTEMBED_CACHE_DIR=$HOME/.second-brain/fastembed
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=60
