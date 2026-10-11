@@ -1,3 +1,4 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import {
@@ -11,6 +12,13 @@ import {
 } from './rules'
 
 type Digest = { path: string; text: string }
+
+// Workaround for 2.1.296: a hook-answered auto compaction ends core's compact
+// progress before it runs the SessionStart hooks, so their spinner label is never
+// cleared and stays up for the rest of the turn. The next main-thread step proves
+// the hooks are done, so from then on the label is stale and gets dropped.
+const SESSION_START_LABEL = 'Running SessionStart hooks…'
+const spinnerFix = atom({ plugin: 'handoff', key: 'spinnerFix' } as const, 'idle')
 
 async function buildDigest($: EngineInterface): Promise<Digest> {
   const [home, id, cwd] = await Promise.all([$.env.get('HOME'), $.session.id(), $.session.cwd()])
@@ -42,6 +50,7 @@ export const register: Register = on => {
     if (e.trigger === 'precompute') return { skip: 'handoff answers at compaction time' }
     const classic = classicRequest(e.trigger, e.instructions)
     if (classic) return next({ ...e, instructions: classic.instructions })
+    if (e.trigger === 'auto') await update($, spinnerFix, () => 'compacted')
 
     const [digest, reasoning] = await Promise.allSettled([buildDigest($), writeReasoning($, e.instructions)])
 
@@ -66,4 +75,19 @@ export const register: Register = on => {
     }
     return { messages: [{ role: 'user', text, toolUses: [] }] }
   }).catch(($, e, next) => next(e))
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined && (await read($, spinnerFix)) === 'compacted') await update($, spinnerFix, () => 'stale')
+    return yield* next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if ((await read($, spinnerFix)) !== 'idle') await update($, spinnerFix, () => 'idle')
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (e.props.message !== SESSION_START_LABEL || (await read($, spinnerFix)) !== 'stale') return next(e)
+    return next({ ...e, props: { ...e.props, message: null } })
+  })
 }
