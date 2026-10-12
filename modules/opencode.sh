@@ -95,11 +95,24 @@ opencode_compact_plugin() {
   deploy_file "$plugin_src" "$OPENCODE_CONFIG_DIR/plugins/harness-compact-scope.js" "configs/opencode/plugins/harness-compact-scope.js" "false" "opencode compact-scope plugin"
 }
 
+opencode_attention_plugin() {
+  local plugin_src="$REPO_ROOT/configs/opencode/plugins/harness-attention.js"
+  [[ -f "$plugin_src" ]] || return 0
+
+  local hook
+  for hook in attention-core.sh load-harness-env.sh; do
+    deploy_file "$REPO_ROOT/configs/shared/hooks/$hook" "$OPENCODE_CONFIG_DIR/hooks/$hook" \
+      "configs/shared/hooks/$hook" "false" "opencode $hook hook" executable
+  done
+  deploy_file "$plugin_src" "$OPENCODE_CONFIG_DIR/plugins/harness-attention.js" "configs/opencode/plugins/harness-attention.js" "false" "opencode attention plugin"
+}
+
 opencode_install() {
   opencode_deploy_config
   opencode_mcp
   opencode_wiki_plugin
   opencode_compact_plugin
+  opencode_attention_plugin
   deploy_shared_commands "$OPENCODE_CONFIG_DIR/commands"
   # opencode auto-scans ~/.claude/skills and ~/.agents/skills for SKILL.md files,
   # so shared skills land in ~/.agents/skills (same target as the codex module;
@@ -133,6 +146,8 @@ opencode_test() {
     output+=$(opencode_wiki_plugin 2>&1)
     output+=$'\n'
     output+=$(opencode_compact_plugin 2>&1)
+    output+=$'\n'
+    output+=$(opencode_attention_plugin 2>&1)
 
     HOME="$orig_home"
     OPENCODE_CONFIG_DIR="$orig_config"
@@ -158,6 +173,11 @@ opencode_test() {
 
     if ! echo "$output" | grep -qi 'compact-scope plugin'; then
         log_error "opencode_test: opencode_compact_plugin produced no output"
+        return 1
+    fi
+
+    if ! echo "$output" | grep -qi 'attention plugin'; then
+        log_error "opencode_test: opencode_attention_plugin produced no output"
         return 1
     fi
 
