@@ -78,7 +78,7 @@ def loud50(a):
 
 
 def prep(name, maxlen):
-    a = load(ROOT / f"assets/sfx/{name}.wav")
+    a = load(ROOT / f"assets/sfx/{name}.flac")
     env = np.abs(a).max(1)
     on = int(np.argmax(env > env.max() * 0.12))
     a = a[max(0, on - int(0.004 * SR)) :]
@@ -209,7 +209,9 @@ def main():
     t = np.arange(len(music)) / SR
     vo_lines = json.loads((ROOT / "audio/vo_timeline.json").read_text())["lines"]
     first, last = vo_lines[0]["start"], vo_lines[-1]["end"]
-    lift_db = 3.0 * np.clip(1 - (t - (first - 0.4)) / 0.6, 0, 1) + 4.0 * np.clip((t - last) / 1.0, 0, 1)
+    lift_db = 3.0 * np.clip(1 - (t - (first - 0.4)) / 0.6, 0, 1) + 4.0 * np.clip(
+        (t - last) / 1.0, 0, 1
+    )
     music *= (10 ** (lift_db / 20))[:, None]
     music *= duck_env(vo)[:, None]
     sfx = build_sfx()
