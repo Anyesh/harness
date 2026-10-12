@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOOKS="$REPO_ROOT/configs/shared/hooks"
 CORE="$HOOKS/attention-core.sh"
 NOTIFY="$HOOKS/attention-notify.sh"
+PLUGIN="$REPO_ROOT/configs/opencode/plugins/harness-attention.js"
 
 PASS=0
 FAIL=0
@@ -283,6 +284,53 @@ for i in $(seq 260); do printf 'filler %s\n' "$i" >> "$ATT/log"; done
 notify codex "$(jq -nc '{session_id:"trim", hook_event_name:"Stop", last_assistant_message:"x"}')"
 assert "log is trimmed to its last 200 lines" '[ "$(wc -l < "$ATT/log")" -le 200 ]'
 
+OC="$TMP_DIR/opencode"
+mkdir -p "$OC/plugins" "$OC/hooks"
+cp "$PLUGIN" "$OC/plugins/"
+cp "$CORE" "$HOOKS/load-harness-env.sh" "$OC/hooks/"
+
+run_plugin() {
+  run_env node --input-type=module -e '
+    const [plugin, worktree, events] = process.argv.slice(1)
+    const client = {
+      session: {
+        get: async ({ path }) => ({ data: path.id.startsWith("child") ? { id: path.id, parentID: "root" } : { id: path.id } }),
+        messages: async () => ({ data: [
+          { info: { role: "user" }, parts: [{ type: "text", text: "go" }] },
+          { info: { role: "assistant" }, parts: [{ type: "text", text: "Migrated the schema." }] },
+        ] }),
+      },
+    }
+    const mod = await import(plugin)
+    const hooks = await Object.values(mod)[0]({ client, directory: worktree, worktree })
+    for (const event of JSON.parse(events)) await hooks.event({ event })
+  ' "$OC/plugins/harness-attention.js" "$PROJECT" "$1"
+}
+
+S=oc-perm
+run_plugin '[{"type":"permission.asked","properties":{"id":"p1","sessionID":"oc-perm","title":"Run rm -rf build"}}]'
+assert "opencode permission.asked arms a block" '[ "$(jq -r .kind "$(marker $S)")" = block ]'
+assert "opencode block carries the permission title" '[ "$(jq -r .detail "$(marker $S)")" = "Run rm -rf build" ]'
+assert "opencode marker names harness and worktree" \
+  '[ "$(jq -r "[.harness, .project] | join(\" \")" "$(marker $S)")" = "opencode widget-shop" ]'
+assert "opencode marker records the opencode pid" '[[ "$(jq -r .agent_pid "$(marker $S)")" =~ ^[0-9]+$ ]]'
+
+S=oc-q
+run_plugin '[{"type":"question.asked","properties":{"id":"q1","sessionID":"oc-q","questions":[{"question":"Keep the old API?"}]}},
+  {"type":"session.status","properties":{"sessionID":"oc-q","status":{"type":"busy"}}}]'
+assert "opencode busy status keeps a pending question" 'jq -r .detail "$(marker $S)" | grep -q "Keep the old API?"'
+run_plugin '[{"type":"question.replied","properties":{"sessionID":"oc-q","requestID":"q1"}}]'
+assert "opencode question.replied cancels" '[ ! -f "$(marker $S)" ]'
+
+S=child-1
+run_plugin '[{"type":"session.idle","properties":{"sessionID":"child-1"}}]'
+assert "opencode child session idle arms nothing" '[ ! -f "$(marker $S)" ]'
+S=oc-root
+run_plugin '[{"type":"session.idle","properties":{"sessionID":"oc-root"}}]'
+assert "opencode root session idle arms done" '[ "$(jq -r .kind "$(marker $S)")" = done ]'
+assert "opencode done detail is the last assistant text" '[ "$(jq -r .detail "$(marker $S)")" = "Migrated the schema." ]'
+run_plugin '[{"type":"session.status","properties":{"sessionID":"oc-root","status":{"type":"busy"}}}]'
+assert "opencode busy status cancels done" '[ ! -f "$(marker $S)" ]'
 
 echo ""
 echo "attention-notify: $PASS passed, $FAIL failed"
