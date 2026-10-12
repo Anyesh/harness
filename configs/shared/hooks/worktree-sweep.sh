@@ -164,8 +164,9 @@ newest_activity() {
     echo "$newest"
 }
 
-# Prints commits on $2 that are not on BASE and whose subject and author
-# email have no match on BASE either (squash and rebase merges keep both).
+# Prints "U <sha>" for commits on $1 that are not on BASE, and "S <sha>" for
+# ones that count as landed only because a BASE commit has the same subject and
+# author email (squash and rebase merges keep both, but so can unrelated work).
 unlanded_commits() {
     local head="$1" sha subj email mb range seen=0
     while IFS= read -r line; do
@@ -180,7 +181,11 @@ unlanded_commits() {
         sha="${line#+ }"
         email=$(git -C "$TOP" log -1 --format=%ae "$sha")
         subj=$(git -C "$TOP" log -1 --format=%s "$sha")
-        grep -Fxq -- "$email"$'\t'"$subj" "$TMP/base-subjects" || echo "$sha"
+        if grep -Fxq -- "$email"$'\t'"$subj" "$TMP/base-subjects"; then
+            echo "S $sha"
+        else
+            echo "U $sha"
+        fi
     done < <(git -C "$TOP" cherry "$BASE" "$head" 2>/dev/null)
 }
 
@@ -255,7 +260,9 @@ while [ "$i" -le "$n" ]; do
         say "skipped $wt (active within ${IDLE_HOURS}h)"; SKIPPED=$((SKIPPED + 1)); continue
     fi
 
-    unlanded=$(unlanded_commits "$head")
+    landing=$(unlanded_commits "$head")
+    unlanded=$(printf '%s\n' "$landing" | sed -n 's/^U //p')
+    subject_only=$(printf '%s\n' "$landing" | sed -n 's/^S //p')
     notes=""
     salvage_branch=""
     if [ -n "$unlanded" ]; then
@@ -300,8 +307,16 @@ while [ "$i" -le "$n" ]; do
         elif [ "$branch" = "$BASE" ] || branch_checked_out_elsewhere "$branch" "$idx"; then
             notes="$notes, branch $branch kept (checked out elsewhere)"
         else
-            $DRY_RUN || git -C "$TOP" branch -D "$branch" >/dev/null 2>&1
+            if ! $DRY_RUN; then
+                # A subject match can be a different change under the same title, so the
+                # head stays reachable from a ref that git branch does not list.
+                [ -n "$subject_only" ] && git -C "$TOP" update-ref "refs/worktree-sweep/$branch" "$head"
+                mkdir -p "$COMMON/worktree-salvage"
+                printf '%s\t%s\t%s\n' "$TODAY" "$branch" "$head" >> "$COMMON/worktree-salvage/deleted-branches.log"
+                git -C "$TOP" branch -D "$branch" >/dev/null 2>&1
+            fi
             notes="$notes, ${PREFIX}delete branch $branch"
+            [ -n "$subject_only" ] && notes="$notes (head kept at refs/worktree-sweep/$branch)"
         fi
     fi
     say "${PREFIX}remove $wt${notes}"
