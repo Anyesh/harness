@@ -91,6 +91,8 @@ assert "unlanded branch is kept" 'g rev-parse --verify -q refs/heads/unlanded >/
 assert "detached unlanded worktree is removed" '[[ ! -d "$WT/detached" ]]'
 assert "detached commits land on a salvage branch" 'g rev-parse --verify -q refs/heads/salvage/detached >/dev/null'
 assert "squash-landed worktree is removed with its branch" '[[ ! -d "$WT/squashed" ]] && ! g rev-parse --verify -q refs/heads/squashed >/dev/null'
+assert "squash-landed head stays reachable under refs/worktree-sweep" 'g rev-parse --verify -q refs/worktree-sweep/squashed >/dev/null'
+assert "deleted branches are logged with their head" 'grep -q "	squashed	" "$R/.git/worktree-salvage/deleted-branches.log"'
 assert "recently active worktree is skipped" '[[ -d "$WT/recent" ]] && grep -q "skipped $WT/recent (active" <<< "$OUT"'
 assert "locked worktree is skipped" '[[ -d "$WT/locked" ]] && grep -q "skipped $WT/locked (locked)" <<< "$OUT"'
 
