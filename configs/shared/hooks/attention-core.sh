@@ -101,6 +101,15 @@ arm() {
     log "$session" "skip done: block push still unanswered"
     return 0
   fi
+  # Claude raises a generic permission_prompt about 7s into an AskUserQuestion
+  # or ExitPlanMode dialog; replacing the pending block would swap the
+  # question text for "needs your permission" and restart the delay.
+  if [[ "$kind" == block && -f "$marker" ]] \
+    && jq -e --argjson e "$input" '.kind == "block" and .tool_use_id != "" and ($e.tool_use_id // "") == ""
+         and .agent_id == ($e.agent_id // "")' "$marker" >/dev/null 2>&1; then
+    log "$session" "skip block: already waiting on that tool call"
+    return 0
+  fi
 
   local delay default_delay
   if [[ "$kind" == block ]]; then default_delay="${NTFY_BLOCK_DELAY:-15}"; else default_delay="${NTFY_DONE_DELAY:-60}"; fi
