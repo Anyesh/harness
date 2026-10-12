@@ -9,6 +9,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/post-compact-context.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionEnd": [

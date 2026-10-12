@@ -111,7 +111,8 @@ A mod cannot draw on the status line itself, so a mod with something to show the
 | `context-cold-start-guard.sh` | beforeSubmitPrompt / preCompact (Cursor) | Blocks cold re-bill on large context after model change, compaction, or cache idle |
 | `pre-bash-guard.sh` | PreToolUse (Bash) | Validates commands before execution |
 | `format-on-save.sh` | PostToolUse (Write/Edit) | Auto-formats written files |
-| `pre-compact.sh` | PreToolUse (Compact) | Pre-compaction hook |
+| `post-compact-context.sh` | SessionStart `compact` (Claude Code, Codex) / preCompact + postToolUse (Cursor) | Re-injects the active `.scope.md` after compaction |
+| `compact-note.sh` | Called by `post-compact-context.sh` and the opencode `harness-compact-scope.js` plugin | Renders `.scope.md` within the injection cap |
 | `session-start.sh` | SessionStart | Activates modes, checks environment |
 | `session-end-ingest.sh` | SessionEnd | Ingests session into second-brain (machine memory) |
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |

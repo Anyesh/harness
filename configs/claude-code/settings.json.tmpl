@@ -74,18 +74,6 @@
         ]
       }
     ],
-    "PreCompact": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash {{HOME_DIR}}/.claude/hooks/pre-compact.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "matcher": "",
@@ -129,6 +117,17 @@
             "command": "bash {{HOME_DIR}}/.claude/hooks/session-start-handoff.sh",
             "timeout": 15,
             "statusMessage": "Linking previous session digest..."
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/post-compact-context.sh",
+            "timeout": 5,
+            "statusMessage": "Restoring active scope..."
           }
         ]
       },

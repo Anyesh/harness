@@ -85,10 +85,21 @@ opencode_wiki_plugin() {
   deploy_file "$src" "$dest" "configs/opencode/plugins/harness-second-brain.js" "false" "opencode second-brain plugin"
 }
 
+opencode_compact_plugin() {
+  local note_src="$REPO_ROOT/configs/shared/hooks/compact-note.sh"
+  local plugin_src="$REPO_ROOT/configs/opencode/plugins/harness-compact-scope.js"
+
+  [[ -f "$note_src" && -f "$plugin_src" ]] || return 0
+
+  deploy_file "$note_src" "$OPENCODE_CONFIG_DIR/hooks/compact-note.sh" "configs/shared/hooks/compact-note.sh" "false" "opencode compact-note hook" executable
+  deploy_file "$plugin_src" "$OPENCODE_CONFIG_DIR/plugins/harness-compact-scope.js" "configs/opencode/plugins/harness-compact-scope.js" "false" "opencode compact-scope plugin"
+}
+
 opencode_install() {
   opencode_deploy_config
   opencode_mcp
   opencode_wiki_plugin
+  opencode_compact_plugin
   deploy_shared_commands "$OPENCODE_CONFIG_DIR/commands"
   # opencode auto-scans ~/.claude/skills and ~/.agents/skills for SKILL.md files,
   # so shared skills land in ~/.agents/skills (same target as the codex module;
@@ -120,6 +131,8 @@ opencode_test() {
     output+=$(opencode_mcp 2>&1)
     output+=$'\n'
     output+=$(opencode_wiki_plugin 2>&1)
+    output+=$'\n'
+    output+=$(opencode_compact_plugin 2>&1)
 
     HOME="$orig_home"
     OPENCODE_CONFIG_DIR="$orig_config"
@@ -140,6 +153,11 @@ opencode_test() {
 
     if ! profile_no_memory && ! echo "$output" | grep -qi 'second-brain plugin'; then
         log_error "opencode_test: opencode_wiki_plugin produced no output"
+        return 1
+    fi
+
+    if ! echo "$output" | grep -qi 'compact-scope plugin'; then
+        log_error "opencode_test: opencode_compact_plugin produced no output"
         return 1
     fi
 
