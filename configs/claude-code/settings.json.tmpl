@@ -60,9 +60,55 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
       }
     ],
     "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
       {
         "matcher": "Write|Edit",
         "hooks": [
@@ -156,11 +202,27 @@
             "command": "node \"{{HOME_DIR}}/.claude/hooks/ownit-mode-tracker.js\"",
             "timeout": 5,
             "statusMessage": "Tracking ownit mode..."
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
     ],
     "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/attention-notify.sh claude",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
       {
         "hooks": [
           {
