@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FILM TITLE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@font-face { font-family: "Caveat"; src: url(fonts/Caveat.ttf); font-weight: 400 700; }
+@font-face { font-family: "Caveat Brush"; src: url(fonts/CaveatBrush.ttf); }
+@font-face { font-family: "Kalam"; src: url(fonts/Kalam.ttf); font-weight: 400; }
+@font-face { font-family: "Kalam"; src: url(fonts/KalamBold.ttf); font-weight: 700; }
+@font-face { font-family: "Patrick Hand"; src: url(fonts/PatrickHand.ttf); }
+@font-face { font-family: "Gochi Hand"; src: url(fonts/GochiHand.ttf); }
+@font-face { font-family: "Permanent Marker"; src: url(fonts/PermanentMarker.ttf); }
+@font-face { font-family: "Special Elite"; src: url(fonts/SpecialElite.ttf); }
+@font-face { font-family: "Courier Prime"; src: url(fonts/CourierPrime.ttf); }
+@font-face { font-family: "Reenie Beanie"; src: url(fonts/ReenieBeanie.ttf); }
+@font-face { font-family: "Abril Fatface"; src: url(fonts/AbrilFatface.ttf); }
+@font-face { font-family: "Bowlby One"; src: url(fonts/BowlbyOne.ttf); }
+@font-face { font-family: "Alfa Slab One"; src: url(fonts/AlfaSlabOne.ttf); }
+@font-face { font-family: "Rye"; src: url(fonts/Rye.ttf); }
+@font-face { font-family: "Ultra"; src: url(fonts/Ultra.ttf); }
+@font-face { font-family: "Playfair Display"; src: url(fonts/Playfair.ttf); font-weight: 400 900; }
+@font-face { font-family: "Bungee"; src: url(fonts/Bungee.ttf); }
+@font-face { font-family: "Old Standard TT"; src: url(fonts/OldStandard.ttf); }
+@font-face { font-family: "Shrikhand"; src: url(fonts/Shrikhand.ttf); }
+html, body { margin: 0; height: 100%; background: #171310; color: #e9dfcc; font: 14px/1.4 "Patrick Hand", system-ui, sans-serif; }
+#stage { position: fixed; inset: 0; display: grid; place-items: center; }
+canvas { width: min(100vw, calc(100vh * 16 / 9)); aspect-ratio: 16 / 9; display: block; background: #efe4cc; box-shadow: 0 20px 80px rgba(0,0,0,.5); }
+#ui { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: linear-gradient(transparent, rgba(0,0,0,.55)); opacity: 0; transition: opacity .3s; }
+#stage:hover ~ #ui, #ui:hover, body.paused #ui { opacity: 1; }
+#ui button { font: inherit; font-size: 18px; background: #efe4cc; color: #2a211c; border: 0; border-radius: 4px; padding: 4px 14px; cursor: pointer; }
+#ui input[type=range] { flex: 1; accent-color: #e2543a; }
+#cover { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(23,19,16,.55); cursor: pointer; font-size: 34px; color: #f3ead6; }
+#cover[hidden] { display: none; }
+#loading { position: fixed; left: 16px; top: 12px; opacity: .7; }
+</style>
+</head>
+<body class="paused">
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+<div id="ui"><button id="play">Play</button><input id="seek" type="range" min="0" max="1000" value="0"><span id="time">0.0s</span></div>
+<div id="cover" hidden>&#9654;&nbsp; click to play</div>
+<div id="loading">drawing paper scraps&hellip;</div>
+<audio id="audio" src="audio/mix.m4a" preload="auto"></audio>
+<script src="engine.js"></script>
+<script src="character.js"></script>
+<script src="timeline.js"></script>
+<script src="stage.js"></script>
+<script src="art.js"></script>
+<script src="scenes.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

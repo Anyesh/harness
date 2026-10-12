@@ -1,0 +1,17 @@
+# id | text | pause after (s). Spoken "wardrobe" because the brand pun is wardrobe-in-rows.
+crisis | Every morning, the same tiny crisis. | 0.45
+nothing | A closet full of clothes... and nothing to wear. | 0.8
+meet | Meet wardrobe, spelled with a row in the middle. | 0.25
+rows | It puts your clothes in rows. | 0.7
+snap | Snap a photo of each piece, | 0.15
+tags | and it tags everything for you. Colour, pattern, fabric, the lot. | 0.6
+weather | Then, each morning, it checks the weather, | 0.15
+outfit | and sends you a complete outfit, top to toe. | 0.6
+skip | Love it? Wear it. Not feeling it? Skip, and it learns your taste. | 0.6
+wash | It knows your favourite hoodie is in the wash, | 0.15
+forgot | and digs out the sweater you forgot you had. | 0.6
+pair | Pick one piece, and it finds its perfect match. | 0.6
+home | Share it with your household. | 0.35
+cloud | Use it in the cloud, on the web or your iPhone, | 0.15
+self | or host it yourself. It's open source. | 0.8
+end | Wardrobe. Snap. Organize. Wear. | 0
