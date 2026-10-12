@@ -105,7 +105,7 @@ assert "lite: settings.json has no WIKI_VAULT" '! grep -q WIKI_VAULT "$S"'
 assert "lite: enabledMcpjsonServers lacks second-brain but keeps web-strip" 'jq -e "(.enabledMcpjsonServers | index(\"second-brain\")) == null and (.enabledMcpjsonServers | index(\"web-strip\")) != null" "$S" > /dev/null'
 assert "lite: handoff and alias hooks still registered" 'grep -q session-start-handoff "$S" && grep -q pre-bash-interactive-alias "$S"'
 assert "lite: no emptied hook groups or events" 'jq -e "([.hooks[] | select(length == 0)] | length) == 0 and ([.hooks[][] | select((.hooks | length) == 0)] | length) == 0" "$S" > /dev/null'
-assert "lite: SessionEnd keeps only the handoff hook" 'jq -e "[.hooks.SessionEnd[].hooks[].command] | length == 1 and (.[0] | contains(\"session-end-handoff\"))" "$S" > /dev/null'
+assert "lite: SessionEnd keeps only the handoff and attention hooks" 'jq -e "[.hooks.SessionEnd[].hooks[].command | capture(\"hooks/(?<f>[^ ]+)\").f] | sort == [\"attention-notify.sh\", \"session-end-handoff.sh\"]" "$S" > /dev/null'
 assert "lite: permissions arrays survive" 'jq -e ".permissions.allow == [] and .permissions.deny == []" "$S" > /dev/null'
 assert "lite: .mcp.json valid and lacks second-brain" 'jq -e "(.mcpServers | has(\"second-brain\") | not) and (.mcpServers | has(\"web-strip\"))" "$LH/.claude/.mcp.json" > /dev/null'
 
