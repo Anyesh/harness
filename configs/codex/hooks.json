@@ -28,6 +28,36 @@
             "type": "command",
             "command": "bash {{HOME_DIR}}/.codex/hooks/session-end-ingest.sh",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/attention-notify.sh codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/attention-notify.sh codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/attention-notify.sh codex",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -69,6 +99,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/attention-notify.sh codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
       }
     ],
     "Stop": [
@@ -78,6 +118,12 @@
             "type": "command",
             "command": "bash {{HOME_DIR}}/.codex/hooks/stop-sloppiness-guard.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.codex/hooks/attention-notify.sh codex",
+            "timeout": 10,
+            "async": true
           }
         ]
       }

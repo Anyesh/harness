@@ -43,6 +43,10 @@
       {
         "command": "bash ./hooks/cleanup-nudge.sh",
         "timeout": 5
+      },
+      {
+        "command": "bash ./hooks/attention-notify.sh cursor",
+        "timeout": 5
       }
     ],
     "preToolUse": [
@@ -83,12 +87,20 @@
       {
         "command": "bash ./hooks/stop-wiki-enforce.sh",
         "timeout": 10
+      },
+      {
+        "command": "bash ./hooks/attention-notify.sh cursor",
+        "timeout": 5
       }
     ],
     "sessionEnd": [
       {
         "command": "bash ./hooks/session-end-ingest.sh",
         "timeout": 10
+      },
+      {
+        "command": "bash ./hooks/attention-notify.sh cursor",
+        "timeout": 5
       }
     ],
     "preCompact": [
@@ -104,6 +116,10 @@
     "postToolUse": [
       {
         "command": "bash ./hooks/post-compact-context.sh",
+        "timeout": 5
+      },
+      {
+        "command": "bash ./hooks/attention-notify.sh cursor",
         "timeout": 5
       }
     ]
