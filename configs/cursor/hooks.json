@@ -97,8 +97,14 @@
         "timeout": 5
       },
       {
-        "command": "bash ./hooks/pre-compact.sh",
-        "timeout": 10
+        "command": "bash ./hooks/post-compact-context.sh",
+        "timeout": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "bash ./hooks/post-compact-context.sh",
+        "timeout": 5
       }
     ]
   }
