@@ -268,6 +268,14 @@ assert "codex done carries the last message" 'body_field .message | grep -q "Ref
 notify codex "$(jq -nc --arg s $S '{session_id:$s, hook_event_name:"UserPromptSubmit", prompt:"next"}')"
 assert "codex UserPromptSubmit clears the session" '[ ! -f "$(marker $S)" ]'
 
+S=codex-markdown
+MD=$'**Both posts are live on example.com.**\n\n- **Live:** `/writing/a`, `/writing/b`\n* See [the post](https://example.com/p)\n\n## Next\nRun _the_ tests.'
+notify codex "$(jq -nc --arg s $S --arg m "$MD" '{session_id:$s, hook_event_name:"Stop", last_assistant_message:$m}')"
+TOKEN=$(token_of $S)
+fire
+WANT=$'Both posts are live on example.com.\n• Live: /writing/a, /writing/b\n• See the post\nNext\nRun the tests.'
+assert "markdown reaches the phone as plain lines" '[ "$(body_field .message | sed "\$d")" = "$WANT" ]'
+
 S=cursor-abort
 notify cursor "$(jq -nc --arg s $S '{conversation_id:$s, hook_event_name:"stop", status:"aborted"}')"
 assert "cursor aborted stop arms nothing" '[ ! -f "$(marker $S)" ]'
