@@ -10,7 +10,7 @@ cd "$DEST"
 uv pip install -q --python .venv/bin/python "kokoro>=0.9.4" soundfile numpy scipy pedalboard pyfluidsynth faster-whisper "av>=14" torch --index-strategy unsafe-best-match --extra-index-url https://download.pytorch.org/whl/cpu
 .venv/bin/python "$SKILL/assets/fetch.py" "$CACHE"
 cp -n "$CACHE"/fonts/*.ttf web/fonts/
-cp -n "$CACHE"/sfx/* assets/sfx/
+cp -n "$SKILL"/assets/sfx/* assets/sfx/
 ln -sf "$CACHE/GeneralUser-GS.sf2" assets/sf/GeneralUser-GS.sf2
 (cd tools && npm i --silent)
 echo "ready: $DEST"

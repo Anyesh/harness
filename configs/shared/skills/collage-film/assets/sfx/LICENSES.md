@@ -1,6 +1,6 @@
 # SFX sources and licences
 
-All files: 48 kHz stereo 24-bit WAV, leading silence trimmed (-50 dB). BigSoundBank files are CC0 (page states 'CC0 (public domain)'); Kenney packs are CC0. Selections were not auditioned by ear.
+All files: 48 kHz stereo 16-bit FLAC, leading silence trimmed (-50 dB), cut and filtered from the sources below. BigSoundBank files are CC0 (page states 'CC0 (public domain)'); Kenney packs are CC0. Selections were not auditioned by ear.
 
 | File | Dur (s) | Source | Licence |
 |---|---|---|---|
