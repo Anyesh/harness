@@ -160,6 +160,16 @@ notify claude "$(perm_json agent-7)"
 notify claude "$(jq -nc --arg s $S '{session_id:$s, hook_event_name:"PostToolUse", tool_use_id:"tu-y", agent_id:"agent-7"}')"
 assert "a subagent's own PostToolUse cancels its permission block" '[ ! -f "$(marker $S)" ]'
 
+S=claude-askperm
+notify claude "$(ask_json $S)"
+TOKEN=$(token_of $S)
+notify claude "$(perm_json)"
+assert "permission_prompt raised by a pending question keeps the question" \
+  '[ "$(jq -r .detail "$(marker $S)")" = "Which database should the widget use?" ]'
+assert "permission_prompt raised by a pending question keeps its timer" '[ "$(token_of $S)" = "$TOKEN" ]'
+notify claude "$(perm_json agent-7)"
+assert "a subagent's permission_prompt still replaces the main question" '[ "$(jq -r .agent_id "$(marker $S)")" = agent-7 ]'
+
 S=claude-replace
 notify claude "$(ask_json $S)"
 TOKEN=$(token_of $S)
