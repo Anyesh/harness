@@ -169,6 +169,9 @@ newest_activity() {
 # author email (squash and rebase merges keep both, but so can unrelated work).
 unlanded_commits() {
     local head="$1" sha subj email mb range seen=0
+    # An ancestor of BASE has nothing unlanded, and this skips git cherry's patch-id
+    # pass over every BASE commit since the fork, which dominates a large sweep.
+    git -C "$TOP" merge-base --is-ancestor "$head" "$BASE" 2>/dev/null && return 0
     while IFS= read -r line; do
         [ "${line:0:1}" = "+" ] || continue
         if [ "$seen" = 0 ]; then
