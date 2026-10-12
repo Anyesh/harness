@@ -1,17 +1,23 @@
 #!/bin/bash
-# Sources WIKI_VAULT from the environment or ~/.harness.env when unset.
+# Fills harness settings from the environment, else from ~/.harness.env.
 
-load_wiki_vault() {
-  if [[ -n "${WIKI_VAULT:-}" ]]; then
-    return 0
-  fi
+# The environment wins so a one-off override needs no file edit; the last
+# assignment in the file wins, and surrounding double quotes are stripped.
+load_harness_var() {
+  local name="$1"
+  [[ -n "${!name:-}" ]] && return 0
   local env_file="${HARNESS_ENV:-$HOME/.harness.env}"
   [[ -f "$env_file" ]] || return 0
-  local line
-  line=$(grep -E '^WIKI_VAULT=' "$env_file" 2>/dev/null | tail -1 || true)
+  local line value
+  line=$(grep -E "^${name}=" "$env_file" 2>/dev/null | tail -1 || true)
   [[ -n "$line" ]] || return 0
-  WIKI_VAULT="${line#WIKI_VAULT=}"
-  WIKI_VAULT="${WIKI_VAULT%\"}"
-  WIKI_VAULT="${WIKI_VAULT#\"}"
-  export WIKI_VAULT
+  value="${line#"${name}"=}"
+  value="${value%\"}"
+  value="${value#\"}"
+  printf -v "$name" '%s' "$value"
+  export "${name?}"
+}
+
+load_wiki_vault() {
+  load_harness_var WIKI_VAULT
 }
