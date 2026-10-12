@@ -11,8 +11,8 @@ Single-command bootstrap for AI coding tools. One repo, one install, full enviro
 |--------|-------|
 | Config templates | 80 |
 | Managed files deployed | 52 |
-| Hooks (Claude Code) | 23 |
-| Hooks (Cursor events) | 11 |
+| Hooks (Claude Code) | 35 |
+| Hooks (Cursor events) | 9 |
 | Skills (shared) | 19 |
 | Plugins (Claude Code) | 10 |
 | MCP servers | 5 |
@@ -48,7 +48,7 @@ Lite mode is for machines that never had the full install. Switching from full t
 ~/.claude/settings.json        ← permissions, hooks config, enabledMcpjsonServers
 ~/.claude/.mcp.json            ← MCP server definitions (cognitive-cache, web-strip, markitdown, second-brain)
 ~/.claude/CLAUDE.md            ← global instructions (exploration-first, TDD, scope gates, no AI comments)
-~/.claude/hooks/               ← 23 hook scripts (see below)
+~/.claude/hooks/               ← 35 hook scripts (see below)
 ~/.claude/skills/              ← 19 skill definitions
 ~/.claude/plugins/             ← 10 plugins from 2 marketplaces (claude-plugins-official, harness-mods)
 ~/.claude/harness-mods/        ← local folder marketplace holding the harness's own mods
@@ -59,7 +59,7 @@ Lite mode is for machines that never had the full install. Switching from full t
 ```
 ~/.cursor/rules/*.mdc          ← 15 shared rules (alwaysApply)
 ~/.cursor/mcp.json             ← MCP servers (merged with existing; harness adds second-brain, cognitive-cache, web-strip, markitdown)
-~/.cursor/hooks.json           ← 11 hook events (session, prompt, tool, shell, edit, stop, compact)
+~/.cursor/hooks.json           ← 9 hook events (session, prompt, tool, shell, edit, stop, compact)
 ~/.cursor/hooks/               ← shared hook scripts (same family as Claude Code)
 ~/.cursor/skills/              ← shared skills (converge, humanize, ownit, wiki, terminal-gif)
 ~/.cursor/commands/            ← shared slash commands (plan, scope, commit, decision, devlog)
@@ -118,6 +118,8 @@ A mod cannot draw on the status line itself, so a mod with something to show the
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
+| `attention-notify.sh` | Notification, PreToolUse `AskUserQuestion\|ExitPlanMode`, prompt, tool and session-end events (Claude Code); PermissionRequest, Stop and the same cancel events (Codex); stop, prompt, tool and session-end (Cursor) | Pushes to ntfy when a session waits on you or finishes (see below) |
+| `attention-core.sh` | Called by `attention-notify.sh` and the opencode `harness-attention.js` plugin | Arms, cancels and sends the ntfy push |
 
 On Claude Code the scope, wiki and hygiene nudges (`scope-drift-detector.sh`, `wiki-nudge.sh`, `cleanup-nudge.sh`) are replaced by the `nudge-band` mod below; Cursor and Codex keep the shell scripts.
 
@@ -125,6 +127,12 @@ Guards match on the code a command runs, not on quoted text or heredoc bodies (`
 
 - `scripts/hook-blocks.sh [--days N]` summarises recent blocks per hook.
 - `scripts/guard-replay.sh [--transcripts N] [--hook NAME]` replays real tool calls from Claude Code transcripts through the repo's current guards and lists what each would block. Run it before shipping a guard change and read every sample.
+
+### Phone push when a session needs you
+
+Set `NTFY_URL` (your ntfy server) and `NTFY_TOPIC` in the environment or `~/.harness.env`, plus `NTFY_TOKEN` if the topic needs a bearer token. Nothing is sent until both the URL and topic are set, so there is no fallback to the public ntfy.sh. A session that blocks on you (a question, plan approval or permission prompt) pushes at priority 4 after `NTFY_BLOCK_DELAY` seconds (default 15), and a finished turn pushes at priority 3 after `NTFY_DONE_DELAY` (default 60; Claude Code's own idle notice already waits a minute, so it adds nothing there). Answering, pressing Esc or typing a prompt inside that window cancels the push, and a session that has exited stays quiet.
+
+Headless `claude -p` never pushes; set `HARNESS_NOTIFY=0` for `codex exec`, `opencode run` or other scripted runs. Cursor only gets finished turns because it has no hook for approvals or agent questions. Codex asks you to trust new hook entries through `/hooks` after a redeploy. Every arm, cancel, send and skip is logged with its reason to `~/.local/state/harness/attention/log` (last 200 lines).
 
 ## MCP Servers
 
