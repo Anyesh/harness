@@ -95,10 +95,10 @@ while IFS=$'\t' read -r matcher command; do
   name="${file%.*}"
   [[ -n "$ONLY_HOOK" && "$name" != "$ONLY_HOOK" ]] && continue
   guards+=("$name")
-  grep -nxE "($matcher)" "$WORK/names.txt" | cut -d: -f1 |
+  { grep -nxE "($matcher)" "$WORK/names.txt" || true; } | cut -d: -f1 |
     awk -v d="$WORK/calls" '{ printf "%s/%06d.json\n", d, $1 }' |
     xargs -r -P "$JOBS" -I{} bash "$WORK/run-one.sh" "$runner" "$WORK/hooks/$file" "$name" {} >"$WORK/$name.results"
-done < <(jq -r '.hooks.PreToolUse[] | .matcher as $m | .hooks[] | [$m, .command] | @tsv' \
+done < <(jq -r '.hooks.PreToolUse[] | .matcher as $m | .hooks[] | select(.async != true) | [$m, .command] | @tsv' \
   "$REPO_ROOT/configs/claude-code/settings.json.tmpl")
 
 echo "Replayed ${#transcripts[@]} transcripts, $(wc -l <"$WORK/calls.jsonl") distinct tool calls"
