@@ -172,9 +172,23 @@ send() {
   local marker_json="$1"
   local payload rc
   payload=$(mktemp)
+  # Agent replies are markdown, which phone notifications show raw, so the
+  # detail is reduced to plain lines with bullets kept as "•".
   jq -n --argjson m "$marker_json" --arg topic "$NTFY_TOPIC" --arg host "$(uname -n)" '
+    def plain:
+      gsub("\r"; "")
+      | split("\n")
+      | map(sub("^\\s+"; "") | sub("\\s+$"; "")
+          | select(length > 0 and (test("^```") | not))
+          | sub("^#+\\s*"; "")
+          | sub("^[-*+]\\s+"; "• ")
+          | gsub("\\[(?<t>[^\\]]*)\\]\\([^)]*\\)"; "\(.t)")
+          | gsub("\\*\\*|__|`"; "")
+          | gsub("(?<![\\w*])[*_](?<t>[^*_\\s][^*_]*?)[*_](?![\\w*])"; "\(.t)")
+          | gsub("[ \\t]+"; " "))
+      | join("\n");
     ($m.kind == "block") as $block
-    | ($m.detail | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" ")) as $d
+    | ($m.detail | plain) as $d
     | (if $block then 300 else 160 end) as $limit
     | (if ($d | length) > $limit then $d[0:$limit - 1] + "…" else $d end) as $detail
     | {
