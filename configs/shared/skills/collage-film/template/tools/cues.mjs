@@ -1,0 +1,13 @@
+import { chromium } from 'playwright-core';
+import fs from 'node:fs';
+import path from 'node:path';
+const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--allow-file-access-from-files'] });
+const page = await browser.newPage();
+await page.goto('file://' + path.resolve(import.meta.dirname, '../web/index.html') + '?capture');
+await page.evaluate(() => window.__ready);
+const cues = await page.evaluate(() => window.__cues());
+fs.writeFileSync(path.resolve(import.meta.dirname, '../audio/sfx_cues.json'), JSON.stringify(cues, null, 1));
+const duration = await page.evaluate(() => window.__duration());
+fs.writeFileSync(path.resolve(import.meta.dirname, '../audio/film.json'), JSON.stringify({ duration }));
+console.log(cues.length, 'cues');
+await browser.close();
