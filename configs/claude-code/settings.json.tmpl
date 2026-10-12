@@ -163,6 +163,12 @@
             "command": "bash {{HOME_DIR}}/.claude/hooks/session-start-handoff.sh",
             "timeout": 15,
             "statusMessage": "Linking previous session digest..."
+          },
+          {
+            "type": "command",
+            "command": "mkdir -p \"${XDG_STATE_HOME:-$HOME/.local/state}/harness\" && bash {{HOME_DIR}}/.claude/hooks/worktree-sweep.sh --quiet --idle-hours 24 >> \"${XDG_STATE_HOME:-$HOME/.local/state}/harness/worktree-sweep.log\" 2>&1",
+            "timeout": 120,
+            "async": true
           }
         ]
       },

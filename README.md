@@ -116,6 +116,7 @@ A mod cannot draw on the status line itself, so a mod with something to show the
 | `session-start.sh` | SessionStart | Activates modes, checks environment |
 | `session-end-ingest.sh` | SessionEnd | Ingests session into second-brain (machine memory) |
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
+| `worktree-sweep.sh` | SessionStart (Claude Code, async, logs to `~/.local/state/harness/worktree-sweep.log`) | Removes idle worktrees whose commits landed on main, salvaging uncommitted files to `.git/worktree-salvage/`; Codex and Cursor have no async session start, so run it by hand |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
 | `attention-notify.sh` | Notification, PreToolUse `AskUserQuestion\|ExitPlanMode`, prompt, tool and session-end events (Claude Code); PermissionRequest, Stop and the same cancel events (Codex); stop, prompt, tool and session-end (Cursor) | Pushes to ntfy when a session waits on you or finishes (see below) |
