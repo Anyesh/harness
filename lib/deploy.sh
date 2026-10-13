@@ -50,23 +50,115 @@ deploy_file() {
   fi
 }
 
+render_candidate() {
+  local src="$1" out="$2" dest="$3" label="$4"
+  render_template "$src" "$out"
+  if [[ "$dest" == *.json ]] && profile_no_memory && ! strip_memory_json "$out"; then
+    log_error "failed to deploy $label (memory filter could not parse the JSON)"
+    return 1
+  fi
+  if ! validate_template "$out"; then
+    log_error "failed to deploy $label (unresolved template vars)"
+    return 1
+  fi
+}
+
 deploy_rendered_template() {
   local src="$1" dest="$2" manifest_source="$3" label="$4"
   local tmp
   tmp=$(mktemp)
-  render_template "$src" "$tmp"
-  if [[ "$dest" == *.json ]] && profile_no_memory && ! strip_memory_json "$tmp"; then
+  if ! render_candidate "$src" "$tmp" "$dest" "$label"; then
     rm -f "$tmp"
-    log_error "failed to deploy $label (memory filter could not parse the JSON)"
-    return 1
-  fi
-  if ! validate_template "$tmp"; then
-    rm -f "$tmp"
-    log_error "failed to deploy $label (unresolved template vars)"
     return 1
   fi
   deploy_file "$tmp" "$dest" "$manifest_source" "true" "$label"
   rm -f "$tmp"
+}
+
+merge_base_path() {
+  printf '%s/%s\n' "${HARNESS_MERGE_BASE_DIR:-$HOME/.harness-merge-base}" "${1//\//%}"
+}
+
+# For a file the harness deployed before merge bases existed: the manifest
+# records the commit of the last install, and the template at that commit
+# renders to what that install applied. Without this the first merge has no
+# base, so a hook the template changed since would stay twice, old and new.
+rebuild_merge_base() {
+  local manifest_source="$1" dest="$2" out="$3"
+  local manifest="${HARNESS_MANIFEST:-$HOME/.harness-manifest.json}" commit old_src
+  manifest_is_managed "$dest" || return 1
+  commit=$(jq -r '.repo_commit // ""' "$manifest" 2>/dev/null)
+  [[ -n "$commit" && "$commit" != "unknown" ]] || return 1
+  old_src=$(mktemp)
+  if ! git -C "$REPO_ROOT" show "$commit:$manifest_source" > "$old_src" 2>/dev/null; then
+    rm -f "$old_src"
+    return 1
+  fi
+  render_candidate "$old_src" "$out" "$dest" "$manifest_source at $commit" 2>/dev/null
+  local rc=$?
+  rm -f "$old_src"
+  return $rc
+}
+
+# Deploys a JSON template into a file the user also edits (Claude Code's own UI
+# writes settings.json, and a work machine carries its own keys). Three-way
+# merges the render into the local file against the render last applied, see
+# lib/json_merge3.py for the rules. OVERRIDE_SETTINGS=true replaces the file.
+deploy_reconciled_template() {
+  local src="$1" dest="$2" manifest_source="$3" label="$4"
+  local ours base merged rebuilt conflicts rc=0
+  ours=$(mktemp)
+  if ! render_candidate "$src" "$ours" "$dest" "$label"; then
+    rm -f "$ours"
+    return 1
+  fi
+  base=$(merge_base_path "$dest")
+
+  if [[ "${OVERRIDE_SETTINGS:-false}" == "true" || ! -f "$dest" ]]; then
+    deploy_file "$ours" "$dest" "$manifest_source" "true" "$label"
+    save_merge_base "$ours" "$base"
+    rm -f "$ours"
+    return 0
+  fi
+
+  rebuilt=$(mktemp)
+  local base_arg=()
+  if [[ -f "$base" ]]; then
+    base_arg=("$base")
+  elif rebuild_merge_base "$manifest_source" "$dest" "$rebuilt"; then
+    base_arg=("$rebuilt")
+  fi
+  merged=$(mktemp)
+  conflicts=$(python3 "$REPO_ROOT/lib/json_merge3.py" "$ours" "$dest" "$merged" ${base_arg[@]+"${base_arg[@]}"}) || rc=$?
+  rm -f "$rebuilt"
+  if [[ $rc -ne 0 ]]; then
+    rm -f "$ours" "$merged"
+    if [[ $rc -eq 3 ]]; then
+      log_warn "$label: $dest is not strict JSON, left untouched (--override-settings replaces it)"
+    else
+      log_error "failed to deploy $label (merge exited $rc)"
+    fi
+    return 1
+  fi
+
+  if [[ -n "$conflicts" ]]; then
+    log_warn "$label: kept your value where the harness changed it too; reconcile by hand or rerun with --override-settings"
+    local path mine theirs
+    while IFS=$'\t' read -r path mine theirs; do
+      log_warn "  conflict at $path: yours $mine, harness $theirs"
+    done <<<"$conflicts"
+  fi
+  deploy_file "$merged" "$dest" "$manifest_source" "true" "$label"
+  save_merge_base "$ours" "$base"
+  rm -f "$ours" "$merged"
+}
+
+# The base is the harness render, never the merged file, so that the next
+# merge sees which values the user chose over the harness.
+save_merge_base() {
+  [[ "$DRY_RUN" == "true" ]] && return 0
+  mkdir -p "$(dirname "$2")"
+  cp "$1" "$2"
 }
 
 # Merges a rendered JSON fragment's top-level $merge_key into dest without

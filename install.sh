@@ -37,6 +37,7 @@ FORCE=false
 DRY_RUN=false
 NO_PLUGINS=false
 NO_BACKUP=false
+OVERRIDE_SETTINGS=false
 ONLY_MODULE=""
 
 if [[ "$COMMAND" == --* ]]; then
@@ -51,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true ;;
     --no-plugins) NO_PLUGINS=true ;;
     --no-backup) NO_BACKUP=true ;;
+    --override-settings) OVERRIDE_SETTINGS=true ;;
     --no-memory) NO_MEMORY=1 ;;
     --only) shift; ONLY_MODULE="${1:-}"; [[ -z "$ONLY_MODULE" ]] && die "--only requires a module name" ;;
     --claude-only) ONLY_MODULE="claude" ;;
@@ -346,6 +348,7 @@ cmd_uninstall() {
   restore_originals
   log_info "removing manifest..."
   rm -f "$HARNESS_MANIFEST"
+  rm -rf "${HARNESS_MERGE_BASE_DIR:-$HOME/.harness-merge-base}"
   log_success "uninstall complete"
 }
 
