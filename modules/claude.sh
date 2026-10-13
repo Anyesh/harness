@@ -178,7 +178,8 @@ claude_install() {
   fi
 
   claude_config "CLAUDE.md.tmpl" "$CLAUDE_CONFIG_DIR/CLAUDE.md"
-  claude_config "settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json"
+  deploy_reconciled_template "$REPO_ROOT/configs/claude-code/settings.json.tmpl" "$CLAUDE_CONFIG_DIR/settings.json" \
+    "configs/claude-code/settings.json.tmpl" "settings.json.tmpl" || true
   claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
   claude_mcp
   if ! profile_no_memory; then

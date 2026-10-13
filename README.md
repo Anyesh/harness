@@ -221,6 +221,7 @@ HOME_DIR=/home/youruser
 ./install.sh --force            # Redeploy even if unchanged
 ./install.sh --dry-run          # Preview without changes
 ./install.sh --no-memory        # Skip second-brain and the wiki
+./install.sh --override-settings  # Replace ~/.claude/settings.json instead of merging into it
 ./install.sh status             # Show managed file state
 ./install.sh uninstall          # Restore all backups
 ```
