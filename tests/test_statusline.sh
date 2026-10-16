@@ -59,7 +59,7 @@ plain() { env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUS
 line() { input "$@" | plain; }
 colored() { env -u CLAUDE_PROFILE -u NO_COLOR XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
 
-METRICS="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
+METRICS="▐▛█▜▌ Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
 BASE="[default] plain  │  $METRICS"
 GREEN=$'\033[32m'
 RED=$'\033[31m'
@@ -90,6 +90,7 @@ out=$(line)
 assert "NO_COLOR prints no escape codes" '[[ "$out" != *$'"'"'\033'"'"'* ]]'
 
 out=$(input | colored)
+assert "the mascot is drawn in Claude orange" '[[ "$out" == *$'"'"'\033[38;5;173m▐▛█▜▌'"'"'* ]]'
 assert "context under half full draws a green bar" '[[ "$out" == *"${GREEN}███"* ]]'
 
 out=$(input | jq -c '.rate_limits = {five_hour: {used_percentage: 85}, seven_day: {used_percentage: 20}}' | plain)
