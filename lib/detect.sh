@@ -5,6 +5,12 @@ HAS_CURSOR=false
 HAS_CODEX=false
 HAS_OPENCODE=false
 
+# A claude-profile session exports its own CLAUDE_CONFIG_DIR, which must not
+# redirect an install run from inside it: profiles share ~/.claude, and claude
+# mcp add would otherwise write the profile's .claude.json.
+if [[ -n "${CLAUDE_PROFILE:-}" ]]; then
+  unset CLAUDE_CONFIG_DIR
+fi
 CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CURSOR_CONFIG_DIR="${CURSOR_CONFIG_DIR:-$HOME/.cursor}"
 CODEX_CONFIG_DIR="${CODEX_CONFIG_DIR:-$HOME/.codex}"

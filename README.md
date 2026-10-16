@@ -52,7 +52,14 @@ Lite mode is for machines that never had the full install. Switching from full t
 ~/.claude/skills/              ← 19 skill definitions
 ~/.claude/plugins/             ← 10 plugins from 2 marketplaces (claude-plugins-official, harness-mods)
 ~/.claude/harness-mods/        ← local folder marketplace holding the harness's own mods
+~/.local/bin/claude-profile    ← one Claude Code profile per account (below)
 ```
+
+#### Account profiles
+
+`claude-profile` asks for a name and creates `~/.claude-<name>` plus a `claude-<name>` launcher that runs Claude with `CLAUDE_CONFIG_DIR` pointed at it, then offers `claude auth login`. Each profile signs in to its own account and keeps its own `.claude.json`, while settings, hooks, CLAUDE.md, skills, commands, plugins, mods and `projects/` (transcripts and auto-memory) are symlinks into `~/.claude`, so every profile runs the same harness and can resume the others' sessions. User-scope MCP servers are merged in from `~/.claude.json`.
+
+`claude-profile list` shows each profile's account, `claude-profile remove <name>` deletes one, and `claude-profile sync` relinks all of them; every install runs `sync`, so profiles pick up new entries and MCP servers. An install started from inside a profile session still targets `~/.claude`. If Claude replaces a shared symlink with its own file (a settings write, say), `sync` reports it instead of overwriting it.
 
 ### Cursor
 
