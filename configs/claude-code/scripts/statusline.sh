@@ -1,19 +1,35 @@
 #!/bin/bash
 input=$(cat)
 
+paint() {
+    if [ -n "$NO_COLOR" ]; then
+        printf '%s' "$2"
+    else
+        printf '\033[%sm%s\033[0m' "$1" "$2"
+    fi
+}
+
+level() {
+    if [ "$1" -ge 80 ]; then echo 31; elif [ "$1" -ge 50 ]; then echo 33; else echo 32; fi
+}
+
+SEP="  $(paint 2 "│")  "
+
 MODEL=$(echo "$input" | jq -r '.model.display_name // "?"')
 
-LOCATION=""
+# claude-profile launchers export CLAUDE_PROFILE; a plain claude session runs on the default ~/.claude
+if [ -n "$CLAUDE_PROFILE" ]; then
+    LOCATION=$(paint '1;35' "[${CLAUDE_PROFILE}]")
+else
+    LOCATION=$(paint 2 "[default]")
+fi
 DIR=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
 if [ -n "$DIR" ]; then
-    LOCATION="${DIR##*/}"
+    LOCATION="${LOCATION} $(paint '1;34' "${DIR##*/}")"
     # --no-optional-locks so a refresh never holds index.lock while another git command runs in the repo
     BRANCH=$(git --no-optional-locks -C "$DIR" branch --show-current 2>/dev/null)
     [ -n "$BRANCH" ] || BRANCH=$(git --no-optional-locks -C "$DIR" rev-parse --short HEAD 2>/dev/null)
-    [ -n "$BRANCH" ] && LOCATION="${LOCATION} (${BRANCH})"
-    # claude-profile launchers export CLAUDE_PROFILE; the default ~/.claude session has none
-    [ -n "$CLAUDE_PROFILE" ] && LOCATION="[${CLAUDE_PROFILE}] ${LOCATION}"
-    LOCATION="${LOCATION}  │  "
+    [ -n "$BRANCH" ] && LOCATION="${LOCATION} $(paint 32 "(${BRANCH})")"
 fi
 
 COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
@@ -32,10 +48,10 @@ mini_bar() {
     local width=${2:-8}
     local filled=$(( pct * width / 100 ))
     local empty=$(( width - filled ))
-    local bar=""
-    for ((i=0; i<filled; i++)); do bar+="█"; done
-    for ((i=0; i<empty; i++)); do bar+="░"; done
-    echo "$bar"
+    local full="" rest=""
+    for ((i=0; i<filled; i++)); do full+="█"; done
+    for ((i=0; i<empty; i++)); do rest+="░"; done
+    echo "$(paint "$(level "$pct")" "$full")$(paint 2 "$rest")"
 }
 
 CTX_BAR=$(mini_bar "$CTX_USED_PCT" 8)
@@ -69,7 +85,7 @@ if [ -n "$FIVE_H" ] && [ "$FIVE_H" != "null" ]; then
             fi
         fi
     fi
-    QUOTA="  │  session: ${FIVE_BAR} ${FIVE_H_INT}%${RESET_STR}"
+    QUOTA="${SEP}session: ${FIVE_BAR} ${FIVE_H_INT}%${RESET_STR}"
 fi
 
 if [ -n "$SEVEN_D" ] && [ "$SEVEN_D" != "null" ]; then
@@ -93,10 +109,10 @@ if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
         [ -n "$text" ] || continue
         (( NOW_MS - at <= 600000 )) || continue
         if [ "$tone" = "warn" ]; then
-            text=$'\033[33m'"$text"$'\033[0m'
+            text=$(paint 33 "$text")
         fi
-        SEGMENTS="${SEGMENTS}  │  ${text}"
+        SEGMENTS="${SEGMENTS}${SEP}${text}"
     done
 fi
 
-echo "${LOCATION}${MODEL}  │  \$${COST_FMT}  │  ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k  │  ${DURATION_MIN}m${QUOTA}${SEGMENTS}"
+echo "${LOCATION}${SEP}$(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")${QUOTA}${SEGMENTS}"

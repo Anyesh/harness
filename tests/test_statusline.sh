@@ -55,10 +55,14 @@ segment() {
   jq -cn --arg text "$2" --arg tone "$3" --argjson at "$4" '{text: $text, tone: $tone, at: $at}' >"$DIR/$1.json"
 }
 
-line() { input "$@" | env -u CLAUDE_PROFILE XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
+plain() { env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
+line() { input "$@" | plain; }
+colored() { env -u CLAUDE_PROFILE -u NO_COLOR XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
 
 METRICS="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
-BASE="plain  │  $METRICS"
+BASE="[default] plain  │  $METRICS"
+GREEN=$'\033[32m'
+RED=$'\033[31m'
 
 echo ""
 echo "=== statusline ==="
@@ -68,19 +72,31 @@ out=$(line)
 assert "no status folder prints the base line" '[[ "$out" == "$BASE" ]]'
 
 out=$(line "$SID" "$REPO")
-assert "a git folder shows its branch" '[[ "$out" == "repo (feat-x)  │  $METRICS" ]]'
+assert "a git folder shows its branch" '[[ "$out" == "[default] repo (feat-x)  │  $METRICS" ]]'
 
 git -C "$REPO" checkout -q --detach
 SHORT=$(git -C "$REPO" rev-parse --short HEAD)
 out=$(line "$SID" "$REPO")
-assert "a detached head shows its short commit" '[[ "$out" == "repo ($SHORT)  │  $METRICS" ]]'
+assert "a detached head shows its short commit" '[[ "$out" == "[default] repo ($SHORT)  │  $METRICS" ]]'
 git -C "$REPO" checkout -q feat-x
 
-out=$(input | CLAUDE_PROFILE=work XDG_STATE_HOME="$STATE" bash "$STATUSLINE")
+out=$(input | CLAUDE_PROFILE=work NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUSLINE")
 assert "a profile session leads with the profile name" '[[ "$out" == "[work] plain  │  $METRICS" ]]'
 
 out=$(line "$SID" "")
-assert "no working folder drops the location" '[[ "$out" == "$METRICS" ]]'
+assert "no working folder keeps only the profile" '[[ "$out" == "[default]  │  $METRICS" ]]'
+
+out=$(line)
+assert "NO_COLOR prints no escape codes" '[[ "$out" != *$'"'"'\033'"'"'* ]]'
+
+out=$(input | colored)
+assert "context under half full draws a green bar" '[[ "$out" == *"${GREEN}███"* ]]'
+
+out=$(input | jq -c '.rate_limits = {five_hour: {used_percentage: 85}, seven_day: {used_percentage: 20}}' | plain)
+assert "quota windows follow the duration" '[[ "$out" == "$BASE  │  session: ████░ 85%  week: █░░░░ 20%" ]]'
+
+out=$(input | jq -c '.context_window.used_percentage = 85' | colored)
+assert "context past 80% draws a red bar" '[[ "$out" == *"${RED}██████"* ]]'
 
 segment guard-watch "2 blocks" normal "$NOW_MS"
 segment cache-guard "cache 42m" normal "$NOW_MS"
@@ -89,7 +105,10 @@ assert "segments follow in fixed order" '[[ "$out" == "$BASE  │  cache 42m  �
 
 segment cache-guard 'cache cold ≈ $3.04' warn "$NOW_MS"
 out=$(line)
-assert "warn tone is drawn in yellow" '[[ "$out" == "$BASE  │  ${YELLOW}cache cold ≈ \$3.04${RESET}  │  2 blocks" ]]'
+assert "warn tone is plain under NO_COLOR" '[[ "$out" == "$BASE  │  cache cold ≈ \$3.04  │  2 blocks" ]]'
+
+out=$(input | colored)
+assert "warn tone is drawn in yellow" '[[ "$out" == *"${YELLOW}cache cold ≈ \$3.04${RESET}"* ]]'
 
 segment guard-watch "2 blocks" normal $((NOW_MS - 11 * 60 * 1000))
 out=$(line)
