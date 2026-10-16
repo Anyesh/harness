@@ -138,6 +138,16 @@ claude_profiles_sync() {
   done < <("$HOME/.local/bin/claude-profile" sync 2>&1 || true)
 }
 
+# Must run before restore_originals, because that deletes claude-profile and
+# the profiles are not in the manifest, so nothing else can find them.
+claude_profiles_remove() {
+  [[ -x "$HOME/.local/bin/claude-profile" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    log_info "profile: $line"
+  done < <("$HOME/.local/bin/claude-profile" remove --all --yes 2>&1 || true)
+}
+
 claude_verdant_rules() {
   local src="$REPO_ROOT/configs/claude-code/verdant-bash.toml"
   local dest="$CLAUDE_CONFIG_DIR/verdant-bash.toml"

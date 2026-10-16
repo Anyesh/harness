@@ -117,6 +117,34 @@ assert "launcher removed" '[[ ! -e "$LAUNCHER" ]]'
 assert "shared projects untouched" '[[ "$(cat "$HOME/.claude/projects/p1/s.jsonl")" == keep ]]'
 assert "main settings untouched" '[[ -f "$HOME/.claude/settings.json" ]]'
 
+echo "=== remove --all ==="
+printf 'n\n' | bash "$TOOL" third >/dev/null 2>&1
+printf 'nope\n' | bash "$TOOL" remove --all >/dev/null 2>&1 || true
+assert "wrong confirmation keeps every profile" '[[ -d "$HOME/.claude-alt" && -d "$HOME/.claude-third" ]]'
+printf 'all\n' | bash "$TOOL" remove --all >/dev/null 2>&1
+assert "confirmed remove --all deletes every profile" '[[ ! -e "$HOME/.claude-alt" && ! -e "$HOME/.claude-third" ]]'
+assert "confirmed remove --all deletes launchers" '[[ ! -e "$HOME/.local/bin/claude-alt" && ! -e "$HOME/.local/bin/claude-third" ]]'
+printf 'n\n' | bash "$TOOL" alt >/dev/null 2>&1
+out=$(bash "$TOOL" remove --all --yes </dev/null 2>&1)
+assert "--yes removes without a prompt" '[[ ! -e "$HOME/.claude-alt" && ! -e "$HOME/.local/bin/claude-alt" ]]'
+assert "--yes reports each profile" 'grep -q "Removed profile alt" <<<"$out"'
+assert "foreign launcher survives remove --all" '[[ "$(claude-other)" == mine ]]'
+assert "the tool survives remove --all" '[[ -x "$HOME/.local/bin/claude-profile" ]]'
+assert "shared projects survive remove --all" '[[ "$(cat "$HOME/.claude/projects/p1/s.jsonl")" == keep ]]'
+assert "remove --all with no profiles succeeds" 'bash "$TOOL" remove --all --yes </dev/null >/dev/null 2>&1'
+assert "--yes needs --all" '! bash "$TOOL" remove alt --yes </dev/null >/dev/null 2>&1'
+
+echo "=== harness uninstall removes profiles ==="
+printf 'n\n' | bash "$TOOL" alt >/dev/null 2>&1
+out=$(HARNESS_MANIFEST="$TMP_DIR/manifest.json" HARNESS_BACKUP_DIR="$TMP_DIR/backups" bash "$REPO_ROOT/install.sh" uninstall </dev/null 2>&1)
+assert "uninstall deletes the profile dir" '[[ ! -e "$HOME/.claude-alt" ]]'
+assert "uninstall deletes the launcher" '[[ ! -e "$HOME/.local/bin/claude-alt" ]]'
+assert "uninstall logs the removed profile" 'grep -q "Removed profile alt" <<<"$out"'
+assert "uninstall leaves foreign launchers" '[[ "$(claude-other)" == mine ]]'
+mv "$HOME/.local/bin/claude-profile" "$TMP_DIR/claude-profile.bak"
+assert "uninstall without the tool succeeds" 'HARNESS_MANIFEST="$TMP_DIR/manifest.json" HARNESS_BACKUP_DIR="$TMP_DIR/backups" bash "$REPO_ROOT/install.sh" uninstall </dev/null >/dev/null 2>&1'
+mv "$TMP_DIR/claude-profile.bak" "$HOME/.local/bin/claude-profile"
+
 echo "=== install from inside a profile targets ~/.claude ==="
 detected() { CLAUDE_PROFILE=work CLAUDE_CONFIG_DIR="$P" bash -c "source '$REPO_ROOT/lib/detect.sh'; $1"; }
 assert "detect ignores the profile config dir" '[[ "$(detected "echo \$CLAUDE_CONFIG_DIR")" == "$HOME/.claude" ]]'
