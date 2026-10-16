@@ -115,4 +115,4 @@ if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
     done
 fi
 
-echo "${LOCATION}${SEP}$(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")${QUOTA}${SEGMENTS}"
+echo "${LOCATION}${SEP}$(paint '38;5;173' "▐▛█▜▌") $(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")${QUOTA}${SEGMENTS}"
