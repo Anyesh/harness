@@ -22,6 +22,8 @@ Usage: claude-profile [name]        create or repair a profile (asks for a name 
        claude-profile list          show profiles and the account each is signed in to
        claude-profile sync          relink every profile to ~/.claude and merge new MCP servers
        claude-profile remove <name> delete a profile and its launcher
+       claude-profile remove --all [--yes]
+                                    delete every profile (--yes skips the prompt)
 
 A profile is ~/.claude-<name> with its own sign-in, sharing the harness config,
 skills, plugins and project history from ~/.claude. Start it with claude-<name>.
@@ -192,19 +194,40 @@ sync() {
   done < <(our_profiles)
 }
 
-remove() {
-  local name="$1" dir launcher reply
-  validate_name "$name"
-  dir=$(profile_dir "$name")
+delete_profile() {
+  local name="$1" launcher
   launcher=$(launcher_path "$name")
-  [[ -d "$dir" ]] || is_our_launcher "$launcher" || die "no profile named $name"
-  read -rp "This deletes $dir and its sign-in (shared files in ~/.claude are kept). Type '$name' to confirm: " reply || reply=
-  [[ "$reply" == "$name" ]] || die "aborted"
-  rm -rf "$dir"
+  rm -rf "$(profile_dir "$name")"
   if is_our_launcher "$launcher"; then
     rm -f "$launcher"
   fi
   printf 'Removed profile %s\n' "$name"
+}
+
+remove() {
+  local name="$1" dir reply
+  validate_name "$name"
+  dir=$(profile_dir "$name")
+  [[ -d "$dir" ]] || is_our_launcher "$(launcher_path "$name")" || die "no profile named $name"
+  read -rp "This deletes $dir and its sign-in (shared files in ~/.claude are kept). Type '$name' to confirm: " reply || reply=
+  [[ "$reply" == "$name" ]] || die "aborted"
+  delete_profile "$name"
+}
+
+remove_all() {
+  local confirmed="$1" names name reply
+  mapfile -t names < <(our_profiles)
+  if [[ ${#names[@]} -eq 0 ]]; then
+    printf 'No profiles to remove\n'
+    return 0
+  fi
+  if [[ "$confirmed" != true ]]; then
+    read -rp "This deletes profiles ${names[*]} and their sign-ins (shared files in ~/.claude are kept). Type 'all' to confirm: " reply || reply=
+    [[ "$reply" == all ]] || die "aborted"
+  fi
+  for name in "${names[@]}"; do
+    delete_profile "$name"
+  done
 }
 
 command -v jq >/dev/null || die "jq is required"
@@ -213,11 +236,15 @@ case "${1:-}" in
   list) list ;;
   sync) sync ;;
   remove)
-    [[ $# -eq 2 ]] || {
-      usage >&2
-      exit 1
-    }
-    remove "$2"
+    case "$#:${2:-}:${3:-}" in
+      "2:--all:") remove_all false ;;
+      "3:--all:--yes") remove_all true ;;
+      2:*) remove "$2" ;;
+      *)
+        usage >&2
+        exit 1
+        ;;
+    esac
     ;;
   -h | --help | help) usage ;;
   *)

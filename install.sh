@@ -344,6 +344,9 @@ cmd_status() {
 
 cmd_uninstall() {
   log_section "Harness Uninstall"
+  log_info "removing claude-profile profiles..."
+  source "$REPO_ROOT/modules/claude.sh"
+  claude_profiles_remove
   log_info "reverting managed files to pre-harness state..."
   restore_originals
   log_info "removing manifest..."
