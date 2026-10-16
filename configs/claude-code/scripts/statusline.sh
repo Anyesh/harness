@@ -85,19 +85,21 @@ if [ -n "$FIVE_H" ] && [ "$FIVE_H" != "null" ]; then
             fi
         fi
     fi
-    QUOTA="${SEP}session: ${FIVE_BAR} ${FIVE_H_INT}%${RESET_STR}"
+    QUOTA="session: ${FIVE_BAR} ${FIVE_H_INT}%${RESET_STR}"
 fi
 
 if [ -n "$SEVEN_D" ] && [ "$SEVEN_D" != "null" ]; then
     SEVEN_D_INT=$(printf '%.0f' "$SEVEN_D")
     SEVEN_BAR=$(mini_bar "$SEVEN_D_INT" 5)
-    QUOTA="${QUOTA}  week: ${SEVEN_BAR} ${SEVEN_D_INT}%"
+    QUOTA="${QUOTA:+$QUOTA  }week: ${SEVEN_BAR} ${SEVEN_D_INT}%"
 fi
+
+EXTRAS=()
+[ -n "$QUOTA" ] && EXTRAS+=("$QUOTA")
 
 # Mods write one segment file per session (see configs/claude-code/mods); the
 # order here is fixed so segments do not jump around, and a file untouched for
 # 10 minutes is skipped because a crashed session never empties its own.
-SEGMENTS=""
 SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
 if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
     STATUS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/harness/status/$SESSION_ID"
@@ -111,8 +113,21 @@ if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
         if [ "$tone" = "warn" ]; then
             text=$(paint 33 "$text")
         fi
-        SEGMENTS="${SEGMENTS}${SEP}${text}"
+        EXTRAS+=("$text")
     done
 fi
 
-echo "${LOCATION}${SEP}$(paint '38;5;173' "▐▛█▜▌") $(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")${QUOTA}${SEGMENTS}"
+EXTRA_ROW=""
+for part in "${EXTRAS[@]}"; do
+    EXTRA_ROW="${EXTRA_ROW:+$EXTRA_ROW$SEP}$part"
+done
+
+draw() {
+    if [ -n "$2" ]; then printf '%s  %s\n' "$1" "$2"; else printf '%s\n' "$1"; fi
+}
+
+# Every Clawd row is padded to 9 cells so the text beside him starts in the same column on all three rows
+CLAWD='38;5;173'
+draw "$(paint "$CLAWD" " ▐▛███▜▌ ")" "$LOCATION"
+draw "$(paint "$CLAWD" "▝▜█████▛▘")" "$(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")"
+draw "$(paint "$CLAWD" "  ▘▘ ▝▝  ")" "$EXTRA_ROW"
