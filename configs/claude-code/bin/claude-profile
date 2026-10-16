@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MAIN_DIR="$HOME/.claude"
+MAIN_STATE="$HOME/.claude.json"
+BIN_DIR="$HOME/.local/bin"
+
+# Shared with every profile because they are harness config or work that should
+# follow you across accounts (transcripts and auto-memory live in projects/).
+# Sign-in (.credentials.json) and .claude.json stay per profile, which is the
+# point of having profiles.
+SHARED=(
+  CLAUDE.md settings.json .mcp.json keybindings.json
+  hooks scripts skills commands agents plugins harness-mods dev-mods verdant-bash.toml
+  projects handoffs plans
+)
+RESERVED=(profile list sync remove help)
+
+usage() {
+  cat <<'EOF'
+Usage: claude-profile [name]        create or repair a profile (asks for a name if omitted)
+       claude-profile list          show profiles and the account each is signed in to
+       claude-profile sync          relink every profile to ~/.claude and merge new MCP servers
+       claude-profile remove <name> delete a profile and its launcher
+
+A profile is ~/.claude-<name> with its own sign-in, sharing the harness config,
+skills, plugins and project history from ~/.claude. Start it with claude-<name>.
+EOF
+}
+
+die() {
+  printf 'claude-profile: %s\n' "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf 'claude-profile: %s\n' "$*" >&2
+}
+
+profile_dir() { printf '%s/.claude-%s' "$HOME" "$1"; }
+launcher_path() { printf '%s/claude-%s' "$BIN_DIR" "$1"; }
+
+is_our_launcher() {
+  local name="${1##*/claude-}"
+  [[ -f "$1" ]] && grep -qx "export CLAUDE_PROFILE=$name" "$1"
+}
+
+our_profiles() {
+  local launcher
+  for launcher in "$BIN_DIR"/claude-*; do
+    is_our_launcher "$launcher" && printf '%s\n' "${launcher##*/claude-}"
+  done
+  return 0
+}
+
+validate_name() {
+  local name="$1" reserved
+  [[ "$name" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] ||
+    die "'$name' is not a valid name; use lowercase letters, digits and dashes"
+  for reserved in "${RESERVED[@]}"; do
+    [[ "$name" != "$reserved" ]] || die "'$name' is reserved"
+  done
+}
+
+ensure_launcher_free() {
+  local name="$1" path existing
+  path=$(launcher_path "$name")
+  if [[ -e "$path" ]]; then
+    is_our_launcher "$path" || die "$path exists and was not made by claude-profile"
+    return 0
+  fi
+  existing=$(command -v "claude-$name" || true)
+  [[ -z "$existing" ]] || die "claude-$name already exists at $existing"
+}
+
+link_shared() {
+  local dir="$1" entry src dest
+  for entry in "${SHARED[@]}"; do
+    src="$MAIN_DIR/$entry"
+    dest="$dir/$entry"
+    if [[ -L "$dest" && ! -e "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+      rm "$dest"
+    fi
+    [[ -e "$src" ]] || continue
+    if [[ -L "$dest" ]]; then
+      [[ "$(readlink "$dest")" == "$src" ]] || warn "$dest points to $(readlink "$dest"), leaving it"
+      continue
+    fi
+    if [[ -e "$dest" ]]; then
+      warn "$dest is a separate copy, not shared with ~/.claude/$entry; delete it and run 'claude-profile sync' to share it"
+      continue
+    fi
+    ln -s "$src" "$dest"
+  done
+}
+
+# Profile-only servers survive; a server defined in both takes the main entry so
+# that harness updates to it reach every profile.
+merge_mcp_servers() {
+  local dir="$1" state tmp
+  [[ -f "$MAIN_STATE" ]] || return 0
+  state="$dir/.claude.json"
+  [[ -f "$state" ]] || printf '{}\n' >"$state"
+  tmp=$(mktemp "$state.XXXXXX")
+  if jq --slurpfile main "$MAIN_STATE" \
+    '.mcpServers = ((.mcpServers // {}) + ($main[0].mcpServers // {}))' "$state" >"$tmp"; then
+    mv "$tmp" "$state"
+  else
+    rm -f "$tmp"
+    warn "could not merge MCP servers into $state"
+  fi
+}
+
+write_launcher() {
+  local name="$1" path
+  path=$(launcher_path "$name")
+  mkdir -p "$BIN_DIR"
+  cat >"$path" <<EOF
+#!/usr/bin/env bash
+export CLAUDE_PROFILE=$name
+export CLAUDE_CONFIG_DIR="\$HOME/.claude-$name"
+exec claude "\$@"
+EOF
+  chmod +x "$path"
+}
+
+account_of() {
+  local status account
+  # auth status exits 1 when signed out but still prints its JSON, so the exit
+  # code cannot tell signed out from broken.
+  status=$("$(launcher_path "$1")" auth status 2>/dev/null) || true
+  account=$(jq -r 'if .loggedIn then (.email // "signed in") else "not signed in" end' <<<"$status" 2>/dev/null) || true
+  printf '%s\n' "${account:-unknown}"
+}
+
+create() {
+  local name="$1" dir account reply
+  if [[ -z "$name" ]]; then
+    read -rp "Profile name (e.g. work, personal): " name || true
+  fi
+  [[ -n "$name" ]] || die "no profile name given"
+  validate_name "$name"
+  ensure_launcher_free "$name"
+  [[ -d "$MAIN_DIR" ]] || die "$MAIN_DIR not found; run the harness install first"
+
+  dir=$(profile_dir "$name")
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  link_shared "$dir"
+  merge_mcp_servers "$dir"
+  write_launcher "$name"
+  printf 'Profile %s ready at %s, start it with claude-%s\n' "$name" "$dir" "$name"
+  [[ ":$PATH:" == *":$BIN_DIR:"* ]] || warn "$BIN_DIR is not on PATH, so claude-$name will not be found until it is"
+
+  account=$(account_of "$name")
+  if [[ "$account" != "not signed in" && "$account" != unknown ]]; then
+    printf 'Signed in as %s\n' "$account"
+    return 0
+  fi
+  read -rp "Sign in to the account for this profile now? [Y/n] " reply || reply=n
+  if [[ "$reply" =~ ^([Yy].*)?$ ]]; then
+    "$(launcher_path "$name")" auth login
+  else
+    printf 'Sign in later with: claude-%s auth login\n' "$name"
+  fi
+}
+
+list() {
+  local name found=false
+  while read -r name; do
+    found=true
+    if [[ -d "$(profile_dir "$name")" ]]; then
+      printf '%-16s %-36s %s\n' "$name" "$(account_of "$name")" "$(profile_dir "$name")"
+    else
+      printf '%-16s %-36s %s\n' "$name" "missing directory" "$(profile_dir "$name")"
+    fi
+  done < <(our_profiles)
+  [[ "$found" == true ]] || printf 'No profiles yet; create one with claude-profile\n'
+}
+
+sync() {
+  local name dir
+  while read -r name; do
+    dir=$(profile_dir "$name")
+    if [[ ! -d "$dir" ]]; then
+      warn "profile $name has a launcher but no $dir, skipping"
+      continue
+    fi
+    link_shared "$dir"
+    merge_mcp_servers "$dir"
+    printf 'synced %s\n' "$name"
+  done < <(our_profiles)
+}
+
+remove() {
+  local name="$1" dir launcher reply
+  validate_name "$name"
+  dir=$(profile_dir "$name")
+  launcher=$(launcher_path "$name")
+  [[ -d "$dir" ]] || is_our_launcher "$launcher" || die "no profile named $name"
+  read -rp "This deletes $dir and its sign-in (shared files in ~/.claude are kept). Type '$name' to confirm: " reply || reply=
+  [[ "$reply" == "$name" ]] || die "aborted"
+  rm -rf "$dir"
+  if is_our_launcher "$launcher"; then
+    rm -f "$launcher"
+  fi
+  printf 'Removed profile %s\n' "$name"
+}
+
+command -v jq >/dev/null || die "jq is required"
+
+case "${1:-}" in
+  list) list ;;
+  sync) sync ;;
+  remove)
+    [[ $# -eq 2 ]] || {
+      usage >&2
+      exit 1
+    }
+    remove "$2"
+    ;;
+  -h | --help | help) usage ;;
+  *)
+    [[ $# -le 1 ]] || {
+      usage >&2
+      exit 1
+    }
+    create "${1:-}"
+    ;;
+esac

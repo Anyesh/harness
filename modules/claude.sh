@@ -120,6 +120,24 @@ claude_scripts() {
   done
 }
 
+claude_profile_tool() {
+  deploy_file "$REPO_ROOT/configs/claude-code/bin/claude-profile" "$HOME/.local/bin/claude-profile" \
+    "configs/claude-code/bin/claude-profile" "false" "claude-profile" executable
+}
+
+# Runs last so that profiles link entries and MCP servers this install created.
+claude_profiles_sync() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would sync claude-profile profiles"
+    return
+  fi
+  [[ -x "$HOME/.local/bin/claude-profile" ]] || return 0
+  local line
+  while IFS= read -r line; do
+    log_info "profile: $line"
+  done < <("$HOME/.local/bin/claude-profile" sync 2>&1 || true)
+}
+
 claude_verdant_rules() {
   local src="$REPO_ROOT/configs/claude-code/verdant-bash.toml"
   local dest="$CLAUDE_CONFIG_DIR/verdant-bash.toml"
@@ -194,6 +212,8 @@ claude_install() {
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills" "$REPO_ROOT/configs/claude-code/skills"
   deploy_impeccable_skill "claude" "$CLAUDE_CONFIG_DIR/skills/impeccable"
   deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands" "$REPO_ROOT/configs/claude-code/commands"
+  claude_profile_tool
+  claude_profiles_sync
 }
 
 claude_test() {
