@@ -3,6 +3,19 @@ input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "?"')
 
+LOCATION=""
+DIR=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
+if [ -n "$DIR" ]; then
+    LOCATION="${DIR##*/}"
+    # --no-optional-locks so a refresh never holds index.lock while another git command runs in the repo
+    BRANCH=$(git --no-optional-locks -C "$DIR" branch --show-current 2>/dev/null)
+    [ -n "$BRANCH" ] || BRANCH=$(git --no-optional-locks -C "$DIR" rev-parse --short HEAD 2>/dev/null)
+    [ -n "$BRANCH" ] && LOCATION="${LOCATION} (${BRANCH})"
+    # claude-profile launchers export CLAUDE_PROFILE; the default ~/.claude session has none
+    [ -n "$CLAUDE_PROFILE" ] && LOCATION="[${CLAUDE_PROFILE}] ${LOCATION}"
+    LOCATION="${LOCATION}  │  "
+fi
+
 COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 COST_FMT=$(printf '%.2f' "$COST")
 
@@ -86,4 +99,4 @@ if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
     done
 fi
 
-echo "${MODEL}  │  \$${COST_FMT}  │  ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k  │  ${DURATION_MIN}m${QUOTA}${SEGMENTS}"
+echo "${LOCATION}${MODEL}  │  \$${COST_FMT}  │  ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k  │  ${DURATION_MIN}m${QUOTA}${SEGMENTS}"

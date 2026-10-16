@@ -30,9 +30,16 @@ NOW_MS=$(( $(date +%s) * 1000 ))
 YELLOW=$'\033[33m'
 RESET=$'\033[0m'
 
+PLAIN="$TMP_DIR/plain"
+REPO="$TMP_DIR/repo"
+mkdir -p "$PLAIN" "$REPO"
+git -C "$REPO" init -q -b feat-x
+git -C "$REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+
 input() {
-  jq -cn --arg sid "${1-$SID}" '{
+  jq -cn --arg sid "${1-$SID}" --arg dir "${2-$PLAIN}" '{
     session_id: $sid,
+    workspace: (if $dir == "" then {} else { current_dir: $dir } end),
     model: { display_name: "Opus 5.5" },
     cost: { total_cost_usd: 4.123, total_duration_ms: 4320000 },
     context_window: {
@@ -48,9 +55,10 @@ segment() {
   jq -cn --arg text "$2" --arg tone "$3" --argjson at "$4" '{text: $text, tone: $tone, at: $at}' >"$DIR/$1.json"
 }
 
-line() { input "$@" | XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
+line() { input "$@" | env -u CLAUDE_PROFILE XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
 
-BASE="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
+METRICS="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
+BASE="plain  │  $METRICS"
 
 echo ""
 echo "=== statusline ==="
@@ -58,6 +66,21 @@ echo ""
 
 out=$(line)
 assert "no status folder prints the base line" '[[ "$out" == "$BASE" ]]'
+
+out=$(line "$SID" "$REPO")
+assert "a git folder shows its branch" '[[ "$out" == "repo (feat-x)  │  $METRICS" ]]'
+
+git -C "$REPO" checkout -q --detach
+SHORT=$(git -C "$REPO" rev-parse --short HEAD)
+out=$(line "$SID" "$REPO")
+assert "a detached head shows its short commit" '[[ "$out" == "repo ($SHORT)  │  $METRICS" ]]'
+git -C "$REPO" checkout -q feat-x
+
+out=$(input | CLAUDE_PROFILE=work XDG_STATE_HOME="$STATE" bash "$STATUSLINE")
+assert "a profile session leads with the profile name" '[[ "$out" == "[work] plain  │  $METRICS" ]]'
+
+out=$(line "$SID" "")
+assert "no working folder drops the location" '[[ "$out" == "$METRICS" ]]'
 
 segment guard-watch "2 blocks" normal "$NOW_MS"
 segment cache-guard "cache 42m" normal "$NOW_MS"
