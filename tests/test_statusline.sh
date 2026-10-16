@@ -59,8 +59,13 @@ plain() { env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUS
 line() { input "$@" | plain; }
 colored() { env -u CLAUDE_PROFILE -u NO_COLOR XDG_STATE_HOME="$STATE" bash "$STATUSLINE"; }
 
-METRICS="▐▛█▜▌ Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
-BASE="[default] plain  │  $METRICS"
+row() { sed -n "${1}p" <<<"$out"; }
+
+C1=" ▐▛███▜▌ "
+C2="▝▜█████▛▘"
+C3="  ▘▘ ▝▝  "
+METRICS="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
+BASE="$C1  [default] plain"$'\n'"$C2  $METRICS"$'\n'"$C3"
 GREEN=$'\033[32m'
 RED=$'\033[31m'
 
@@ -69,32 +74,32 @@ echo "=== statusline ==="
 echo ""
 
 out=$(line)
-assert "no status folder prints the base line" '[[ "$out" == "$BASE" ]]'
+assert "clawd spans three rows of location, metrics and an empty third row" '[[ "$out" == "$BASE" ]]'
 
 out=$(line "$SID" "$REPO")
-assert "a git folder shows its branch" '[[ "$out" == "[default] repo (feat-x)  │  $METRICS" ]]'
+assert "a git folder shows its branch" '[[ "$(row 1)" == "$C1  [default] repo (feat-x)" ]]'
 
 git -C "$REPO" checkout -q --detach
 SHORT=$(git -C "$REPO" rev-parse --short HEAD)
 out=$(line "$SID" "$REPO")
-assert "a detached head shows its short commit" '[[ "$out" == "[default] repo ($SHORT)  │  $METRICS" ]]'
+assert "a detached head shows its short commit" '[[ "$(row 1)" == "$C1  [default] repo ($SHORT)" ]]'
 git -C "$REPO" checkout -q feat-x
 
 out=$(input | CLAUDE_PROFILE=work NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUSLINE")
-assert "a profile session leads with the profile name" '[[ "$out" == "[work] plain  │  $METRICS" ]]'
+assert "a profile session leads with the profile name" '[[ "$(row 1)" == "$C1  [work] plain" ]]'
 
 out=$(line "$SID" "")
-assert "no working folder keeps only the profile" '[[ "$out" == "[default]  │  $METRICS" ]]'
+assert "no working folder keeps only the profile" '[[ "$(row 1)" == "$C1  [default]" ]]'
 
 out=$(line)
 assert "NO_COLOR prints no escape codes" '[[ "$out" != *$'"'"'\033'"'"'* ]]'
 
 out=$(input | colored)
-assert "the mascot is drawn in Claude orange" '[[ "$out" == *$'"'"'\033[38;5;173m▐▛█▜▌'"'"'* ]]'
+assert "clawd is drawn in Claude orange" '[[ "$(row 2)" == $'"'"'\033[38;5;173m▝▜█████▛▘'"'"'* ]]'
 assert "context under half full draws a green bar" '[[ "$out" == *"${GREEN}███"* ]]'
 
 out=$(input | jq -c '.rate_limits = {five_hour: {used_percentage: 85}, seven_day: {used_percentage: 20}}' | plain)
-assert "quota windows follow the duration" '[[ "$out" == "$BASE  │  session: ████░ 85%  week: █░░░░ 20%" ]]'
+assert "quota windows sit on the third row" '[[ "$(row 3)" == "$C3  session: ████░ 85%  week: █░░░░ 20%" ]]'
 
 out=$(input | jq -c '.context_window.used_percentage = 85' | colored)
 assert "context past 80% draws a red bar" '[[ "$out" == *"${RED}██████"* ]]'
@@ -102,11 +107,14 @@ assert "context past 80% draws a red bar" '[[ "$out" == *"${RED}█████�
 segment guard-watch "2 blocks" normal "$NOW_MS"
 segment cache-guard "cache 42m" normal "$NOW_MS"
 out=$(line)
-assert "segments follow in fixed order" '[[ "$out" == "$BASE  │  cache 42m  │  2 blocks" ]]'
+assert "segments follow in fixed order" '[[ "$(row 3)" == "$C3  cache 42m  │  2 blocks" ]]'
+
+out=$(input | jq -c '.rate_limits = {seven_day: {used_percentage: 20}}' | plain)
+assert "segments follow the quota" '[[ "$(row 3)" == "$C3  week: █░░░░ 20%  │  cache 42m  │  2 blocks" ]]'
 
 segment cache-guard 'cache cold ≈ $3.04' warn "$NOW_MS"
 out=$(line)
-assert "warn tone is plain under NO_COLOR" '[[ "$out" == "$BASE  │  cache cold ≈ \$3.04  │  2 blocks" ]]'
+assert "warn tone is plain under NO_COLOR" '[[ "$(row 3)" == "$C3  cache cold ≈ \$3.04  │  2 blocks" ]]'
 
 out=$(input | colored)
 assert "warn tone is drawn in yellow" '[[ "$out" == *"${YELLOW}cache cold ≈ \$3.04${RESET}"* ]]'
