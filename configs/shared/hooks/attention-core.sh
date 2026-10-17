@@ -35,7 +35,7 @@ log() {
 
 load_config() {
   local name
-  for name in NTFY_URL NTFY_TOPIC NTFY_TOKEN NTFY_BLOCK_DELAY NTFY_DONE_DELAY HARNESS_NOTIFY; do
+  for name in NTFY_URL NTFY_TOPIC NTFY_TOKEN NTFY_BLOCK_DELAY NTFY_DONE_DELAY NTFY_DONE HARNESS_NOTIFY; do
     load_harness_var "$name"
   done
 }
@@ -92,6 +92,10 @@ arm() {
     log "$session" "skip $kind: $reason"
     return 0
   fi
+  if [[ "$kind" == done && "${NTFY_DONE:-0}" != 1 ]]; then
+    log "$session" "skip done: finished-turn pushes are off (NTFY_DONE=1 turns them on)"
+    return 0
+  fi
 
   mkdir -p "$STATE_DIR"
   find "$STATE_DIR" -name '*.json' -mtime +7 -delete 2>/dev/null
@@ -112,10 +116,10 @@ arm() {
   fi
 
   local delay default_delay
-  if [[ "$kind" == block ]]; then default_delay="${NTFY_BLOCK_DELAY:-15}"; else default_delay="${NTFY_DONE_DELAY:-60}"; fi
+  if [[ "$kind" == block ]]; then default_delay="${NTFY_BLOCK_DELAY:-60}"; else default_delay="${NTFY_DONE_DELAY:-60}"; fi
   delay=$(jq -r '.delay // empty' <<<"$input")
   [[ "$delay" =~ ^[0-9]+$ ]] || delay="$default_delay"
-  [[ "$delay" =~ ^[0-9]+$ ]] || delay=15
+  [[ "$delay" =~ ^[0-9]+$ ]] || delay=60
 
   local transcript anchor token
   transcript=$(jq -r '.transcript // empty' <<<"$input")

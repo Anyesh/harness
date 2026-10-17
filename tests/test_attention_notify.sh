@@ -71,9 +71,9 @@ write_env NTFY_URL=https://ntfy.example.test NTFY_TOPIC=agents NTFY_TOKEN=tk_sec
 run_env() {
   env -u NTFY_URL -u NTFY_TOPIC -u NTFY_TOKEN -u HARNESS_NOTIFY \
     -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_PID -u CLAUDE_PROJECT_DIR -u CURSOR_PROJECT_DIR \
-    -u NTFY_BLOCK_DELAY -u NTFY_DONE_DELAY \
+    -u NTFY_BLOCK_DELAY -u NTFY_DONE_DELAY -u NTFY_DONE \
     HARNESS_ENV="$ENV_FILE" XDG_STATE_HOME="$STATE" PATH="$STUB:$PATH" STUB_CALLS="$CALLS" \
-    NTFY_BLOCK_DELAY=600 NTFY_DONE_DELAY=600 CLAUDE_PID=$$ "$@"
+    NTFY_BLOCK_DELAY=600 NTFY_DONE_DELAY=600 NTFY_DONE=1 CLAUDE_PID=$$ "$@"
 }
 
 notify() {
@@ -215,6 +215,19 @@ assert "idle_prompt pushes with no extra delay" '[ "$(calls)" -eq $((BEFORE + 1)
 assert "done push is priority 3" '[ "$(body_field .priority)" = 3 ]'
 assert "done push carries the last assistant text" 'body_field .message | grep -q "Shipped the widget, tests pass."'
 assert "done push title says finished" 'body_field .title | grep -q "Claude finished · widget-shop"'
+
+S=claude-done-off
+BEFORE=$(calls)
+notify claude "$(jq -nc --arg s $S --arg t "$TRANSCRIPT" --arg cwd "$PROJECT" \
+  '{session_id:$s, hook_event_name:"Notification", notification_type:"idle_prompt", message:"waiting", transcript_path:$t, cwd:$cwd}')" NTFY_DONE=
+sleep 0.5
+assert "finished turns do not push unless NTFY_DONE=1" '[ ! -f "$(marker $S)" ] && [ "$(calls)" -eq "$BEFORE" ] && log_has "skip done: finished-turn pushes are off"'
+
+S=claude-default-delay
+notify claude "$(ask_json $S tu-default)" NTFY_BLOCK_DELAY=
+assert "a block waits a minute by default so a user at the desk answers before any push" \
+  '[ "$(jq -r .delay "$(marker $S)")" = 60 ]'
+rm -f "$(marker $S)"
 
 S=claude-ask
 assert "sent block stays recorded until the user acts" '[ "$(jq -r .state "$(marker $S)")" = sent ]'
