@@ -125,6 +125,24 @@ claude_profile_tool() {
     "configs/claude-code/bin/claude-profile" "false" "claude-profile" executable
 }
 
+# Handoffs used to live in ~/.claude/handoffs. The old path becomes a symlink to the
+# new root because running sessions still hold digest and handoff paths under it.
+claude_handoffs_migrate() {
+  local old="$CLAUDE_CONFIG_DIR/handoffs" new
+  [[ -d "$old" && ! -L "$old" ]] || return 0
+  new=$(source "$REPO_ROOT/configs/claude-code/hooks/handoff-common.sh" && handoff_out_root)
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would move $old to $new"
+    return
+  fi
+  mkdir -p "$new"
+  if cp -an "$old/." "$new/" && rm -rf "$old" && ln -s "$new" "$old"; then
+    log_success "handoffs moved to $new"
+  else
+    log_warn "could not move $old to $new"
+  fi
+}
+
 # Runs last so that profiles link entries and MCP servers this install created.
 claude_profiles_sync() {
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -219,6 +237,7 @@ claude_install() {
   claude_verdant_rules
   claude_hooks
   claude_scripts
+  claude_handoffs_migrate
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills" "$REPO_ROOT/configs/claude-code/skills"
   deploy_impeccable_skill "claude" "$CLAUDE_CONFIG_DIR/skills/impeccable"
   deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands" "$REPO_ROOT/configs/claude-code/commands"

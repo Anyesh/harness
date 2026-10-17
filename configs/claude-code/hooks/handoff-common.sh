@@ -1,8 +1,27 @@
 #!/usr/bin/env bash
-# Shared by the SessionEnd and SessionStart handoff hooks, which must agree on where the pointer lives and how it is keyed.
+# Shared by the handoff hooks and handoff-digest.sh, which must agree on where handoffs and
+# the pointer live and how the pointer is keyed.
 
+HANDOFF_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for candidate in "$HANDOFF_COMMON_DIR" "$HANDOFF_COMMON_DIR/../../shared/hooks"; do
+  if [[ -f "$candidate/harness-project.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$candidate/harness-project.sh"
+    break
+  fi
+done
+
+# Outside ~/.claude because every claude-profile has its own config dir; a profile path
+# would need a symlink, which find and rg do not follow, so agents searching it miss them.
 handoff_out_root() {
-  printf '%s\n' "${HARNESS_HANDOFF_DIR:-$HOME/.claude/handoffs}"
+  printf '%s\n' "${HARNESS_HANDOFF_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/harness/handoffs}"
+}
+
+handoff_project_dir() {
+  local cwd="$1" root
+  declare -F harness_project_slug >/dev/null || return 1
+  root="$(harness_repo_root "$(jq -nc --arg c "$cwd" '{workspace_roots:[$c]}')")"
+  printf '%s/%s\n' "$(handoff_out_root)" "$(harness_project_slug "$root")"
 }
 
 handoff_pending_dir() {

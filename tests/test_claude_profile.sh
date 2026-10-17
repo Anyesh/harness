@@ -27,7 +27,7 @@ export HOME="$TMP_DIR/home"
 unset CLAUDE_CONFIG_DIR CLAUDE_PROFILE
 STUB_BIN="$TMP_DIR/stub"
 export PATH="$STUB_BIN:$HOME/.local/bin:$PATH"
-mkdir -p "$STUB_BIN" "$HOME/.claude/hooks" "$HOME/.claude/skills/wiki" "$HOME/.claude/projects/p1"
+mkdir -p "$STUB_BIN" "$HOME/.claude/hooks" "$HOME/.claude/skills/wiki" "$HOME/.claude/projects/p1" "$HOME/.claude/handoffs"
 echo '{}' >"$HOME/.claude/settings.json"
 echo '# rules' >"$HOME/.claude/CLAUDE.md"
 echo 'keep' >"$HOME/.claude/projects/p1/s.jsonl"
@@ -63,6 +63,7 @@ assert "CLAUDE.md linked" '[[ -L "$P/CLAUDE.md" ]]'
 assert "hooks dir linked" '[[ -L "$P/hooks" && -d "$P/skills/wiki" ]]'
 assert "projects shared" '[[ "$(cat "$P/projects/p1/s.jsonl")" == keep ]]'
 assert "entries missing from main are not linked" '[[ ! -e "$P/agents" && ! -L "$P/agents" ]]'
+assert "handoffs are not linked, they live outside every profile" '[[ ! -e "$P/handoffs" && ! -L "$P/handoffs" ]]'
 assert "mcp servers copied" '[[ "$(jq -r ".mcpServers|keys|join(\",\")" "$P/.claude.json")" == "second-brain,web-strip" ]]'
 assert "main account not copied" '[[ "$(jq -r ".oauthAccount // \"none\"" "$P/.claude.json")" == none ]]'
 assert "launcher is executable" '[[ -x "$LAUNCHER" ]]'
