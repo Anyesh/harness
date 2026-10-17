@@ -8,11 +8,12 @@ BIN_DIR="$HOME/.local/bin"
 # Shared with every profile because they are harness config or work that should
 # follow you across accounts (transcripts and auto-memory live in projects/).
 # Sign-in (.credentials.json) and .claude.json stay per profile, which is the
-# point of having profiles.
+# point of having profiles. Handoffs are not here because they live outside
+# every config dir, in ~/.local/state/harness/handoffs.
 SHARED=(
   CLAUDE.md settings.json .mcp.json keybindings.json
   hooks scripts skills commands agents plugins harness-mods dev-mods verdant-bash.toml
-  projects handoffs plans
+  projects plans
 )
 RESERVED=(profile list sync remove help)
 

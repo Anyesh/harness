@@ -110,6 +110,12 @@ assert "a session id finds its transcript under the config dir's projects" \
   '[ "$ID_PATH" = "$DIGEST_FILE" ] && grep -q "^transcript: $SMALL$" "$DIGEST_FILE"'
 assert "an unknown session id fails" \
   '! CLAUDE_CONFIG_DIR="$TMP_DIR" "$DIGEST" no-such-sid 2>/dev/null'
+DEFAULT_PATH=$(env -u HARNESS_HANDOFF_DIR HOME="$TMP_DIR/home" XDG_STATE_HOME="$TMP_DIR/state" "$DIGEST" "$SMALL")
+assert "without an override digests land under the XDG state dir, outside every profile" \
+  '[ "$DEFAULT_PATH" = "$TMP_DIR/state/harness/handoffs/my-proj/small-sid.md" ] && [ ! -e "$TMP_DIR/home/.claude" ]'
+DEFAULT_PATH=$(env -u HARNESS_HANDOFF_DIR -u XDG_STATE_HOME HOME="$TMP_DIR/home" "$DIGEST" "$SMALL")
+assert "XDG_STATE_HOME falls back to ~/.local/state" \
+  '[ "$DEFAULT_PATH" = "$TMP_DIR/home/.local/state/harness/handoffs/my-proj/small-sid.md" ]'
 
 mkdir -p "$HANDOFFS/other-proj"
 touch -d '20 days ago' "$HANDOFFS/other-proj/ancient.md" "$HANDOFFS/my-proj/ancient.handoff-1.md"
@@ -235,7 +241,7 @@ assert "no temp files left beside the pointer" '[ "$(ls -A "$PEND" | wc -l)" -eq
 
 for src in startup resume compact; do
   OUT=$(run_start "$(start_payload $src)"; echo "rc=$?")
-  assert "source $src emits nothing and leaves the pointer alone" '[ "$OUT" = "rc=0" ] && [ -e "$PEND/4242.json" ]'
+  assert "source $src with no handoffs yet emits nothing and leaves the pointer alone" '[ "$OUT" = "rc=0" ] && [ -e "$PEND/4242.json" ]'
 done
 
 OUT=$(run_start "$(start_payload clear)")
@@ -248,17 +254,40 @@ assert "context tells the reader which lines to read first" \
   'grep -qF "lines 1-$((IDX - 1))" <<<"$CTX"'
 assert "pointer is consumed after use" '[ ! -e "$PEND/4242.json" ]'
 
-OUT=$(run_start "$(start_payload clear)"; echo "rc=$?")
-assert "second clear without a new pointer emits nothing" '[ "$OUT" = "rc=0" ]'
+OUT=$(run_start "$(start_payload clear)")
+CTX=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
+assert "second clear without a new pointer lists the handoffs but claims no previous digest" \
+  'grep -qF "$HANDOFFS/my-proj" <<<"$CTX" && ! grep -q "Previous session digest" <<<"$CTX"'
 
 touch "$OLD"
-OUT=$(run_start "$(start_payload clear)"; echo "rc=$?")
-assert "no pointer means no handoff, even with a fresher transcript on disk" '[ "$OUT" = "rc=0" ]'
+OUT=$(run_start "$(start_payload clear)")
+assert "no pointer means no digest is built, even with a fresher transcript on disk" \
+  '! jq -r .hookSpecificOutput.additionalContext <<<"$OUT" | grep -q "Previous session digest"'
+
+touch -d '1 minute ago' "$HANDOFFS/my-proj/d.md"
+touch -d '2 minutes ago' "$HANDOFFS/my-proj/c.handoff-1.md"
+touch -d '3 minutes ago' "$HANDOFFS/my-proj/b.md"
+touch -d '4 minutes ago' "$HANDOFFS/my-proj/a.md"
+touch -d '9 minutes ago' "$HANDOFFS/my-proj/old-sid.md"
+for src in startup resume; do
+  OUT=$(run_start "$(start_payload $src)")
+  CTX=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
+  assert "source $src names the project's handoff dir and its three newest files, newest first" \
+    'grep -qF "$HANDOFFS/my-proj/" <<<"$CTX" && [ "$(grep -oE "\b(d|c\.handoff-1|b|a|old-sid)\.md\b" <<<"$CTX" | tr "\n" " ")" = "d.md c.handoff-1.md b.md " ]'
+  assert "source $src also calls them handovers, the word the user types" 'grep -qi "handover" <<<"$CTX"'
+done
+OUT=$(run_start "$(start_payload compact)"; echo "rc=$?")
+assert "compact never lists handoffs, the handoff mod covers it" '[ "$OUT" = "rc=0" ]'
+OTHER_PROJECT="$TMP_DIR/Elsewhere"
+mkdir -p "$OTHER_PROJECT"
+OUT=$(run_start "$(start_payload startup | jq -c --arg c "$OTHER_PROJECT" '.cwd = $c')"; echo "rc=$?")
+assert "a project with no handoffs gets nothing" '[ "$OUT" = "rc=0" ]'
+command rm -f "$HANDOFFS/my-proj/"{a,b,d}.md "$HANDOFFS/my-proj/c.handoff-1.md"
 
 run_end "$(end_payload clear)"
 jq '.ts -= 100' "$PEND/4242.json" > "$PEND/4242.tmp" && command mv "$PEND/4242.tmp" "$PEND/4242.json"
-OUT=$(run_start "$(start_payload clear)"; echo "rc=$?")
-assert "stale pointer is ignored" '[ "$OUT" = "rc=0" ]'
+OUT=$(run_start "$(start_payload clear)")
+assert "stale pointer is ignored" '! grep -q "Previous session digest" <<<"$OUT"'
 
 command rm -f "$PEND"/*.json
 ( sleep 0.4; run_end "$(end_payload clear)" ) &
@@ -268,8 +297,8 @@ assert "start waits for a pointer that is written a moment later" \
   'jq -r .hookSpecificOutput.additionalContext <<<"$OUT" | grep -qF "$OLD_DIGEST"'
 
 run_end "$(end_payload clear)"
-OUT=$(CLAUDE_PID=9999 run_start "$(start_payload clear)"; echo "rc=$?")
-assert "a pointer for another claude process is not picked up" '[ "$OUT" = "rc=0" ] && [ -e "$PEND/4242.json" ]'
+OUT=$(CLAUDE_PID=9999 run_start "$(start_payload clear)")
+assert "a pointer for another claude process is not picked up" '! grep -q "Previous session digest" <<<"$OUT" && [ -e "$PEND/4242.json" ]'
 
 printf '{}' > "$PEND/9999.json"
 touch -d '3 days ago' "$PEND/9999.json"
@@ -301,6 +330,31 @@ WALK=$(env -u CLAUDE_PID PATH="$FAKEBIN:$PATH" bash -c "source '$COMMON'; handof
 assert "without CLAUDE_PID the ancestor walk finds the claude process" '[ "$WALK" = "300" ]'
 assert "CLAUDE_PID wins over the ancestor walk" \
   '[ "$(CLAUDE_PID=777 PATH="$FAKEBIN:$PATH" bash -c "source \"$COMMON\"; handoff_claude_pid 100")" = "777" ]'
+
+MIG_HOME="$TMP_DIR/mig"
+MIG_NEW="$MIG_HOME/.local/state/harness/handoffs"
+mkdir -p "$MIG_HOME/.claude/handoffs/proj/" "$MIG_HOME/.claude/handoffs/.pending"
+echo digest > "$MIG_HOME/.claude/handoffs/proj/s1.md"
+echo '{}' > "$MIG_HOME/.claude/handoffs/.pending/1.json"
+mkdir -p "$MIG_NEW/proj"
+echo newer > "$MIG_NEW/proj/s2.md"
+migrate() {
+  env -u HARNESS_HANDOFF_DIR -u XDG_STATE_HOME HOME="$MIG_HOME" CLAUDE_CONFIG_DIR="$MIG_HOME/.claude" DRY_RUN=false REPO_ROOT="$REPO_ROOT" \
+    bash -c "source '$REPO_ROOT/lib/common.sh'; source '$REPO_ROOT/modules/claude.sh'; claude_handoffs_migrate" >/dev/null 2>&1
+}
+migrate
+assert "install moves old handoffs into the state dir beside ones already there" \
+  '[ "$(cat "$MIG_NEW/proj/s1.md")" = digest ] && [ "$(cat "$MIG_NEW/proj/s2.md")" = newer ] && [ -f "$MIG_NEW/.pending/1.json" ]'
+assert "the old path becomes a symlink so paths held by running sessions still resolve" \
+  '[ "$(readlink "$MIG_HOME/.claude/handoffs")" = "$MIG_NEW" ]'
+migrate
+assert "a second install leaves the migrated layout alone" \
+  '[ "$(readlink "$MIG_HOME/.claude/handoffs")" = "$MIG_NEW" ] && [ "$(cat "$MIG_NEW/proj/s1.md")" = digest ]'
+FRESH_HOME="$TMP_DIR/fresh"
+mkdir -p "$FRESH_HOME/.claude"
+env -u HARNESS_HANDOFF_DIR -u XDG_STATE_HOME HOME="$FRESH_HOME" CLAUDE_CONFIG_DIR="$FRESH_HOME/.claude" DRY_RUN=false REPO_ROOT="$REPO_ROOT" \
+  bash -c "source '$REPO_ROOT/lib/common.sh'; source '$REPO_ROOT/modules/claude.sh'; claude_handoffs_migrate" >/dev/null 2>&1
+assert "a fresh install with no old handoffs creates no symlink" '[ ! -e "$FRESH_HOME/.claude/handoffs" ] && [ ! -L "$FRESH_HOME/.claude/handoffs" ]'
 
 echo ""
 echo "handoff-digest: $PASS passed, $FAIL failed"

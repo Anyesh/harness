@@ -6,16 +6,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TAIL_CHARS="${HARNESS_HANDOFF_TAIL_CHARS:-12000}"
-OUT_ROOT="${HARNESS_HANDOFF_DIR:-$HOME/.claude/handoffs}"
 
-for candidate in "$SCRIPT_DIR/../hooks" "$SCRIPT_DIR/../../shared/hooks"; do
-  if [[ -f "$candidate/harness-project.sh" ]]; then
-    # shellcheck source=/dev/null
-    source "$candidate/harness-project.sh"
-    break
-  fi
-done
+# shellcheck source=../hooks/handoff-common.sh
+source "$SCRIPT_DIR/../hooks/handoff-common.sh"
 declare -F harness_project_slug >/dev/null || { echo "handoff-digest: harness-project.sh not found" >&2; exit 1; }
+OUT_ROOT="$(handoff_out_root)"
 
 projects_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 transcript="${1:-}"
@@ -31,10 +26,7 @@ session_id="$(basename "$transcript" .jsonl)"
 cwd="$(grep -m1 -o '"cwd":"[^"]*"' "$transcript" | head -1 | sed 's/^"cwd":"//;s/"$//' || true)"
 [[ -n "$cwd" ]] || cwd="$PWD"
 first_ts="$(grep -m1 -o '"timestamp":"[^"]*"' "$transcript" | head -1 | cut -d'"' -f4 || true)"
-root="$(harness_repo_root "$(jq -nc --arg c "$cwd" '{workspace_roots:[$c]}')")"
-slug="$(harness_project_slug "$root")"
-
-dest_dir="$OUT_ROOT/$slug"
+dest_dir="$(handoff_project_dir "$cwd")"
 mkdir -p "$dest_dir"
 tmp="$(mktemp "$dest_dir/.$session_id.XXXXXX")"
 events="$(mktemp)"
