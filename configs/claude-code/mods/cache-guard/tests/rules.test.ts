@@ -11,6 +11,8 @@ import {
   joinSegments,
   pruneTracks,
   gateDecision,
+  gateQuestion,
+  handoffPrompt,
   learnTtl,
   noBounds,
   observeStep,
@@ -103,56 +105,80 @@ describe('observeStep', () => {
 
   test('records the context the step was answered over', () => {
     const o = observeStep({ ...base, prev: null, startedAt: 0, now: 5, usage: usage(1_000, 2_000, 300) })
-    expect(o.last).toEqual({ at: 5, ctx: 3_300, model: OPUS })
-    expect(o.miss).toBeNull()
+    expect(o?.last).toEqual({ at: 5, ctx: 3_300, model: OPUS })
+    expect(o?.miss).toBeNull()
   })
 
   test('a cold step after a long gap is a miss priced at the write rate', () => {
     const o = observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 380_000) })
-    expect(o.bounds.coldMinMs).toBe(72 * MINUTE)
-    expect(o.miss).toMatchObject({ gapMs: 72 * MINUTE, tokens: 380_000 })
-    expect(cents(o.miss?.usd)).toBe(3.04)
+    expect(o?.bounds.coldMinMs).toBe(72 * MINUTE)
+    expect(o?.miss).toMatchObject({ gapMs: 72 * MINUTE, tokens: 380_000 })
+    expect(cents(o?.miss?.usd)).toBe(3.04)
   })
 
   test('a cold step soon after the last response teaches nothing', () => {
     const o = observeStep({ ...base, startedAt: 2 * MINUTE, now: 3 * MINUTE, usage: usage(0, 380_000) })
-    expect(o.bounds).toEqual(noBounds)
-    expect(o.miss).toBeNull()
+    expect(o?.bounds).toEqual(noBounds)
+    expect(o?.miss).toBeNull()
   })
 
   test('a model switch teaches nothing', () => {
     const o = observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 380_000, 0, 'claude-sonnet-5-5') })
-    expect(o.bounds).toEqual(noBounds)
-    expect(o.miss).toBeNull()
+    expect(o?.bounds).toEqual(noBounds)
+    expect(o?.miss).toBeNull()
+  })
+
+  test('a step that reports no context is not an observation', () => {
+    expect(observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 0) })).toBeNull()
   })
 
   test('a small cold rewrite is learnt from but not reported', () => {
     const small = { at: 0, ctx: 30_000, model: OPUS }
     const o = observeStep({ ...base, prev: small, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 30_000) })
-    expect(o.bounds.coldMinMs).toBe(72 * MINUTE)
-    expect(o.miss).toBeNull()
+    expect(o?.bounds.coldMinMs).toBe(72 * MINUTE)
+    expect(o?.miss).toBeNull()
   })
 })
 
 describe('gateDecision', () => {
   const last: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
 
-  test('stays quiet before the TTL or without a previous response', () => {
-    expect(gateDecision(last, 59 * MINUTE, 60 * MINUTE, 1)).toBeNull()
-    expect(gateDecision(null, 600 * MINUTE, 60 * MINUTE, 1)).toBeNull()
+  test('stays quiet before the TTL, without a previous response, or without a live context size', () => {
+    expect(gateDecision(last, 380_000, 59 * MINUTE, 60 * MINUTE, 1)).toBeNull()
+    expect(gateDecision(null, 380_000, 600 * MINUTE, 60 * MINUTE, 1)).toBeNull()
+    expect(gateDecision(last, undefined, 600 * MINUTE, 60 * MINUTE, 1)).toBeNull()
   })
 
   test('asks past the TTL when the re-write costs at least the threshold', () => {
-    const gate = gateDecision(last, 72 * MINUTE, 60 * MINUTE, 1)
+    const gate = gateDecision(last, 380_000, 72 * MINUTE, 60 * MINUTE, 1)
     expect(gate).toMatchObject({ idleMs: 72 * MINUTE, tokens: 380_000 })
+    expect(Object.keys(gate ?? {}).sort()).toEqual(['idleMs', 'rewriteUsd', 'tokens'])
     expect(cents(gate?.rewriteUsd)).toBe(3.04)
-    expect(cents(gate?.compactUsd)).toBe(1.52)
+  })
+
+  test('prices the live context size, not the remembered one', () => {
+    expect(gateDecision(last, 20_000, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
+    expect(gateDecision(last, 20_000, 72 * MINUTE, 60 * MINUTE, 0)).toMatchObject({ tokens: 20_000 })
   })
 
   test('stays quiet when the re-write is under the threshold', () => {
-    const small = { ...last, ctx: 100_000 }
-    expect(gateDecision(small, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
-    expect(gateDecision(small, 72 * MINUTE, 60 * MINUTE, 0)).not.toBeNull()
+    expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
+    expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 0)).not.toBeNull()
+  })
+})
+
+describe('gateQuestion', () => {
+  test('quotes the re-write and offers a clear that re-writes nothing', () => {
+    expect(gateQuestion({ idleMs: 72 * MINUTE, tokens: 380_000, rewriteUsd: 3.04 })).toBe(
+      'The prompt cache has likely expired (idle 72m). Sending re-writes ~380k tokens (≈ $3.04); ' +
+        'clearing hands off to a fresh session with the digest and re-writes nothing. What now?',
+    )
+  })
+})
+
+describe('handoffPrompt', () => {
+  test('puts one continuation line above the typed text', () => {
+    expect(handoffPrompt('fix the tests')).toBe("Continue from the previous session's handoff digest.\n\nfix the tests")
   })
 })
 
@@ -167,16 +193,21 @@ describe('segmentFor', () => {
   const last: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
 
   test('warm shows the time left', () => {
-    expect(segmentFor(last, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache 42m', tone: 'normal' })
+    expect(segmentFor(last, 380_000, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache 42m', tone: 'normal' })
   })
 
   test('cold shows what the next send re-writes, as a warning', () => {
-    expect(segmentFor(last, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $3.04', tone: 'warn' })
+    expect(segmentFor(last, 380_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $3.04', tone: 'warn' })
   })
 
-  test('hides under 20k tokens of context', () => {
-    expect(segmentFor({ ...last, ctx: 19_000 }, 0, 60 * MINUTE)).toBeNull()
-    expect(segmentFor(null, 0, 60 * MINUTE)).toBeNull()
+  test('prices the live context size, not the remembered one', () => {
+    expect(segmentFor(last, 100_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $0.80', tone: 'warn' })
+  })
+
+  test('hides under 20k tokens of context, and without a live size or a previous response', () => {
+    expect(segmentFor(last, 19_000, 0, 60 * MINUTE)).toBeNull()
+    expect(segmentFor(last, undefined, 0, 60 * MINUTE)).toBeNull()
+    expect(segmentFor(null, 380_000, 0, 60 * MINUTE)).toBeNull()
   })
 })
 

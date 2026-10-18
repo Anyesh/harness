@@ -6,13 +6,17 @@ const MINUTE = 60_000
 const NOW = 1_000 * MINUTE
 const OPUS = 'claude-opus-5-5'
 const SEND = 'Send anyway'
-const COMPACT = 'Compact first'
+const CLEAR = 'Clear and hand off'
 const DRAFT = 'Keep as draft'
 const SEGMENT = '/state/harness/status/sess-1/cache-guard.json'
+const HANDOFF_LINE = "Continue from the previous session's handoff digest."
 
 type World = {
   clock: MockClock
   usage: TurnUsage | null
+  contextTokens: number | undefined
+  ran: string[]
+  clearError: string | null
   answer: string | null
   asked: string[]
   sent: string[]
@@ -22,7 +26,6 @@ type World = {
   files: Record<string, string>
   agents: AgentInfo[]
   commands: string[][]
-  compactions: number
   stored: Record<string, unknown>
 }
 
@@ -34,6 +37,9 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
   const w: World = {
     clock: mock.clock(on, { now: NOW }),
     usage: null,
+    contextTokens: undefined,
+    ran: [],
+    clearError: null,
     answer: SEND,
     asked: [],
     sent: [],
@@ -43,7 +49,6 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     files: {},
     agents: [],
     commands: [],
-    compactions: 0,
     stored: {},
   }
   on('store.get', (_$, e) => ({ value: w.stored[e.key] }))
@@ -69,10 +74,18 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     if (w.answer === null) return { deny: 'dismissed' }
     return { result: { questions: e.questions, answers: { [question]: w.answer } } } as never
   })
-  on('session.compact', () => {
-    w.compactions += 1
-    return { messages: [{ role: 'user' as const, text: 'summary', toolUses: [] }] }
+  on('command.run', (_$, e) => {
+    w.ran.push(e.command)
+    if (w.clearError !== null) throw new Error(w.clearError)
+    return {}
   })
+  on('session.usage', () => ({
+    value: {
+      startedAt: 0,
+      context: { window: 1_000_000, ...(w.contextTokens === undefined ? {} : { tokens: w.contextTokens }) },
+      rateLimits: [],
+    },
+  }))
   on('ui.toast', (_$, e) => {
     w.toasts.push(e.text)
     return { value: undefined }
@@ -96,8 +109,10 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
   return w
 }
 
+// The engine's live context is the main thread's last response, so only a main-thread step moves it.
 async function step($: Engine, w: World, u: TurnUsage, agentId?: string) {
   w.usage = u
+  if (!agentId) w.contextTokens = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
   const stream = $.turn.step({ turnId: 't', index: 0, model: OPUS, messageCount: 1, ...(agentId ? { agentId } : {}) })
   for await (const _chunk of stream) {
     // The stub yields nothing; draining the stream lets its result settle.
@@ -136,34 +151,70 @@ describe('gate', () => {
     expect(w.asked).toHaveLength(1)
     expect(w.asked[0]).toContain('idle 72m')
     expect(w.asked[0]).toContain('~380k tokens (≈ $3.04)')
-    expect(w.asked[0]).toContain('(≈ $1.52)')
+    expect(w.asked[0]).toContain('clearing hands off')
     expect(w.sent).toEqual(['next thing'])
   })
 
-  test('Compact first compacts, puts the prompt back, and does not ask again', async ($, on) => {
+  test('Clear and hand off runs /clear and fills the handoff prompt', async ($, on) => {
     const w = world(on)
-    w.answer = COMPACT
+    w.answer = CLEAR
     await warmed($, w, 72)
     const result = await submit($)
-    expect(result.drop).toContain('Compacting first')
+    expect(result.drop).toContain('Clearing')
+    expect(w.ran).toEqual([])
     await w.clock.settle()
-    expect(w.compactions).toBe(1)
-    expect(w.filled).toEqual(['next thing'])
+    expect(w.ran).toEqual(['clear'])
+    expect(w.filled).toEqual([`${HANDOFF_LINE}\n\nnext thing`])
     expect(w.sent).toEqual([])
-    await submit($)
-    expect(w.asked).toHaveLength(1)
-    expect(w.sent).toEqual(['next thing'])
+    expect(w.toasts).toEqual([])
   })
 
-  test('Keep as draft puts the prompt back without sending or compacting', async ($, on) => {
+  test('a rejected /clear keeps the original text and toasts', async ($, on) => {
+    const w = world(on)
+    w.answer = CLEAR
+    w.clearError = 'busy'
+    await warmed($, w, 72)
+    await submit($)
+    await w.clock.settle()
+    expect(w.filled).toEqual(['next thing'])
+    expect(w.toasts).toHaveLength(1)
+    expect(w.toasts[0]).toMatch(/^Could not clear \(.+\); run \/clear yourself\.$/)
+  })
+
+  test('Keep as draft puts the prompt back without sending or clearing', async ($, on) => {
     const w = world(on)
     w.answer = DRAFT
     await warmed($, w, 72)
     const result = await submit($)
     expect(result.drop).toBeDefined()
+    await w.clock.settle()
     expect(w.filled).toEqual(['next thing'])
     expect(w.sent).toEqual([])
-    expect(w.compactions).toBe(0)
+    expect(w.ran).toEqual([])
+  })
+
+  test('no gate after a compaction, because the live context size is gone', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 1)
+    w.contextTokens = undefined
+    await w.clock.advance(72 * MINUTE)
+    await submit($)
+    expect(w.asked).toEqual([])
+    expect(w.sent).toEqual(['next thing'])
+  })
+
+  test('a zero-usage step does not overwrite the last response', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 1)
+    w.usage = usage(0, 0)
+    const stream = $.turn.step({ turnId: 't', index: 1, model: OPUS, messageCount: 1 })
+    for await (const _chunk of stream) {
+      // Drained only so the result settles.
+    }
+    await stream.result
+    await w.clock.advance(72 * MINUTE)
+    await step($, w, usage(0, 380_000))
+    expect(w.toasts).toEqual(['Cache went cold after 73m: re-wrote 380k tokens (≈ $3.04 at API prices)'])
   })
 
   test('a dismissed or unanswerable ask sends', async ($, on) => {
@@ -244,6 +295,20 @@ describe('status segment', () => {
     const w = world(on, { HOME: '/home/user' })
     await warmed($, w, 1)
     expect(Object.keys(w.files)).toEqual(['/home/user/.local/state/harness/status/sess-1/cache-guard.json'])
+  })
+
+  test('the segment keeps updating after /clear, which starts no new session', async ($, on) => {
+    const w = world(on)
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
+    await start($, on)
+    await warmed($, w, 1)
+    await $.session.end({ reason: 'clear', sessionId: 'sess-1' } as never)
+    expect(w.files[SEGMENT]).toBeUndefined()
+    await step($, w, usage(0, 40_000))
+    await w.clock.advance(30_000)
+    expect(segment(w)).toMatchObject({ text: 'cache 59m', tone: 'normal' })
+    await w.clock.advance(60 * MINUTE)
+    expect(segment(w)).toMatchObject({ text: 'cache cold ≈ $0.32', tone: 'warn' })
   })
 
   test('removes the segment file when the session ends', async ($, on) => {

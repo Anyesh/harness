@@ -50,10 +50,6 @@ export function rewriteUsd(model: string, tokens: number, ttlMs: number): number
   return (tokens * (ttlMs > FIVE_MINUTES ? prices.write1h : prices.write5m)) / MILLION
 }
 
-export function compactUsd(model: string, tokens: number): number {
-  return (tokens * priceFor(model, tokens).input) / MILLION
-}
-
 export type StepKind = 'warm' | 'cold'
 
 export function classifyStep(prevCtx: number, usage: ModelUsage): StepKind | null {
@@ -111,8 +107,11 @@ export type StepObservation = {
 
 export type Observed = { last: LastResponse; bounds: TtlBounds; miss: Miss | null }
 
-export function observeStep(o: StepObservation): Observed {
-  const last = { at: o.now, ctx: contextOf(o.usage), model: o.usage.model }
+// A response can report zero usage (a trailing empty entry), and keeping it would erase the context the next step is classified against.
+export function observeStep(o: StepObservation): Observed | null {
+  const ctx = contextOf(o.usage)
+  if (ctx <= 0) return null
+  const last = { at: o.now, ctx, model: o.usage.model }
   const unchanged = { last, bounds: o.bounds, miss: null }
   // A new model starts its own cache, so its first step says nothing about expiry.
   if (!o.prev || o.prev.model !== o.usage.model) return unchanged
@@ -127,15 +126,22 @@ export function observeStep(o: StepObservation): Observed {
   return { last, bounds, miss: { at: o.now, gapMs, tokens, usd, model: o.usage.model } }
 }
 
-export type Gate = { idleMs: number; tokens: number; rewriteUsd: number; compactUsd: number }
+export type Gate = { idleMs: number; tokens: number; rewriteUsd: number }
 
-export function gateDecision(last: LastResponse | null, now: number, ttlMs: number, gateUsd: number): Gate | null {
-  if (!last) return null
+// ctx is the engine's live context size, absent right after a compaction or a clear; last only says when and on which model.
+export function gateDecision(
+  last: LastResponse | null,
+  ctx: number | undefined,
+  now: number,
+  ttlMs: number,
+  gateUsd: number,
+): Gate | null {
+  if (!last || !ctx) return null
   const idleMs = now - last.at
   if (idleMs < ttlMs) return null
-  const rewrite = rewriteUsd(last.model, last.ctx, ttlMs)
+  const rewrite = rewriteUsd(last.model, ctx, ttlMs)
   if (rewrite < gateUsd) return null
-  return { idleMs, tokens: last.ctx, rewriteUsd: rewrite, compactUsd: compactUsd(last.model, last.ctx) }
+  return { idleMs, tokens: ctx, rewriteUsd: rewrite }
 }
 
 export function formatTokens(tokens: number): string {
@@ -156,11 +162,11 @@ export function formatDuration(ms: number): string {
 export type Tone = 'normal' | 'warn'
 export type Segment = { text: string; tone: Tone }
 
-export function segmentFor(last: LastResponse | null, now: number, ttlMs: number): Segment | null {
-  if (!last || last.ctx < MIN_STATUS_CTX) return null
+export function segmentFor(last: LastResponse | null, ctx: number | undefined, now: number, ttlMs: number): Segment | null {
+  if (!last || ctx === undefined || ctx < MIN_STATUS_CTX) return null
   const left = last.at + ttlMs - now
   if (left > 0) return { text: `cache ${formatDuration(left)}`, tone: 'normal' }
-  return { text: `cache cold ≈ ${formatUsd(rewriteUsd(last.model, last.ctx, ttlMs))}`, tone: 'warn' }
+  return { text: `cache cold ≈ ${formatUsd(rewriteUsd(last.model, ctx, ttlMs))}`, tone: 'warn' }
 }
 
 // The format must match what statusline.sh reads; tests/test_statusline.sh pins that side.
@@ -172,8 +178,13 @@ export function gateQuestion(gate: Gate): string {
   return (
     `The prompt cache has likely expired (idle ${formatDuration(gate.idleMs)}). ` +
     `Sending re-writes ~${formatTokens(gate.tokens)} tokens (≈ ${formatUsd(gate.rewriteUsd)}); ` +
-    `compacting first reads them once (≈ ${formatUsd(gate.compactUsd)}). What now?`
+    `clearing hands off to a fresh session with the digest and re-writes nothing. What now?`
   )
+}
+
+// The digest path is not repeated here because the SessionStart:clear hook already puts it in the new session's context.
+export function handoffPrompt(text: string): string {
+  return `Continue from the previous session's handoff digest.\n\n${text}`
 }
 
 export function missToast(miss: Miss): string {
