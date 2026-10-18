@@ -276,8 +276,23 @@ for src in startup resume; do
     'grep -qF "$HANDOFFS/my-proj/" <<<"$CTX" && [ "$(grep -oE "\b(d|c\.handoff-1|b|a|old-sid)\.md\b" <<<"$CTX" | tr "\n" " ")" = "d.md c.handoff-1.md b.md " ]'
   assert "source $src also calls them handovers, the word the user types" 'grep -qi "handover" <<<"$CTX"'
 done
-OUT=$(run_start "$(start_payload compact)"; echo "rc=$?")
-assert "compact never lists handoffs, the handoff mod covers it" '[ "$OUT" = "rc=0" ]'
+assert "the listing marks .handoff-N.md files as the retired mod's" 'grep -q "retired" <<<"$CTX"'
+OUT=$(run_start "$(start_payload compact)")
+CTX=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
+assert "compact on an empty transcript falls back to the listing" \
+  'grep -qF "$HANDOFFS/my-proj/" <<<"$CTX" && ! grep -q "digest (built" <<<"$CTX"'
+gen_transcript "$NEW" 3 50 new-sid
+run_end "$(end_payload clear)"
+OUT=$(run_start "$(start_payload compact)")
+CTX=$(jq -r .hookSpecificOutput.additionalContext <<<"$OUT")
+NEW_DIGEST="$HANDOFFS/my-proj/new-sid.md"
+assert "compact digests the current session and names the digest" \
+  'grep -qF "$NEW_DIGEST" <<<"$CTX" && [ -f "$NEW_DIGEST" ] && grep -q "before this compaction" <<<"$CTX"'
+IDX=$(grep -n "^## Prompt index" "$NEW_DIGEST" | cut -d: -f1)
+assert "compact context tells the reader which lines to read first" 'grep -qF "lines 1-$((IDX - 1))" <<<"$CTX"'
+assert "compact leaves a pending clear pointer alone" '[ -e "$PEND/4242.json" ]'
+command rm -f "$PEND/4242.json" "$NEW_DIGEST"
+: > "$NEW"
 OTHER_PROJECT="$TMP_DIR/Elsewhere"
 mkdir -p "$OTHER_PROJECT"
 OUT=$(run_start "$(start_payload startup | jq -c --arg c "$OTHER_PROJECT" '.cwd = $c')"; echo "rc=$?")
