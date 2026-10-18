@@ -1,0 +1,9 @@
+---
+description: Example profile-only rule, appended after the shared rules in this profile's CLAUDE.md.
+alwaysApply: true
+---
+
+## Client Work
+
+- Commit as the client account configured in this repo's git config, never a global identity.
+- Keep notes about the client's systems out of the shared wiki and second-brain.

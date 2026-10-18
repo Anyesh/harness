@@ -15,19 +15,24 @@ SHARED=(
   hooks scripts skills commands agents plugins harness-mods dev-mods verdant-bash.toml
   projects plans
 )
-RESERVED=(profile list sync remove help)
+RESERVED=(profile list names sync remove help)
 
 usage() {
   cat <<'EOF'
 Usage: claude-profile [name]        create or repair a profile (asks for a name if omitted)
        claude-profile list          show profiles and the account each is signed in to
-       claude-profile sync          relink every profile to ~/.claude and merge new MCP servers
+       claude-profile names         print profile names, one per line
+       claude-profile sync [name]   relink profiles to ~/.claude and merge new MCP servers
        claude-profile remove <name> delete a profile and its launcher
        claude-profile remove --all [--yes]
                                     delete every profile (--yes skips the prompt)
 
 A profile is ~/.claude-<name> with its own sign-in, sharing the harness config,
 skills, plugins and project history from ~/.claude. Start it with claude-<name>.
+
+To give a profile its own settings, skills, rules or commands, describe the
+differences in ~/.config/harness/profiles/<name>/ (see the harness repo's
+configs/claude-code/profiles/example) and run ./install.sh --profile <name>.
 EOF
 }
 
@@ -76,9 +81,20 @@ ensure_launcher_free() {
   [[ -z "$existing" ]] || die "claude-$name already exists at $existing"
 }
 
+spec_dir() { printf '%s/harness/profiles/%s' "${XDG_CONFIG_HOME:-$HOME/.config}" "$1"; }
+
+# Written by the harness installer for entries a profile spec overrides, and for
+# MCP servers the profile must not get (memory=off).
+owned_by_install() {
+  local dir="$1" kind="$2"
+  awk -v k="$kind" '$1 == k { print $2 }' "$dir/.harness-owned" 2>/dev/null || true
+}
+
 link_shared() {
-  local dir="$1" entry src dest
+  local dir="$1" entry src dest owned
+  owned=$(owned_by_install "$dir" owned)
   for entry in "${SHARED[@]}"; do
+    grep -qxF -- "$entry" <<<"$owned" && continue
     src="$MAIN_DIR/$entry"
     dest="$dir/$entry"
     if [[ -L "$dest" && ! -e "$dest" && "$(readlink "$dest")" == "$src" ]]; then
@@ -100,13 +116,14 @@ link_shared() {
 # Profile-only servers survive; a server defined in both takes the main entry so
 # that harness updates to it reach every profile.
 merge_mcp_servers() {
-  local dir="$1" state tmp
+  local dir="$1" state tmp drop
   [[ -f "$MAIN_STATE" ]] || return 0
   state="$dir/.claude.json"
   [[ -f "$state" ]] || printf '{}\n' >"$state"
+  drop=$(owned_by_install "$dir" drop-mcp | jq -R . | jq -s .)
   tmp=$(mktemp "$state.XXXXXX")
-  if jq --slurpfile main "$MAIN_STATE" \
-    '.mcpServers = ((.mcpServers // {}) + ($main[0].mcpServers // {}))' "$state" >"$tmp"; then
+  if jq --slurpfile main "$MAIN_STATE" --argjson drop "$drop" \
+    '.mcpServers = ((.mcpServers // {}) + ($main[0].mcpServers // {}) | del(.[$drop[]]))' "$state" >"$tmp"; then
     mv "$tmp" "$state"
   else
     rm -f "$tmp"
@@ -154,6 +171,9 @@ create() {
   write_launcher "$name"
   printf 'Profile %s ready at %s, start it with claude-%s\n' "$name" "$dir" "$name"
   [[ ":$PATH:" == *":$BIN_DIR:"* ]] || warn "$BIN_DIR is not on PATH, so claude-$name will not be found until it is"
+  if [[ -d "$(spec_dir "$name")" ]]; then
+    printf 'Found overrides in %s; apply them with ./install.sh --profile %s from the harness repo\n' "$(spec_dir "$name")" "$name"
+  fi
 
   account=$(account_of "$name")
   if [[ "$account" != "not signed in" && "$account" != unknown ]]; then
@@ -182,8 +202,10 @@ list() {
 }
 
 sync() {
-  local name dir
+  local only="${1:-}" name dir
+  [[ -z "$only" ]] || validate_name "$only"
   while read -r name; do
+    [[ -z "$only" || "$name" == "$only" ]] || continue
     dir=$(profile_dir "$name")
     if [[ ! -d "$dir" ]]; then
       warn "profile $name has a launcher but no $dir, skipping"
@@ -235,7 +257,14 @@ command -v jq >/dev/null || die "jq is required"
 
 case "${1:-}" in
   list) list ;;
-  sync) sync ;;
+  names) our_profiles ;;
+  sync)
+    [[ $# -le 2 ]] || {
+      usage >&2
+      exit 1
+    }
+    sync "${2:-}"
+    ;;
   remove)
     case "$#:${2:-}:${3:-}" in
       "2:--all:") remove_all false ;;

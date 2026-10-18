@@ -39,6 +39,7 @@ NO_PLUGINS=false
 NO_BACKUP=false
 OVERRIDE_SETTINGS=false
 ONLY_MODULE=""
+PROFILE_NAME=""
 
 if [[ "$COMMAND" == --* ]]; then
   COMMAND="install"
@@ -55,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --override-settings) OVERRIDE_SETTINGS=true ;;
     --no-memory) NO_MEMORY=1 ;;
     --only) shift; ONLY_MODULE="${1:-}"; [[ -z "$ONLY_MODULE" ]] && die "--only requires a module name" ;;
+    --profile) shift; PROFILE_NAME="${1:-}"; [[ -z "$PROFILE_NAME" ]] && die "--profile requires a profile name" ;;
     --claude-only) ONLY_MODULE="claude" ;;
     --cursor-only) ONLY_MODULE="cursor" ;;
     --codex-only) ONLY_MODULE="codex" ;;
@@ -72,6 +74,11 @@ COMMAND_ARGS=("$@")
 
 if profile_no_memory && [[ -n "$ONLY_MODULE" ]] && profile_is_memory_module "$ONLY_MODULE"; then
   die "--only $ONLY_MODULE cannot be combined with --no-memory (HARNESS_NO_MEMORY): $ONLY_MODULE is a memory module"
+fi
+
+if [[ -n "$PROFILE_NAME" ]]; then
+  [[ "$PROFILE_NAME" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "'$PROFILE_NAME' is not a valid profile name"
+  [[ -z "$ONLY_MODULE" ]] || die "--profile cannot be combined with --only: it rebuilds one Claude profile and nothing else"
 fi
 
 MODULE_ORDER=(second-brain verdant claude cursor codex opencode wiki leakguard)
@@ -391,6 +398,19 @@ case "$COMMAND" in
   validate) source "$REPO_ROOT/lib/template.sh"; validate_all_templates; exit $? ;;
   *) die "unknown command: $COMMAND. Use: install, status, edit, uninstall, watch, validate" ;;
 esac
+
+# Returns before the module loop and the install tail (gitignore, tools,
+# manifest pruning and finalize), because a profile run must write nothing
+# outside ~/.claude-<name>.
+if [[ -n "$PROFILE_NAME" ]]; then
+  log_section "Claude profile: $PROFILE_NAME"
+  source "$REPO_ROOT/modules/claude.sh"
+  profile_rc=0
+  claude_profile_render "$PROFILE_NAME" || profile_rc=$?
+  [[ $profile_rc -eq 0 ]] || FAILED=$((FAILED + 1))
+  report_summary
+  exit $profile_rc
+fi
 
 log_section "Harness Bootstrap"
 log_info "repo: $REPO_ROOT"

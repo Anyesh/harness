@@ -61,6 +61,20 @@ Lite mode is for machines that never had the full install. Switching from full t
 
 `claude-profile list` shows each profile's account, `claude-profile remove <name>` deletes one (`remove --all` deletes every profile, and `install.sh uninstall` runs it, sign-ins included), and `claude-profile sync` relinks all of them; every install runs `sync`, so profiles pick up new entries and MCP servers. An install started from inside a profile session still targets `~/.claude`. If Claude replaces a shared symlink with its own file (a settings write, say), `sync` reports it instead of overwriting it.
 
+#### Profile overrides
+
+A profile can run its own settings, skills, rules or commands while everything else keeps following `~/.claude`. Describe only the differences in `~/.config/harness/profiles/<name>/` (outside the repo, so account-specific choices stay private; `configs/claude-code/profiles/example/` documents every key and is never read by the installer), then run `./install.sh --profile <name>`, which rebuilds that profile and writes nothing outside `~/.claude-<name>`. A plain install updates main first and then rebuilds every profile, so main's changes still reach the parts a profile does not override.
+
+| In the spec | The profile gets |
+|---|---|
+| `settings.json` | main's settings with this overlay applied: objects merge, other values replace, `null` deletes a key. Edits made inside the profile survive reinstalls through the same three-way merge main uses. Hooks merge across Claude's settings scopes, so leaving one out of the profile's file (`null`) is the only way to drop it. |
+| `rules_only` / `rules_exclude`, `rules/*.mdc` | its own `CLAUDE.md` with the selected shared rules plus its own |
+| `skills_only` / `skills_exclude`, `skills/` | its own `skills/` linking each selected main skill, plus its own (a same-named one replaces main's) |
+| `commands_only` / `commands_exclude`, `commands/` | the same for commands |
+| `memory=off` | all of the above without second-brain and the wiki, and no `second-brain` MCP server |
+
+Only touched entries become the profile's own; hooks, scripts, plugins and `projects/` stay shared, and plugins are switched per profile through `enabledPlugins` in the overlay. A profile can only narrow main: after a `--no-memory` install every profile is memory-off too. Removing an override from the spec relinks that entry on the next install and keeps the profile's copy in `~/.claude-<name>/.harness/backups/`; deleting the spec folder reverts the whole profile.
+
 ### Cursor
 
 ```

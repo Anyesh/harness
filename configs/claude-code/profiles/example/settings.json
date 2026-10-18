@@ -1,0 +1,10 @@
+{
+  "model": "sonnet",
+  "fastMode": null,
+  "enabledPlugins": {
+    "playwright@claude-plugins-official": false
+  },
+  "env": {
+    "NTFY_DONE": "0"
+  }
+}
