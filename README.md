@@ -123,7 +123,7 @@ A mod cannot draw on the status line itself, so a mod with something to show the
 | `session-start.sh` | SessionStart | Activates modes, checks environment |
 | `session-end-ingest.sh` | SessionEnd | Ingests session into second-brain (machine memory) |
 | `session-start-wiki.sh` | SessionStart | Injects project wiki context + devlog |
-| `session-start-handoff.sh` | SessionStart (Claude Code) | After `/clear`, digests the previous session (pointer left by `session-end-handoff.sh`); on startup, resume, or a clear without a pointer, names the project's handoff dir and its three newest files |
+| `session-start-handoff.sh` | SessionStart (Claude Code) | After `/clear`, digests the previous session (pointer left by `session-end-handoff.sh`); after a compaction, digests the current session so the files, commits, plan and recent turns survive the summary; on startup, resume, or when no digest can be built, names the project's handoff dir and its three newest files |
 | `worktree-sweep.sh` | SessionStart (Claude Code, async, logs to `~/.local/state/harness/worktree-sweep.log`) | Removes idle worktrees whose commits landed on main, salvaging uncommitted files to `.git/worktree-salvage/`; Codex and Cursor have no async session start, so run it by hand |
 | `humanize-*.js` | Various | Humanize mode activation, config |
 | `ownit-*.js` | Various | Ownership mindset activation, config |
