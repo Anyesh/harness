@@ -2,6 +2,22 @@
 
 declare -f profile_skips_rule >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
 
+strip_frontmatter() {
+  awk 'BEGIN{in_fm=0; past_fm=0}
+       NR==1 && /^---[[:space:]]*$/ {in_fm=1; next}
+       in_fm && /^---[[:space:]]*$/ {in_fm=0; past_fm=1; next}
+       in_fm {next}
+       past_fm==0 && NR==1 {past_fm=1}
+       {print}' "$1"
+}
+
+# A claude-profile spec narrows the rule set further while one is being
+# rendered; spec_skips_rule only exists once lib/claude_profile_spec.sh is loaded.
+rule_skipped() {
+  profile_skips_rule "$1" && return 0
+  declare -F spec_skips_rule >/dev/null && spec_skips_rule "$1"
+}
+
 render_template() {
   local input="$1" output="$2"
   local env_file="${HARNESS_ENV:-$HOME/.harness.env}"
@@ -44,16 +60,11 @@ render_template() {
         local glob_file first_glob_file=true glob_match_count=0
         while IFS= read -r glob_file; do
           [[ -f "$glob_file" ]] || continue
-          profile_skips_rule "$(basename "$glob_file")" && continue
+          rule_skipped "$(basename "$glob_file")" && continue
           glob_match_count=$((glob_match_count + 1))
           [[ "$first_glob_file" == false ]] && printf '\n'
           first_glob_file=false
-          awk 'BEGIN{in_fm=0; past_fm=0}
-               NR==1 && /^---[[:space:]]*$/ {in_fm=1; next}
-               in_fm && /^---[[:space:]]*$/ {in_fm=0; past_fm=1; next}
-               in_fm {next}
-               past_fm==0 && NR==1 {past_fm=1}
-               {print}' "$glob_file"
+          strip_frontmatter "$glob_file"
         done < <(printf '%s\n' "${glob_matches[@]}" | sort)
         if [[ "$glob_match_count" -eq 0 ]]; then
           declare -f log_warn >/dev/null 2>&1 && log_warn "INCLUDE_BODY_GLOB matched no files: $full_glob"
@@ -69,12 +80,7 @@ render_template() {
 
         [[ -n "$prefix" ]] && printf '%s\n' "$prefix"
         if [[ -f "$full_path" ]]; then
-          awk 'BEGIN{in_fm=0; past_fm=0}
-               NR==1 && /^---[[:space:]]*$/ {in_fm=1; next}
-               in_fm && /^---[[:space:]]*$/ {in_fm=0; past_fm=1; next}
-               in_fm {next}
-               past_fm==0 && NR==1 {past_fm=1}
-               {print}' "$full_path"
+          strip_frontmatter "$full_path"
         fi
         [[ -n "$suffix" ]] && printf '%s\n' "$suffix"
         found_include=true

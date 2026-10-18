@@ -8,6 +8,7 @@ MEMORY_HOOKS=(session-start-wiki.sh wiki-nudge.sh stop-wiki-enforce.sh session-e
 MEMORY_RULES=(second-brain.mdc wiki-maintenance.mdc)
 MEMORY_SKILLS=(wiki)
 MEMORY_COMMANDS=(devlog plan decision)
+MEMORY_MCP_SERVERS=(second-brain)
 
 NO_MEMORY="${HARNESS_NO_MEMORY:-}"
 [[ "$NO_MEMORY" == "1" ]] || NO_MEMORY=""
@@ -53,7 +54,8 @@ profile_skips_command() {
 strip_memory_json() {
   local file="$1" tmp
   tmp=$(mktemp)
-  if ! jq --argjson names "$(printf '%s\n' "${MEMORY_HOOKS[@]}" | jq -R . | jq -s .)" '
+  if ! jq --argjson names "$(printf '%s\n' "${MEMORY_HOOKS[@]}" | jq -R . | jq -s .)" \
+    --argjson servers "$(printf '%s\n' "${MEMORY_MCP_SERVERS[@]}" | jq -R . | jq -s .)" '
     def memory_cmd: (.command // "") as $c | any($names[]; . as $n | $c | contains($n));
     (if has("hooks") then
        .hooks |= (
@@ -67,8 +69,8 @@ strip_memory_json() {
        )
      else . end)
     | if (.env // null) != null then del(.env.WIKI_VAULT) else . end
-    | if (.mcpServers // null) != null then del(.mcpServers["second-brain"]) else . end
-    | if (.enabledMcpjsonServers // null) != null then .enabledMcpjsonServers -= ["second-brain"] else . end
+    | if (.mcpServers // null) != null then del(.mcpServers[$servers[]]) else . end
+    | if (.enabledMcpjsonServers // null) != null then .enabledMcpjsonServers -= $servers else . end
   ' "$file" > "$tmp"; then
     rm -f "$tmp"
     return 1

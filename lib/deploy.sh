@@ -106,18 +106,28 @@ rebuild_merge_base() {
 # lib/json_merge3.py for the rules. OVERRIDE_SETTINGS=true replaces the file.
 deploy_reconciled_template() {
   local src="$1" dest="$2" manifest_source="$3" label="$4"
-  local ours base merged rebuilt conflicts rc=0
+  local ours rc=0
   ours=$(mktemp)
   if ! render_candidate "$src" "$ours" "$dest" "$label"; then
     rm -f "$ours"
     return 1
   fi
+  deploy_reconciled_candidate "$ours" "$dest" "$manifest_source" "$label" || rc=$?
+  rm -f "$ours"
+  return $rc
+}
+
+# The reconcile half of deploy_reconciled_template, for a candidate the caller
+# already built (a claude-profile settings.json is a render plus an overlay).
+# The candidate is left in place; callers own its cleanup.
+deploy_reconciled_candidate() {
+  local ours="$1" dest="$2" manifest_source="$3" label="$4"
+  local base merged rebuilt conflicts rc=0
   base=$(merge_base_path "$dest")
 
   if [[ "${OVERRIDE_SETTINGS:-false}" == "true" || ! -f "$dest" ]]; then
     deploy_file "$ours" "$dest" "$manifest_source" "true" "$label"
     save_merge_base "$ours" "$base"
-    rm -f "$ours"
     return 0
   fi
 
@@ -132,7 +142,7 @@ deploy_reconciled_template() {
   conflicts=$(python3 "$REPO_ROOT/lib/json_merge3.py" "$ours" "$dest" "$merged" ${base_arg[@]+"${base_arg[@]}"}) || rc=$?
   rm -f "$rebuilt"
   if [[ $rc -ne 0 ]]; then
-    rm -f "$ours" "$merged"
+    rm -f "$merged"
     if [[ $rc -eq 3 ]]; then
       log_warn "$label: $dest is not strict JSON, left untouched (--override-settings replaces it)"
     else
@@ -150,7 +160,7 @@ deploy_reconciled_template() {
   fi
   deploy_file "$merged" "$dest" "$manifest_source" "true" "$label"
   save_merge_base "$ours" "$base"
-  rm -f "$ours" "$merged"
+  rm -f "$merged"
 }
 
 # The base is the harness render, never the merged file, so that the next

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+source "$REPO_ROOT/lib/claude_profiles.sh"
+
 claude_check() {
     if [[ "$HAS_CLAUDE" != "true" ]]; then
         log_info "Claude Code not detected, skipping"
@@ -256,6 +258,7 @@ claude_install() {
   deploy_impeccable_skill "claude" "$CLAUDE_CONFIG_DIR/skills/impeccable"
   deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands" "$REPO_ROOT/configs/claude-code/commands"
   claude_profile_tool
+  claude_profiles_render_all
   claude_profiles_sync
 }
 
@@ -264,6 +267,7 @@ claude_test() {
     tmp_dir=$(mktemp -d)
 
     local orig_home="$HOME"
+    local orig_xdg="${XDG_CONFIG_HOME-}" had_xdg="${XDG_CONFIG_HOME+set}"
     local orig_config="${CLAUDE_CONFIG_DIR:-}"
     local orig_dry="$DRY_RUN"
     local orig_force="$FORCE"
@@ -271,6 +275,7 @@ claude_test() {
     local orig_no_plugins="$NO_PLUGINS"
 
     export HOME="$tmp_dir"
+    export XDG_CONFIG_HOME="$tmp_dir/.config"
     CLAUDE_CONFIG_DIR="$tmp_dir/.claude"
     DRY_RUN=true
     FORCE=true
@@ -282,6 +287,7 @@ claude_test() {
     output=$(claude_install 2>&1)
 
     HOME="$orig_home"
+    if [[ -n "$had_xdg" ]]; then XDG_CONFIG_HOME="$orig_xdg"; else unset XDG_CONFIG_HOME; fi
     CLAUDE_CONFIG_DIR="$orig_config"
     DRY_RUN="$orig_dry"
     FORCE="$orig_force"
