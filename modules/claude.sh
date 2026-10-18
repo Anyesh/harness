@@ -59,6 +59,20 @@ claude_plugins() {
       fi
     fi
   done < "$plugins_file"
+
+  # Dropping a line from plugins.list unregisters nothing, so a removed mod would linger
+  # as an installed plugin whose marketplace entry is gone.
+  local retired_plugins=("handoff@harness-mods") retired
+  for retired in "${retired_plugins[@]}"; do
+    claude plugin list 2>/dev/null | grep -qF -- "$retired" || continue
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would uninstall retired plugin: $retired"
+    elif claude plugin uninstall "$retired" 2>/dev/null; then
+      log_success "uninstalled retired plugin: $retired"
+    else
+      log_error "failed to uninstall retired plugin: $retired"
+    fi
+  done
 }
 
 # Tests stay in the repo: `claude plugin test` runs them from the source tree,
