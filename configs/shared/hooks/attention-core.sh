@@ -92,8 +92,8 @@ arm() {
     log "$session" "skip $kind: $reason"
     return 0
   fi
-  if [[ "$kind" == done && "${NTFY_DONE:-0}" != 1 ]]; then
-    log "$session" "skip done: finished-turn pushes are off (NTFY_DONE=1 turns them on)"
+  if [[ "$kind" == done && "${NTFY_DONE:-1}" == 0 ]]; then
+    log "$session" "skip done: finished-turn pushes are off (NTFY_DONE=0)"
     return 0
   fi
 
