@@ -52,6 +52,7 @@ new_home() {
 state=absent
 [ -f "$home/.claude/harness-mods/.claude-plugin/marketplace.json" ] && state=present
 echo "claude \$* [marketplace \$state]" >> "$home/calls.log"
+if [ "\$1 \$2" = "plugin list" ] && [ -f "$home/installed" ]; then cat "$home/installed"; fi
 EOF
     chmod +x "$home/.local/bin/claude"
 }
@@ -131,6 +132,14 @@ assert "registers the local marketplace after its files deploy" \
 for mod in "${MODS[@]}"; do
     assert "installs $mod from the local marketplace" 'grep -qF "claude plugin install $mod@harness-mods" "$P/calls.log"'
 done
+assert "does not uninstall a retired mod that is not installed" '! grep -qF "plugin uninstall" "$P/calls.log"'
+
+R="$TMP_DIR/retired"
+new_home "$R"
+printf '  ❯ handoff@harness-mods\n    Status: ✔ enabled\n' > "$R/installed"
+harness "$R" --only claude >/dev/null
+assert "uninstalls the retired handoff mod when it is still installed" \
+    'grep -qF "claude plugin uninstall handoff@harness-mods" "$R/calls.log"'
 
 echo ""
 echo "=== uninstall ==="
