@@ -73,7 +73,7 @@ run_env() {
     -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_PID -u CLAUDE_PROJECT_DIR -u CURSOR_PROJECT_DIR \
     -u NTFY_BLOCK_DELAY -u NTFY_DONE_DELAY -u NTFY_DONE \
     HARNESS_ENV="$ENV_FILE" XDG_STATE_HOME="$STATE" PATH="$STUB:$PATH" STUB_CALLS="$CALLS" \
-    NTFY_BLOCK_DELAY=600 NTFY_DONE_DELAY=600 NTFY_DONE=1 CLAUDE_PID=$$ "$@"
+    NTFY_BLOCK_DELAY=600 NTFY_DONE_DELAY=600 CLAUDE_PID=$$ "$@"
 }
 
 notify() {
@@ -219,9 +219,9 @@ assert "done push title says finished" 'body_field .title | grep -q "Claude fini
 S=claude-done-off
 BEFORE=$(calls)
 notify claude "$(jq -nc --arg s $S --arg t "$TRANSCRIPT" --arg cwd "$PROJECT" \
-  '{session_id:$s, hook_event_name:"Notification", notification_type:"idle_prompt", message:"waiting", transcript_path:$t, cwd:$cwd}')" NTFY_DONE=
+  '{session_id:$s, hook_event_name:"Notification", notification_type:"idle_prompt", message:"waiting", transcript_path:$t, cwd:$cwd}')" NTFY_DONE=0
 sleep 0.5
-assert "finished turns do not push unless NTFY_DONE=1" '[ ! -f "$(marker $S)" ] && [ "$(calls)" -eq "$BEFORE" ] && log_has "skip done: finished-turn pushes are off"'
+assert "NTFY_DONE=0 turns finished-turn pushes off" '[ ! -f "$(marker $S)" ] && [ "$(calls)" -eq "$BEFORE" ] && log_has "skip done: finished-turn pushes are off"'
 
 S=claude-default-delay
 notify claude "$(ask_json $S tu-default)" NTFY_BLOCK_DELAY=
