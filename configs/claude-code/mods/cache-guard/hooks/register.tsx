@@ -12,6 +12,7 @@ import {
   effectiveTtl,
   gateDecision,
   gateQuestion,
+  handoffPrompt,
   joinSegments,
   missToast,
   observeStep,
@@ -27,7 +28,7 @@ const listed = atom({ plugin: 'cache-guard', key: 'listed' } as const, [])
 const dismissed = atom({ plugin: 'cache-guard', key: 'dismissed' } as const, [])
 
 const SEND = 'Send anyway'
-const COMPACT = 'Compact first'
+const CLEAR = 'Clear and hand off'
 const DRAFT = 'Keep as draft'
 const SEGMENT_EVERY_MS = 30_000
 
@@ -46,10 +47,14 @@ async function segmentPath($: EngineInterface, sessionId: string): Promise<strin
   return `${state}/harness/status/${sessionId}/cache-guard.json`
 }
 
+async function liveContext($: EngineInterface): Promise<number | undefined> {
+  return (await $.session.usage()).context.tokens
+}
+
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {
   const now = await $.clock.now()
   const segment = joinSegments(
-    segmentFor(await read($, last), now, await ttlMs($, config)),
+    segmentFor(await read($, last), await liveContext($), now, await ttlMs($, config)),
     agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config)),
   )
   await $.fs.write(await segmentPath($, await $.session.id()), segmentFile(segment, await $.clock.now()))
@@ -95,11 +100,6 @@ async function tick($: EngineInterface, config: Config): Promise<void> {
   await showSegment($, config)
 }
 
-async function forget($: EngineInterface, config: Config): Promise<void> {
-  await update($, last, () => null)
-  await showSegment($, config)
-}
-
 async function observe($: EngineInterface, config: Config, startedAt: number, usage: TurnUsage): Promise<void> {
   const seen = observeStep({
     prev: await read($, last),
@@ -109,6 +109,7 @@ async function observe($: EngineInterface, config: Config, startedAt: number, us
     bounds: asBounds(await $.store.get('ttl')),
     defaultTtlMs: config.defaultTtlMs,
   })
+  if (!seen) return
   await update($, last, () => seen.last)
   await $.store.set('ttl', seen.bounds)
   const miss = seen.miss
@@ -134,6 +135,7 @@ async function observeAgent(
     bounds: asBounds(await $.store.get('agentTtl')),
     defaultTtlMs: config.agentTtlMs,
   })
+  if (!seen) return
   const track = { ...seen.last, firstAt: prev?.firstAt ?? startedAt }
   await update($, agents, tracked => ({ ...tracked, [agentId]: track }))
   await $.store.set('agentTtl', seen.bounds)
@@ -145,15 +147,15 @@ async function observeAgent(
   $.ui.toast(agentMissToast(type, miss))
 }
 
-async function compactThenRestore($: EngineInterface, config: Config, text: string): Promise<void> {
+async function clearThenRestore($: EngineInterface, text: string): Promise<void> {
   try {
-    const compacted = await $.session.compact()
-    if (compacted.messages) await forget($, config)
-    else $.ui.toast(`Compaction skipped: ${compacted.skip}`)
+    await $.command.run({ command: 'clear' })
   } catch (err) {
-    $.ui.toast(`Compaction failed: ${String(err)}`)
+    $.ui.toast(`Could not clear (${String(err)}); run /clear yourself.`)
+    await $.prompt.fill({ text })
+    return
   }
-  await $.prompt.fill({ text })
+  await $.prompt.fill({ text: handoffPrompt(text) })
 }
 
 export const register: Register = (on, options) => {
@@ -174,9 +176,13 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    ticker?.cancel()
-    ticker = undefined
-    if (e.reason === 'clear') await update($, last, () => null)
+    // The ticker must survive a /clear because no session.start follows it to restart one.
+    if (e.reason === 'clear') {
+      await update($, last, () => null)
+    } else {
+      ticker?.cancel()
+      ticker = undefined
+    }
     await removeSegment($, e.sessionId)
     return next(e)
   })
@@ -202,30 +208,30 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('session.compact', async ($, e, next) => {
-    const result = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute' && result.messages) await forget($, config)
-    return result
-  }).catch(($, e, next) => next(e))
-
   // Fails open because this is a cost warning: a broken guard must never eat a prompt.
   on('prompt.submit', async ($, e, next) => {
     // Attachments cannot be put back in the prompt box, so a prompt carrying them is never held.
     if (e.origin.kind !== 'composer' || e.turnId !== undefined || e.attachments) return next(e)
-    const gate = gateDecision(await read($, last), await $.clock.now(), await ttlMs($, config), config.gateUsd)
+    const gate = gateDecision(
+      await read($, last),
+      await liveContext($),
+      await $.clock.now(),
+      await ttlMs($, config),
+      config.gateUsd,
+    )
     if (!gate) return next(e)
 
     const choice = await $.ui
-      .ask(gateQuestion(gate), { header: 'Cold cache', options: [SEND, COMPACT, DRAFT] })
+      .ask(gateQuestion(gate), { header: 'Cold cache', options: [SEND, CLEAR, DRAFT] })
       .catch((err: unknown) => {
         $.ui.log(`cache-guard: cold cache question unanswered (${String(err)}), sending`, { to: 'debug' })
         return SEND
       })
 
-    if (choice === COMPACT) {
-      // The host refuses a compaction under the prompt this hook is holding, so it runs once the prompt is dropped.
-      $.clock.after(0, () => void compactThenRestore($, config, e.text))
-      return { drop: 'Compacting first; your prompt will be back in the box.' }
+    if (choice === CLEAR) {
+      // $.command.run rejects inside a hook the turn waits on, so /clear runs once the prompt is dropped.
+      $.clock.after(0, () => void clearThenRestore($, e.text))
+      return { drop: 'Clearing; your prompt will be back in the box.' }
     }
     if (choice === DRAFT) {
       await $.prompt.fill({ text: e.text })
