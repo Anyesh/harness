@@ -202,8 +202,8 @@ verdict() {
     ask)
       compgen -G "$repo/LICENSE*" > /dev/null && fails+=" picked-without-asking"
       local q opts
-      q=$(grep -cE '\?[*_)]*[[:space:]]*$' <<<"$text" || true)
-      opts=$(grep -cE '^[[:space:]]*([-*]|[0-9]+[.)]|\(?[A-Da-d][.)]|\*\*[A-Da-d][.)])[[:space:]]' <<<"$text" || true)
+      q=$(printf '%s\n' "$text" | strip_fences | sed 's/`[^`]*`//g' | tr -cd '?' | wc -c)
+      opts=$(grep -cE '^[[:space:]]*([-*][[:space:]]+)?(\*\*)?\(?[A-Da-d1-9][.):](\*\*)?[[:space:]]' <<<"$text" || true)
       [[ "$q" -ne 1 ]] && fails+=" questions=$q"
       [[ "$opts" -lt 2 || "$opts" -gt 4 ]] && fails+=" options=$opts"
       ;;
