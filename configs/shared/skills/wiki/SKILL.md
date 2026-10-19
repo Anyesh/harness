@@ -109,7 +109,7 @@ The LLM should update the wiki proactively during sessions when significant work
 
 **Anti-bloat rules:**
 - No "In this session we..." framing
-- No timestamps in prose (frontmatter only)
+- No timestamps in prose (frontmatter and devlog entry headings only)
 - No attribution to "Claude" or "the AI" — write as if a knowledgeable colleague documented it
 - No hedging ("it might be worth considering...") — be direct
 - No listing things that are obvious from the code itself
