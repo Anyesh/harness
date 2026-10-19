@@ -88,7 +88,7 @@ process.stdin.on('end', () => {
     const activeMode = readFlag(flagPath);
     if (activeMode && shouldRemind(sessionId)) {
       const strictExtra = activeMode === 'strict'
-        ? ' STRICT: absolutely zero multi-question responses. One question, one response, no exceptions.'
+        ? ' STRICT: the one-question rule also covers code reviews and multi-part answers.'
         : '';
 
       const reminder = "HUMANIZE MODE ACTIVE (" + activeMode + "). " +
@@ -96,7 +96,7 @@ process.stdin.on('end', () => {
         "Ask through the structured question tool with 2-4 options, recommended first; " +
         "a lettered list (A/B/C) only where no such tool exists. " +
         "Prefer choice over free-text. Label single/multi-select. " +
-        "No wall-of-text. Bold header + 2-4 bullets max. " +
+        "No wall-of-text. Bold header + at most 4 bullets. " +
         "Headline first: what you did, found or recommend; for a diagnosis, finding then evidence then fix. " +
         "The global Response Format bypasses still apply." + strictExtra;
 
