@@ -15,7 +15,7 @@ Never write:
 - Change-history comments (`# was: old_value = 5`, `// renamed from oldFunc`). Use git.
 - Section banners (`# ==== Helpers ====`). Use file structure instead.
 - Doc-comments that paraphrase the signature (`/** Get user by id */` above `getUserById`). Add real content (constraints, error modes, thread safety, examples) or delete.
-- Multi-line rationale, design history or narration, even when it contains a reason. A comment states the one fact the code cannot; the story of how you got there goes in the commit or PR.
+- Multi-line rationale, design history or narration, even when it contains a reason. A comment states the one fact the code cannot; the story of how you got there goes in the PR description, or as one sentence in the commit body.
 
 Comments for non-obvious WHY are allowed and encouraged: hidden constraints, subtle invariants, workarounds tied to a named bug, thread-safety and lock ordering, surprising behavior a reader would misunderstand.
 

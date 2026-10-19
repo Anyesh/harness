@@ -97,7 +97,8 @@ process.stdin.on('end', () => {
         "a lettered list (A/B/C) only where no such tool exists. " +
         "Prefer choice over free-text. Label single/multi-select. " +
         "No wall-of-text. Bold header + 2-4 bullets max. " +
-        "Headline first: what you did, found or recommend." + strictExtra;
+        "Headline first: what you did, found or recommend; for a diagnosis, finding then evidence then fix. " +
+        "The global Response Format bypasses still apply." + strictExtra;
 
       if (platform === 'cursor') {
         process.stdout.write(JSON.stringify({ continue: true }));
