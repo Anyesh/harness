@@ -9,7 +9,7 @@ You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`
 
 **Write when a session produces:** a concrete plan or PRD, an architecture or design decision (especially with tradeoffs), a completed spike (succeeded or abandoned), brainstorm ideas worth remembering, a concept discussed in depth for the first time, or scope defined with rationale.
 
-**Do NOT write:** routine fixes or refactors, debugging steps (unless the finding is non-obvious), transcripts or play-by-play, summaries of what was just done, file listings or raw output, anything obvious from reading the code.
+**Do NOT write:** routine fixes or refactors, debugging steps (unless the finding is non-obvious), transcripts or play-by-play, summaries of what was just done (a devlog entry is the exception: it records the outcomes and findings worth finding later, not the steps), file listings or raw output, anything obvious from reading the code.
 
 **Where pages go** (slug: repo basename in kebab-case, create directories as needed):
 
@@ -21,7 +21,7 @@ $WIKI_VAULT/wiki/concepts/                   — cross-project concepts
 
 Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's references/ files (plan.md, decide.md, spike.md, log.md); follow them exactly.
 
-**Anti-bloat:** no session narration, hedging or AI attribution, and at most 2 paragraphs per section.
+**Anti-bloat:** no session narration, no timestamps in prose (frontmatter only), no AI attribution, no hedging, at most 2 paragraphs per section, and lists for facts and tradeoffs; write as a knowledgeable colleague documenting for future reference.
 
 **After writing any page, update `$WIKI_VAULT/wiki/index.md`.** Mandatory, no exceptions: one line per page with a short description hook; new projects go under `## Projects`.
 
