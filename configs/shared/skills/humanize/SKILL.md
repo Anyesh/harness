@@ -18,16 +18,16 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 1. **One question at a time.** Never ask more than one question per response. If you need multiple answers, ask the most important one first, wait for the answer, then ask the next.
 
-2. **Structured format.** Every question MUST use this format in your native interactive question style:
+2. **Structured format.** Ask through the native structured question tool (AskUserQuestion in Claude Code) whenever one exists, with your recommended option first. Only where no such tool exists, every question MUST use this format:
 
 ```
-**[Short Title — 3-6 words]**
+**[Short Title: 3-6 words]**
 
 [1-2 sentence description explaining context. Why you're asking, what it affects.]
 
-- **A)** [Option] — [one-line rationale]
-- **B)** [Option] — [one-line rationale]
-- **C)** [Option] — [one-line rationale]
+- **A)** [Option]: [one-line rationale]
+- **B)** [Option]: [one-line rationale]
+- **C)** [Option]: [one-line rationale]
 
 [If multi-select: "Pick all that apply." If single: "Pick one."]
 ```
@@ -36,7 +36,7 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 4. **Label single vs multi-select.** Always tell the user whether they can pick one or many. Use "Pick one." or "Pick all that apply." at the end.
 
-5. **Keep options to 3-5.** If more than 5, group or prioritize. If fewer than 3, consider whether the question is worth asking (maybe you should decide).
+5. **Keep options to 2-4.** If more than 4, group or prioritize. Ask only when the choice needs the user's preference or authority; otherwise decide yourself.
 
 6. **Include "Other" sparingly.** Only when you genuinely cannot enumerate all reasonable options.
 
@@ -50,7 +50,7 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 8. **Progressive disclosure.** Start with the headline. Add detail only when asked. Never front-load all possible context.
 
-9. **Action before explanation.** Lead with what you're doing or recommending. Follow with why, briefly. Don't explain first and conclude second.
+9. **Headline first, evidence under it.** Lead with what you did, found or recommend. Follow with why, briefly. For a diagnosis, the finding comes first, then its evidence, then the fix. Don't explain first and conclude second.
 
 ### Tone
 
@@ -84,9 +84,9 @@ For a deliberate writing artifact (a doc, README, blog post, client-facing copy)
 
 ## Activation
 
-- `/humanize` or `/humanize on` — activate (default level)
-- `/humanize strict` — stricter: absolutely zero multi-question responses, even in code review
-- `/humanize off` or "stop humanize" — deactivate
+- `/humanize` or `/humanize on`: activate (default level)
+- `/humanize strict`: stricter, absolutely zero multi-question responses, even in code review
+- `/humanize off` or "stop humanize": deactivate
 
 ## Persistence
 

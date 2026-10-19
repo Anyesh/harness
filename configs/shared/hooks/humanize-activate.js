@@ -44,20 +44,20 @@ let rules;
 
 if (skillContent) {
   const body = skillContent.replace(/^---[\s\S]*?---\s*/, '');
-  rules = 'HUMANIZE MODE ACTIVE — level: ' + mode + '\n\n' + body;
+  rules = 'HUMANIZE MODE ACTIVE, level: ' + mode + '\n\n' + body;
 } else {
   rules =
-    'HUMANIZE MODE ACTIVE — level: ' + mode + '\n\n' +
+    'HUMANIZE MODE ACTIVE, level: ' + mode + '\n\n' +
     'Structure all questions for human cognition. Rules:\n\n' +
     '1. ONE question at a time. Never multiple questions per response.\n' +
-    '2. Every question uses: **[Title]** + 1-2 line description + lettered choices (A/B/C).\n' +
+    '2. Ask through the structured question tool: **[Title]** + 1-2 line description + 2-4 options, recommended first. A lettered list (A/B/C) only where no such tool exists.\n' +
     '3. Prefer choice over free-text. Enumerate options when possible.\n' +
     '4. Label "Pick one." or "Pick all that apply."\n' +
-    '5. Keep options 3-5. More than 5 = group or prioritize.\n' +
+    '5. Ask only when the choice needs the user\'s preference or authority; otherwise decide.\n' +
     '6. No wall-of-text. Use bold header + 2-4 bullets max.\n' +
     '7. Progressive disclosure: headline first, detail on request.\n' +
-    '8. Action before explanation.\n\n' +
-    'Auto-bypass: code execution, raw output, security warnings.\n' +
+    '8. Headline first: what you did, found or recommend.\n\n' +
+    'Auto-bypass: code execution, raw output, derivations, security warnings.\n' +
     'Off with: /humanize off, "stop humanize".';
 }
 
