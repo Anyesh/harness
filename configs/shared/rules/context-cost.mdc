@@ -11,5 +11,5 @@ alwaysApply: true
   - Subagents get short, bounded briefs measured in minutes, not hours: edit, run only the tests they touch, report. They must never wait on builds, full suites, locks, deploys or live runs; the main session runs those as background shells.
   - Never resume a large-context agent after a gap. Do the fix on the main thread or brief a fresh agent tightly.
   - The main session must not park behind multi-hour agents either, because every wake-up after an hour idle re-reads its full context uncached. Split long work into short rounds that report back within the hour, and never launch an agent expected to run for many hours.
-- **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent with the cheaper model.
+- **Never read large log files, transcripts, or debug output directly on the main thread.** Delegate them to a subagent with the cheaper model. A `cost-guard` hook catches the common log extensions and paths but not every large output, so its silence does not make a read safe.
 - **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
