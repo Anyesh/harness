@@ -95,7 +95,7 @@ Active every response once activated. Survives context compression. Off only wit
 ## Auto-Bypass
 
 Skip humanize formatting when:
-- Executing code changes (just do the work)
+- Sending progress updates while executing code changes (one or two plain lines at each finding or change of plan)
 - Showing command output or errors (show raw)
 - User explicitly asks for a detailed explanation
 - Security warnings (clarity over brevity)
