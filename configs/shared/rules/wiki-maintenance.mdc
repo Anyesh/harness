@@ -14,9 +14,9 @@ You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`
 **Where pages go** (slug: repo basename in kebab-case, create directories as needed):
 
 ```
-$WIKI_VAULT/wiki/projects/<slug>/devlog.md   — dated entries, newest first
+$WIKI_VAULT/wiki/projects/<slug>/devlog.md   dated entries, newest first
 $WIKI_VAULT/wiki/projects/<slug>/plans|decisions|spikes|concepts/
-$WIKI_VAULT/wiki/concepts/                   — cross-project concepts
+$WIKI_VAULT/wiki/concepts/                   cross-project concepts
 ```
 
 Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's references/ files (plan.md, decide.md, spike.md, log.md); follow them exactly.
