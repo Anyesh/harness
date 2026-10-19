@@ -93,10 +93,11 @@ process.stdin.on('end', () => {
 
       const reminder = "HUMANIZE MODE ACTIVE (" + activeMode + "). " +
         "ONE question per response. " +
-        "Format: **[Title]** + description + lettered choices (A/B/C). " +
+        "Ask through the structured question tool with 2-4 options, recommended first; " +
+        "a lettered list (A/B/C) only where no such tool exists. " +
         "Prefer choice over free-text. Label single/multi-select. " +
         "No wall-of-text. Bold header + 2-4 bullets max. " +
-        "Action before explanation." + strictExtra;
+        "Headline first: what you did, found or recommend." + strictExtra;
 
       if (platform === 'cursor') {
         process.stdout.write(JSON.stringify({ continue: true }));
