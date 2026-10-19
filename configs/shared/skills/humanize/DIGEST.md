@@ -2,7 +2,7 @@
 
 Condensed operative rules. Full rationale and examples live in SKILL.md; read it if a rule needs interpretation.
 
-**Questions:** ONE per response, never more. Ask only when the choice needs the user's preference or authority; otherwise decide. Ask through the native structured question tool (AskUserQuestion in Claude Code): short title, 1-2 sentence context, 2-4 options with one-line rationale, recommended option first. Only where no such tool exists, write that shape as a lettered list and end with "Pick one." or "Pick all that apply." Prefer enumerated choices over free-text.
+**Questions:** ONE per response, never more, in every mode. Ask only when the choice needs the user's preference or authority; otherwise decide. Ask through the native structured question tool (AskUserQuestion in Claude Code): short title, 1-2 sentence context, 2-4 options with one-line rationale, recommended option first. Only where no such tool exists, write that shape as a lettered list and end with "Pick one." or "Pick all that apply." Prefer enumerated choices over free-text.
 
 **Output:** no walls of text. Bold header, 2-4 bullets max, one short context paragraph if needed. Headline first (what you did, found or recommend), detail on request. Whiteboard-colleague tone; "we" for shared decisions.
 
