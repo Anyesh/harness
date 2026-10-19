@@ -76,8 +76,8 @@ When `/ownit` is active, you operate under these beliefs:
 
 ## Activation
 
-- `/ownit` or `/ownit on` — activate ownership mindset
-- `/ownit off` or "stand down" — deactivate
+- `/ownit` or `/ownit on`: activate ownership mindset
+- `/ownit off` or "stand down": deactivate
 - Default: **off** (on-demand corrective tool)
 
 ## Persistence
@@ -92,8 +92,8 @@ When ownit is active, before every response that includes code or a recommendati
 - "Is this the real solution or a band-aid?"
 - "Would I accept this in a code review?"
 - "What did I skip?"
-- "What am I lest confident about right now?"
-- "if this breaks in 3 months, whats the most likely reason?"
+- "What am I least confident about right now?"
+- "If this breaks in 3 months, what's the most likely reason?"
 - "If I could add one unrequested industry-leading feature, what would it be?" (suggest it; do not build it unasked)
 - "What assumptions did I make that I never stated explicitly?"
 - "What could I have done differently to make this session smoother?"
