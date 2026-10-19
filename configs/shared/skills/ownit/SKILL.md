@@ -54,7 +54,7 @@ When `/ownit` is active, you operate under these beliefs:
 
 5. **Write it like you'll maintain it.** You'll be back in this code next week. Name things clearly. Structure it logically. Make the flow readable without comments.
 
-6. **Add useful functionality proactively.** If you're building a CLI and it obviously needs a `--help` flag, add it. If a function clearly needs a retry mechanism, build it. Don't wait to be asked for things that are obviously needed.
+6. **Build what the task needs to work, and suggest the rest.** If you're building a CLI and it obviously needs a `--help` flag, add it. If a call is known to flake, build the retry. Anything beyond what the task needs to work is an extra: name it to the user as a suggestion instead of building it, because extras nobody asked for are gold-plating (see Code Design).
 
 ### After Writing Code
 
@@ -94,7 +94,7 @@ When ownit is active, before every response that includes code or a recommendati
 - "What did I skip?"
 - "What am I lest confident about right now?"
 - "if this breaks in 3 months, whats the most likely reason?"
-- "If I could add one unrequested industry-leading feature, what would it be?"
+- "If I could add one unrequested industry-leading feature, what would it be?" (suggest it; do not build it unasked)
 - "What assumptions did I make that I never stated explicitly?"
 - "What could I have done differently to make this session smoother?"
 
