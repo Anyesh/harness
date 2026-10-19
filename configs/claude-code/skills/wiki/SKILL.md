@@ -106,7 +106,7 @@ The LLM should update the wiki proactively during sessions when significant work
 - Routine code changes (bug fixes, refactors) unless they reveal something surprising
 - Debugging steps (unless the root cause is non-obvious and worth documenting)
 - Session transcripts or play-by-play narration
-- AI-generated summaries of what was just done
+- AI-generated summaries of what was just done (a devlog entry is the exception: it records the outcomes and findings worth finding later, not the steps)
 - File listings, command outputs, or other raw data
 
 **Quality bar:** Before writing a wiki page, ask: "Would a human reading this in Obsidian three months from now find it useful for understanding what was explored, decided, or learned?" If no, don't write it.
@@ -114,7 +114,7 @@ The LLM should update the wiki proactively during sessions when significant work
 **Anti-bloat rules:**
 - No "In this session we..." framing
 - No timestamps in prose (frontmatter and devlog entry headings only)
-- No attribution to "Claude" or "the AI" — write as if a knowledgeable colleague documented it
+- No attribution to "Claude" or "the AI"; write as if a knowledgeable colleague documented it
 - No hedging ("it might be worth considering...") — be direct
 - No listing things that are obvious from the code itself
 - Maximum 2 paragraphs per section unless the content genuinely requires more
