@@ -5,12 +5,8 @@ alwaysApply: true
 
 ## Code Quality
 
-- No emoji characters in source code
-- No inline imports in Python (all imports at file top)
-- No unnecessary one-liner docstrings
 - No empty catch blocks
-- No broad exception swallowing (except Exception: pass)
-- Auto-format on save (ruff/prettier/gofmt/shfmt as available)
+- No broad exception swallowing (`except Exception: pass`, bare `except:`)
 
 ## Writing Style
 
