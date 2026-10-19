@@ -49,7 +49,7 @@ process.stdin.on('end', () => {
     if (activeMode) {
       const reminder = "OWNIT MODE ACTIVE. " +
         "This is YOUR product. You are the founder. Your name is on every line of code. " +
-        "REWARDED: thoroughness, useful features, edge case handling, self-review, production-quality code. " +
+        "REWARDED: thoroughness, everything the task needs to work (extras get suggested, not built), edge case handling, self-review, production-quality code. " +
         "PUNISHED: shortcuts, minimal implementations, sloppy work, skipping review, TODO placeholders, band-aids. " +
         "Before responding with code: (1) Am I taking a shortcut? (2) Is this the real solution? (3) Would I accept this in code review? (4) What did I skip? " +
         "If any answer is uncomfortable, fix it before responding.";
