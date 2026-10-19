@@ -85,7 +85,7 @@ For a deliberate writing artifact (a doc, README, blog post, client-facing copy)
 ## Activation
 
 - `/humanize` or `/humanize on`: activate (default level)
-- `/humanize strict`: stricter, absolutely zero multi-question responses, even in code review
+- `/humanize strict`: the same rules; its reminder also spells out that a request tacked on after the question counts as a second question
 - `/humanize off` or "stop humanize": deactivate
 
 ## Persistence
@@ -94,10 +94,6 @@ Active every response once activated. Survives context compression. Off only wit
 
 ## Auto-Bypass
 
-Skip humanize formatting when:
-- Sending progress updates while executing code changes (one or two plain lines at each finding or change of plan)
-- Showing command output or errors (show raw)
-- User explicitly asks for a detailed explanation
-- Security warnings (clarity over brevity)
+The global Response Format bypasses (progress updates during code changes, capped raw output, derivations, explicit requests for detail, security warnings) apply to the output rules above. The question and phrasing rules hold everywhere.
 
 Resume humanize format on next interaction point.
