@@ -76,11 +76,10 @@ The wiki is organized by project. Each project the user works on gets its own se
 ├── concepts/                  # cross-project concepts
 ├── synthesis/                 # cross-project analyses, filed queries
 ├── sources/                   # external source summaries
-├── raw/                       # immutable source copies
-│   └── assets/
-├── index.md                   # master catalog
-└── WIKI_SCHEMA.md             # conventions (written by /wiki init)
+└── index.md                   # master catalog
 ```
+
+`raw/` (immutable source copies, with `assets/`) and `WIKI_SCHEMA.md` (conventions, written by `/wiki init`) sit at the vault root, next to `wiki/`.
 
 **Project slug** is derived from the git repo name or directory basename (kebab-case). The LLM determines the current project from `git rev-parse --show-toplevel` or `$PWD`.
 
