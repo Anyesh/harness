@@ -9,6 +9,10 @@ Write an architecture decision record (ADR) to `$WIKI_VAULT/wiki/projects/<slug>
 type: decision
 status: accepted
 created: YYYY-MM-DD
+updated: YYYY-MM-DD
+tags:
+  - decision
+  - <slug>
 project: <slug>
 ---
 

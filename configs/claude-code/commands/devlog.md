@@ -18,7 +18,7 @@ Use `repo_slug`, `wiki_vault` and `today` exactly as printed.
 A single entry, newest at top, in this format:
 
 ```
-## YYYY-MM-DD Brief title
+## [YYYY-MM-DD] Brief title
 
 - Key outcome or decision
 - Context that wouldn't be obvious from git history

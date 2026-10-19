@@ -9,6 +9,10 @@ Write a plan or PRD to `$WIKI_VAULT/wiki/projects/<slug>/plans/<kebab-title>.md`
 type: plan
 status: active
 created: YYYY-MM-DD
+updated: YYYY-MM-DD
+tags:
+  - plan
+  - <slug>
 project: <slug>
 ---
 

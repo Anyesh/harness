@@ -20,6 +20,10 @@ Use `repo_slug`, `wiki_vault` and `today` exactly as printed. The `decisions` li
 type: decision
 status: accepted
 created: <today>
+updated: <today>
+tags:
+  - decision
+  - <repo_slug>
 project: <repo_slug>
 ---
 
