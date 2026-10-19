@@ -26,3 +26,7 @@ Never write:
 - Doc-comments that paraphrase the signature (`/** Get user by id */` above `getUserById`). Add real content (constraints, error modes, thread safety, examples) or delete.
 
 A comment that stays should say why, usually with words like `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe` or `lock ordering`. Standard directives are fine: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
+
+### Shortcut language
+
+Before sending a reply, check it for phrases like "simpler approach", "simpler way", "simpler solution", "quick fix", "quick and dirty", "good enough for now", "let me just", "let's just", "for now I'll", "hack together", "band-aid", "workaround for now", "low-hanging fruit", "easy way out", "minimal change", "stub out for now", "naive approach", "poor man's", "punt on", "for simplicity" or "throw-away version". Each one marks a hard problem being dodged: name that problem and commit to the real work instead of rewording the sentence.
