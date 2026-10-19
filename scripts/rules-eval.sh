@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: rules-eval.sh [--runs N] [--jobs N] [--hooks] [--model M] [--only a,b] [--out DIR] VARIANT.md...
+       rules-eval.sh --rescore DIR [--only a,b]
 
 Runs scripted `claude -p` tasks, each in a throwaway git repo whose CLAUDE.md
 is VARIANT.md, with the user CLAUDE.md, settings and hooks left out
@@ -16,6 +17,9 @@ handoff hooks are never added, so eval sessions stay out of the phone, the
 second-brain store and the vault.
 
 Checks: commit commit-attr comments prose uv uv-bare testcount ask plan review diagnose
+--rescore re-judges the saved runs in DIR with the current checks, without
+new model calls.
+
 Every run is a real model call and costs usage.
 EOF
 }
@@ -30,6 +34,7 @@ HOOKS="${RULES_EVAL_HOOKS:-false}"
 MODEL="${RULES_EVAL_MODEL:-opus}"
 OUT="${RULES_EVAL_OUT:-}"
 ONLY=""
+RESCORE=""
 HOOK_RE='pre-edit|pre-bash|cost-guard|stop-sloppiness|format-on-save|pre-plan-summary|humanize|ownit'
 
 VARIANTS=()
@@ -43,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --model) MODEL="$2"; shift ;;
     --only) ONLY="${2//,/ }"; shift ;;
     --out) OUT="$2"; shift ;;
+    --rescore) RESCORE="$2"; shift ;;
     -h | --help) usage; exit 0 ;;
     -*) usage >&2; exit 1 ;;
     *) VARIANTS+=("$1") ;;
@@ -324,8 +330,44 @@ run_one() {
   jq -rnR '[inputs | fromjson? | select(.type == "result") | .total_cost_usd // 0] | add // 0' "$dir/stream.jsonl" > "$dir/cost"
 }
 
+report() {
+  local v vn c pass total
+  printf '\n%-14s' "check"
+  for v in "${VARIANTS[@]}"; do printf '%-10s' "$(basename "$v" .md)"; done
+  printf '\n'
+  for c in $CHECKS; do
+    printf '%-14s' "$c"
+    for v in "${VARIANTS[@]}"; do
+      vn=$(basename "$v" .md)
+      pass=$(cat "$OUT/$vn/$c"/*/verdict 2>/dev/null | grep -c '^PASS' || true)
+      total=$(ls -d "$OUT/$vn/$c"/*/ 2>/dev/null | wc -l)
+      printf '%-10s' "$pass/$total"
+    done
+    printf '\n'
+  done
+  printf '\nFailures:\n'
+  grep -H '^FAIL' "$OUT"/*/*/*/verdict 2>/dev/null | sed "s|$OUT/||; s|/verdict:| |" || echo "  none"
+  printf '\nCost: $%s\nRuns: %s\n' "$(cat "$OUT"/*/*/*/cost 2>/dev/null | awk '{s += $1} END {printf "%.2f", s}')" "$OUT"
+}
+
 if [[ "$ONE" == true ]]; then
   run_one "${VARIANTS[@]}"
+  exit 0
+fi
+
+if [[ -n "$RESCORE" ]]; then
+  OUT=$(realpath "$RESCORE")
+  [[ -d "$OUT" ]] || { echo "rules-eval: no such run directory: $RESCORE" >&2; exit 1; }
+  for d in "$OUT"/*/*/*/; do
+    [[ -f "$d/stream.jsonl" ]] || continue
+    c=$(basename "$(dirname "$d")")
+    [[ -n "$ONLY" && " $ONLY " != *" $c "* ]] && continue
+    prompt_for "$c" > /dev/null && verdict "$c" "${d%/}" > "$d/verdict"
+  done
+  mapfile -t VARIANTS < <(find "$OUT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+  CHECKS=""
+  for c in ${ONLY:-$ALL_CHECKS}; do compgen -G "$OUT/*/$c" > /dev/null && CHECKS+=" $c"; done
+  report
   exit 0
 fi
 
@@ -353,19 +395,4 @@ for v in "${VARIANTS[@]}"; do
   done
 done | xargs -P "$JOBS" -n 3 -d '\n' "$0" --one || echo "rules-eval: some runs exited non-zero; their verdicts below may be missing" >&2
 
-printf '\n%-14s' "check"
-for v in "${VARIANTS[@]}"; do printf '%-10s' "$(basename "$v" .md)"; done
-printf '\n'
-for c in $CHECKS; do
-  printf '%-14s' "$c"
-  for v in "${VARIANTS[@]}"; do
-    vn=$(basename "$v" .md)
-    pass=$(cat "$OUT/$vn/$c"/*/verdict 2>/dev/null | grep -c '^PASS' || true)
-    total=$(ls -d "$OUT/$vn/$c"/*/ 2>/dev/null | wc -l)
-    printf '%-10s' "$pass/$total"
-  done
-  printf '\n'
-done
-printf '\nFailures:\n'
-grep -H '^FAIL' "$OUT"/*/*/*/verdict 2>/dev/null | sed "s|$OUT/||; s|/verdict:| |" || echo "  none"
-printf '\nCost: $%s\nRuns: %s\n' "$(cat "$OUT"/*/*/*/cost 2>/dev/null | awk '{s += $1} END {printf "%.2f", s}')" "$OUT"
+report
