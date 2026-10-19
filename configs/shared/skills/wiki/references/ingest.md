@@ -28,7 +28,7 @@ Write to `wiki/sources/<slug>.md` with Summary, Key Claims, Entities, Concepts s
 
 ### Step 6 — Create/update entity and concept pages
 
-For each entity or concept identified: create new pages or update existing ones following the templates above.
+For each entity or concept identified: create new pages or update existing ones following the page template in `references/concept.md`.
 
 ### Step 7 — Update index.md
 

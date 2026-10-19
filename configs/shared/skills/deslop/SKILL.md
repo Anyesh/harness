@@ -27,7 +27,7 @@ This skill is the on-demand prose editor. It is distinct from the always-on `hum
 
 When given text to humanize:
 
-1. **Identify AI patterns** - Scan for the patterns listed below.
+1. **Identify AI patterns** - Scan for the patterns catalogued in `references/*.md`.
 2. **Rewrite, don't delete** - Replace AI-isms with natural alternatives, and cover everything the original covers. If the original has five paragraphs, the rewrite has five paragraphs.
 3. **Preserve meaning** - Keep the core message intact.
 4. **Match the voice** - Fit the intended tone (formal, casual, technical). Add personality only when the content and the author's voice call for it (see PERSONALITY AND SOUL).
@@ -39,7 +39,7 @@ The draft, audit, final loop and the deliverable are defined under Process and O
 
 ### What NOT to flag (false positives)
 
-A clean human writer can hit several of the patterns above without any AI involvement. Before rewriting, sanity-check that you are not gutting legitimate prose. The following are *not* reliable indicators on their own:
+A clean human writer can hit several of the catalogued patterns without any AI involvement. Before rewriting, sanity-check that you are not gutting legitimate prose. The following are *not* reliable indicators on their own:
 
 - **Perfect grammar and consistent style.** Many writers are professionals or have been edited. Polish does not equal AI.
 - **Mixed casual and formal registers.** This often signals a person in a technical field, a young writer, or someone with neurodivergent prose habits, not a chatbot.
@@ -73,7 +73,7 @@ When you see these, lean toward leaving the prose alone. They are evidence of a 
 
 ## Process and Output
 
-1. Read the input carefully and identify every instance of the patterns above.
+1. Read the input carefully and identify every instance of the patterns in `references/*.md`.
 2. Write a **draft rewrite**. Check that it reads naturally aloud, varies sentence length, prefers specific details and simple constructions (is/are/has), and keeps the appropriate register.
 3. Ask: **"What makes the below so obviously AI generated?"** Answer briefly with any remaining tells.
 4. Revise into a **final rewrite** that addresses them and contains no em or en dashes (see #14).
