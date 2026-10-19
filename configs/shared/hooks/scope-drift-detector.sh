@@ -53,7 +53,7 @@ if [ -f "$SCOPE_FILE" ]; then
     fi
 fi
 
-MSG="SCOPE CHECK (turn ${TURNS}): No current .scope.md found. If you are doing feature work or multi-file changes, answer the Three Questions before continuing: (1) Context — where are specs/plans/wiki? (2) Definition of done — what declares this complete? (3) Feedback loop — how are you validating? Write answers to .scope.md. If this is a quick fix or config change, ignore this reminder."
+MSG="SCOPE CHECK (turn ${TURNS}): No current .scope.md found. If you are doing feature work or multi-file changes, answer the Three Questions before continuing (after plan approval when the work needs a plan): (1) Context: where are specs, plans and the wiki? (2) Definition of done: what declares this complete? (3) Feedback loop: how are you validating? Write answers to .scope.md. If this is a single-file fix or config change, ignore this reminder."
 
 if [ "$AGENT" = "cursor" ]; then
     jq -n --arg msg "$MSG" '{additional_context: $msg}'
