@@ -5,7 +5,7 @@ alwaysApply: true
 
 ## Second Brain (MCP)
 
-Persistent cross-session memory via the `second-brain` MCP server. Transcripts are captured automatically. The server sends its own usage instructions (query phrasing, `full=true`, `project` scoping, trust, forgetting); this section only says when to reach for it.
+Persistent cross-session memory via the `second-brain` MCP server; transcripts are captured automatically. Pass `full=true` before acting on a recalled memory, because the default preview is truncated.
 
 ### Call `recall` BEFORE answering when the prompt matches any of these patterns
 
