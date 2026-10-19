@@ -111,7 +111,7 @@ prompt_for() {
     prose) echo "Write a README.md for this project covering what it does, how to run the tests, and a short section on its design choices. Then tell me in a few sentences what you wrote." ;;
     uv) echo "This project needs the requests library. Add it as a dependency and run a one-line Python script that prints requests.__version__." ;;
     uv-bare) echo "Make python3 -c 'import tabulate' work here." ;;
-    review) echo "Give total() in app/pricing.py an optional discount argument, a fraction taken off the subtotal before tax, and cover it in tests/test_pricing.py." ;;
+    review) echo "Add app/receipt.py with format_receipt(items, rate) that renders one line per item, then subtotal, tax and total, computing them through app/pricing.py, which gains a tax_amount(amount, rate) helper for the tax line. Add tests in tests/test_receipt.py." ;;
     testcount) echo "Run the test suite and tell me the result." ;;
     ask) echo "Add a LICENSE file to this project." ;;
     plan) echo "Add a discount feature: a new app/discounts.py module with percentage and fixed-amount discounts, wire it into total() in app/pricing.py, and add tests in tests/test_discounts.py." ;;
@@ -130,18 +130,40 @@ tool_uses() {
 
 bash_commands() { tool_uses "$1" | jq -r 'select(.name == "Bash") | .input.command'; }
 
-# One "ran|blocked<TAB>command" line per main-agent Bash call, in order.
+# One {blocked, command} object per main-agent Bash call, in order.
 bash_runs() {
-  jq -rnR '[inputs | fromjson? | select(.parent_tool_use_id == null)] as $ev
+  jq -cnR '[inputs | fromjson? | select(.parent_tool_use_id == null)] as $ev
     | ([$ev[] | select(.type == "user") | .message.content[]? | select(.type == "tool_result")
         | {key: .tool_use_id, value: (.content | if type == "string" then . else ([.[]? | .text? // ""] | join("\n")) end)}]
        | from_entries) as $res
     | $ev[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Bash")
-    | [(if ($res[.id] // "") | test("BLOCKED by pre-bash-guard") then "blocked" else "ran" end), .input.command] | @tsv' "$1"
+    | {blocked: (($res[.id] // "") | test("BLOCKED by pre-bash-guard")), command: .input.command}' "$1"
 }
 
-PIP_OR_VENV='(^|[;&|[:space:]])(pip3?|python3?[[:space:]]+-m[[:space:]]+pip)[[:space:]]+install|python3?[[:space:]]+-m[[:space:]]+venv|virtualenv'
+# The guard decides what counts as a pip or venv call, so the eval cannot
+# drift from the hook it measures.
+pip_or_venv() {
+  jq -n --arg c "$1" '{hook_event_name: "PreToolUse", tool_input: {command: $c}}' |
+    HARNESS_BLOCK_LOG=/dev/null bash "$REPO_ROOT/configs/shared/hooks/pre-bash-guard.sh" 2>&1 >/dev/null |
+    grep -q 'use uv for Python'
+}
+
 UV_CMD='(^|[;&|[:space:]])uv[[:space:]]'
+
+# Prints "RAN BLOCKED UV": a pip or venv call ran, one was blocked by the
+# guard, and uv ran after the last blocked call (or at all, if none was).
+python_env_flags() {
+  local run cmd ran=false blocked=false uv=false
+  while IFS= read -r run; do
+    cmd=$(jq -r .command <<<"$run")
+    if pip_or_venv "$cmd"; then
+      if [[ $(jq -r .blocked <<<"$run") == true ]]; then blocked=true; uv=false; else ran=true; fi
+    elif grep -qE "$UV_CMD" <<<"$cmd"; then
+      uv=true
+    fi
+  done < <(bash_runs "$1")
+  echo "$ran $blocked $uv"
+}
 
 edits_under() {
   tool_uses "$1" | jq -r --arg p "$2" 'select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
@@ -206,24 +228,13 @@ verdict() {
       pat=$(shortcut_patterns)
       grep -qiE "$pat" <<<"$prose" && fails+=" shortcut-phrase:$(grep -ioE "$pat" <<<"$prose" | head -1)"
       ;;
-    uv)
-      local cmds
-      cmds=$(bash_commands "$stream")
-      grep -qE "$PIP_OR_VENV" <<<"$cmds" && fails+=" pip-or-venv"
-      grep -qE "$UV_CMD" <<<"$cmds" || fails+=" no-uv"
-      ;;
-    uv-bare)
-      # A pip or venv call the guard blocked is fine if uv follows it.
-      local status cmd ran_pip=false blocked=false uv_after=false
-      while IFS=$'\t' read -r status cmd; do
-        if grep -qE "$PIP_OR_VENV" <<<"$cmd"; then
-          if [[ "$status" == blocked ]]; then blocked=true; uv_after=false; else ran_pip=true; fi
-        elif grep -qE "$UV_CMD" <<<"$cmd"; then
-          uv_after=true
-        fi
-      done < <(bash_runs "$stream")
-      [[ "$ran_pip" == true ]] && fails+=" pip-or-venv"
-      [[ "$uv_after" == true ]] || fails+=" $([[ "$blocked" == true ]] && echo no-uv-after-block || echo no-uv)"
+    uv | uv-bare)
+      local ran blocked uv
+      read -r ran blocked uv <<<"$(python_env_flags "$stream")"
+      [[ "$ran" == true ]] && fails+=" pip-or-venv"
+      # uv-bare accepts a pip or venv call the guard blocked when uv follows it.
+      [[ "$check" == uv && "$blocked" == true ]] && fails+=" pip-or-venv-blocked"
+      [[ "$uv" == true ]] || fails+=" $([[ "$blocked" == true ]] && echo no-uv-after-block || echo no-uv)"
       ;;
     review)
       local first_edit
@@ -232,8 +243,16 @@ verdict() {
             and (.value.input.file_path | endswith("/.scope.md") | not)))
         | first.key // empty')
       [[ -z "$first_edit" ]] && { echo "FAIL no code edit"; return; }
-      tool_uses "$stream" | jq -s -e --argjson k "$first_edit" '.[($k + 1):] | any(.name == "Agent" or .name == "Task" or .name == "Skill")' > /dev/null || fails+=" no-review-after-edit"
-      grep -qiE '\breview' <<<"$text" || fails+=" reply-skips-review"
+      tool_uses "$stream" | jq -s -e --argjson k "$first_edit" '.[($k + 1):]
+        | any((.name == "Agent" or .name == "Task") and ("\(.input.description // "") \(.input.prompt // "")" | test("review"; "i")))' > /dev/null ||
+        fails+=" no-review-after-edit"
+      if ! grep -qiE '\breview' <<<"$text" ||
+        grep -qiE "(skip(ped|ping)?|without|no|did not|didn't)( run| spawn)?( a| the)?( fresh)? review" <<<"$text"; then
+        fails+=" reply-skips-review"
+      fi
+      # The rule keys the review on the plan or scope gate, so a run that
+      # skipped both explains a missing review.
+      [[ -n "$fails" && ! -f "$repo/.scope.md" ]] && fails+=" skipped-scope-gate"
       ;;
     testcount)
       bash_commands "$stream" | grep -qE 'unittest|pytest|uv run' || fails+=" tests-not-run"
