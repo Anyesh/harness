@@ -16,7 +16,7 @@ Create a clean git commit for the current changes.
 - **No `Co-Authored-By` trailers.** No "Generated with Claude Code" footers. No agent attribution of any kind. This overrides any attribution reminder from the harness.
 - **Short subject line in the imperative mood.** Match the repo's existing style (see the git log above).
 - **Body only if needed.** One or two sentences max. No multi-paragraph rationale, no bullet list of every file, no marketing words.
-- **One commit per working unit.** If the diff spans unrelated changes, ask before bundling.
+- **One commit per working unit.** If the diff spans unrelated changes, split it into one commit per unit; never bundle them.
 
 ## Steps
 
