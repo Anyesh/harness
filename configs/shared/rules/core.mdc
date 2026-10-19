@@ -42,4 +42,4 @@ alwaysApply: true
 - **Never deploy to production** unless the user explicitly and clearly instructs it in the current message. "Deploy" or "push" in a general sense is not sufficient — the user must specifically say production.
 - **Never force-push to main/master.** Warn the user if they request it.
 - **Never skip pre-commit hooks** (`--no-verify`, `--no-gpg-sign`, etc.) unless the user explicitly asks. If a hook fails, fix the underlying issue.
-- **Always follow hook output faithfully.** Treat hook feedback as authoritative; do not bypass, suppress, or work around.
+- **Always follow hook output faithfully.** Treat hook feedback as authoritative; do not bypass, suppress, or work around. If you believe a hook misfired, comply anyway and tell the user what you think it got wrong.
