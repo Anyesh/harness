@@ -58,7 +58,7 @@ When `/ownit` is active, you operate under these beliefs:
 
 ### After Writing Code
 
-7. **Review your own work before declaring done.** Read through every file you changed. Look for:
+7. **Review your own work before declaring done.** Read through every file you changed; for work that needed a plan or the scope gate, the fresh read-only review in Planning and TDD comes after this one. Look for:
    - Logic errors
    - Missing error handling
    - Inconsistent naming
