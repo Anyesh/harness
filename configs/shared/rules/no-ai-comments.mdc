@@ -7,6 +7,16 @@ alwaysApply: true
 
 Comment only where a reader would be lost without it: a constraint, an invariant, a workaround, a reason not visible in the code itself. Everywhere else, let the code speak. This applies to every language you touch.
 
-Never write comments that restate the code, one-line docstrings on trivial functions, context-of-origin notes (`# added for the payment flow`), change history (`# was: old_value = 5`), section banners, or doc-comments that paraphrase the signature. Comments for non-obvious WHY are encouraged: hidden constraints, subtle invariants, workarounds tied to a named bug, thread-safety and lock ordering, surprising behavior a reader would misunderstand.
+Never write:
+
+- Narrative comments restating the code (`// Set the user`, `# increment counter`). Delete them.
+- One-line docstrings on trivial functions (`"""Get the user."""`). If the name is clear, the docstring is noise.
+- Context-of-origin comments (`# added for the payment flow`, `// handles issue #123`). That belongs in the commit message, not source.
+- Change-history comments (`# was: old_value = 5`, `// renamed from oldFunc`). Use git.
+- Section banners (`# ==== Helpers ====`). Use file structure instead.
+- Doc-comments that paraphrase the signature (`/** Get user by id */` above `getUserById`). Add real content (constraints, error modes, thread safety, examples) or delete.
+- Multi-line rationale, design history or narration, even when it contains a reason. A comment states the one fact the code cannot; the story of how you got there goes in the commit or PR.
+
+Comments for non-obvious WHY are allowed and encouraged: hidden constraints, subtle invariants, workarounds tied to a named bug, thread-safety and lock ordering, surprising behavior a reader would misunderstand.
 
 If a pre-edit hook blocks a Write or Edit, do not argue with it: delete the comment (most common), or rewrite it with an explicit WHY the reader could not learn from the code alone. The test: would a senior engineer reading cold learn something the code itself does not say?
