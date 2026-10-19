@@ -45,8 +45,8 @@ dangerous=(
 )
 
 python_env=(
-  "${at}(\S*/)?pip3?(\s+-\S+)*\s+install\b"
-  "${at}(\S*/)?python3?(\.[0-9]+)?\s+-m\s+(pip(\s+-\S+)*\s+install|venv)\b"
+  "${at}(\S*/)?pip(3(\.[0-9]+)?)?(\s+-\S+)*\s+install\b"
+  "${at}(\S*/)?python(3(\.[0-9]+)?)?\s+-m\s+(pip(\s+-\S+)*\s+install|venv|virtualenv)\b"
   "${at}virtualenv\b"
 )
 
