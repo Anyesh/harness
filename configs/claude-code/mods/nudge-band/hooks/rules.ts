@@ -155,7 +155,8 @@ function decideWiki(turns: number, edits: number, snapshot: Snapshot, armed: Arm
     armed: fired,
     message:
       `WIKI: You are ${turns} turns into this session and have not written ${missing}. ` +
-      `Write a devlog entry at ${wiki.devlogPath} summarizing work so far. If you made plans, decisions, ` +
+      `Write a devlog entry at ${wiki.devlogPath} recording the outcomes and findings worth finding later ` +
+      `(not a play-by-play). If you made plans, decisions, ` +
       `or ran spikes, create pages in the corresponding subdirectory. Then update ${wiki.indexPath}: ` +
       'every session must update it. Do this now, before your next task response.',
   }

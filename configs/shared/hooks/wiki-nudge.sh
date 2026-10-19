@@ -65,7 +65,7 @@ if [ -d "$WIKI_DIR" ] && [ "$SESSION_START" -gt 0 ]; then
     fi
 fi
 
-MSG="WIKI: You are ${TURNS} turns into this session and have not written any wiki pages. Write a devlog entry at ${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md summarizing work so far. If you made plans, decisions, or ran spikes, create pages in the corresponding subdirectory. Then update ${WIKI_VAULT}/wiki/index.md — this is mandatory, every session must update it. Do this now, before your next task response."
+MSG="WIKI: You are ${TURNS} turns into this session and have not written any wiki pages. Write a devlog entry at ${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md recording the outcomes and findings worth finding later (not a play-by-play). If you made plans, decisions, or ran spikes, create pages in the corresponding subdirectory. Then update ${WIKI_VAULT}/wiki/index.md: this is mandatory, every session must update it. Do this now, before your next task response."
 
 if [ "$AGENT" = "cursor" ]; then
     jq -n --arg msg "$MSG" '{additional_context: $msg}'
