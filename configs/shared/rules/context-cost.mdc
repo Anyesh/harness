@@ -12,4 +12,5 @@ alwaysApply: true
   - Never resume a large-context agent after a gap. Do the fix on the main thread or brief a fresh agent tightly.
   - The main session must not park behind multi-hour agents either, because every wake-up after an hour idle re-reads its full context uncached. Split long work into short rounds that report back within the hour, and never launch an agent expected to run for many hours.
 - **Never read large log files, transcripts, or debug output directly on the main thread.** Delegate them to a subagent with the cheaper model. A `cost-guard` hook catches the common log extensions and paths but not every large output, so its silence does not make a read safe.
+- **Edit surgically and batch independent calls.** Change the lines that need changing instead of rewriting a whole file when the result would be the same. Before acting, issue together every read or tool call that does not depend on a result you are still waiting for.
 - **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
