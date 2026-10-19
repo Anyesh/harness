@@ -20,6 +20,10 @@ Use `repo_slug`, `wiki_vault` and `today` exactly as printed. The `plans` listin
 type: plan
 status: active
 created: <today>
+updated: <today>
+tags:
+  - plan
+  - <repo_slug>
 project: <repo_slug>
 ---
 

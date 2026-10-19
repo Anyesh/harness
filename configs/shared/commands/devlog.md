@@ -7,7 +7,7 @@ Append a dated entry to this project's devlog in the Obsidian wiki at `$WIKI_VAU
 A single entry, newest at top, in this format:
 
 ```
-## YYYY-MM-DD Brief title
+## [YYYY-MM-DD] Brief title
 
 - Key outcome or decision
 - Context that wouldn't be obvious from git history
