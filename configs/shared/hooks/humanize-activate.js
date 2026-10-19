@@ -54,7 +54,7 @@ if (skillContent) {
     '3. Prefer choice over free-text. Enumerate options when possible.\n' +
     '4. Label "Pick one." or "Pick all that apply."\n' +
     '5. Ask only when the choice needs the user\'s preference or authority; otherwise decide.\n' +
-    '6. No wall-of-text. Use bold header + 2-4 bullets max.\n' +
+    '6. No wall-of-text. Use bold header + at most 4 bullets.\n' +
     '7. Progressive disclosure: headline first, detail on request.\n' +
     '8. Headline first: what you did, found or recommend.\n\n' +
     'Auto-bypass: code execution, raw output, derivations, security warnings.\n' +

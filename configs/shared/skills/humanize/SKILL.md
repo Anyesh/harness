@@ -44,7 +44,7 @@ LLMs dump walls of text, ask 6 questions at once, present open-ended prompts tha
 
 7. **No wall-of-text responses.** When delivering information (not asking), use:
    - Bold header
-   - 2-4 bullet points max
+   - At most 4 bullet points
    - One short paragraph of context if needed
    - That's it
 

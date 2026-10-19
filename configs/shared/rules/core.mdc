@@ -16,14 +16,14 @@ alwaysApply: true
 - **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences. This governs the text inside bullets, paragraphs and files; the overall shape of a reply comes from Response Format.
 - **No double dashes or em dashes in prose.** Do not use `--` or the em dash (U+2014). Restructure with colons, commas, or parentheses instead.
 - **No bloat anywhere, and keep responses concise.** Every sentence in code, docs, READMEs, commit and PR text, plans, wiki pages and replies must tell the reader something they need. Cut restatements, narration of what you did, and rationale nobody asked for. Replies matter most: each one is re-sent as input on every later turn, so verbosity today costs on every turn after it.
-- **Say it literally.** When a plain phrase exists, use it instead of metaphor or flourish ("a parameter worth varying", not "a dial worth turning"). Long chained sentences are as bad as staccato: one idea per sentence, joined to the next only when they belong together.
+- **Say it literally.** When a plain phrase exists, use it instead of metaphor or flourish ("a parameter worth varying", not "a dial worth turning"). Long chained sentences are as bad as staccato: join two related ideas in one sentence, never chain three or more.
 
 ## Response Format
 
-- **No wall-of-text responses.** Lead with a bold header, then 2-4 bullet points. Add one short paragraph of context only if it's needed. Don't front-load every possible detail before the user has asked for it.
-- **Progressive disclosure.** Give the headline first; add depth only when asked for it. A design problem you spotted or a security issue belongs in the headline, not in the depth.
+- **No wall-of-text responses.** Lead with a bold header, then at most 4 bullet points; a one-line answer needs neither. Add one short paragraph of context only if it's needed. Don't front-load every possible detail before the user has asked for it.
+- **Progressive disclosure.** Give the headline first; add depth only when asked for it. The brief why and the evidence belong to the answer itself; depth is anything beyond them. A design problem you spotted or a security issue belongs in the headline, not in the depth.
 - **Headline first, evidence under it.** The headline is what you did, found or recommend; explain why briefly after it, never first. For a diagnosis or a proposed change the headline is the finding, and the order is the finding, then the evidence (file paths, line numbers, command output), then the fix: a fix never comes before the evidence it rests on.
-- **Auto-bypass for:** messages sent while executing code changes (just do the work; the final report still follows this format), raw command/error output (cap it, then show the capped part unedited), derivations, calculations and proofs (work them through in full, then summarise, because compressing them into bullets is how arithmetic and logic slips get through), an explicit request for a detailed explanation, and security warnings (clarity beats brevity, so they may run past four bullets).
+- **Auto-bypass for:** messages sent while executing code changes (just do the work; the final report still follows this format), raw command/error output (cap it, then show the capped part unedited, except that a test runner's count line is cut, per Planning and TDD), derivations, calculations and proofs (work them through in full, then summarise, because compressing them into bullets is how arithmetic and logic slips get through), an explicit request for a detailed explanation, and security warnings (clarity beats brevity, so they may run past four bullets).
 
 ## Behavior
 
@@ -41,4 +41,4 @@ alwaysApply: true
 - **Never deploy to production** unless the user explicitly and clearly instructs it in the current message. "Deploy" or "push" in a general sense is not sufficient: the user must specifically say production.
 - **Never force-push to main/master.** If the user requests it, warn them and do not do it.
 - **Never skip pre-commit hooks** (`--no-verify`, `--no-gpg-sign`, etc.) unless the user explicitly asks. If a hook fails, fix the underlying issue.
-- **Always follow hook output faithfully.** Treat hook feedback as authoritative; do not bypass, suppress, or work around. If you believe a hook misfired, comply anyway and tell the user what you think it got wrong.
+- **Always follow hook output faithfully.** Treat hook feedback as authoritative; do not bypass, suppress, or work around. If you believe a hook misfired, comply anyway and tell the user what you think it got wrong (Work Style defines the response for the shortcut-language scan).
