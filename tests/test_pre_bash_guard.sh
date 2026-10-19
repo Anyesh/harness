@@ -77,6 +77,29 @@ allow 'git push origin feat --force-with-lease; git checkout -q master' "force p
 allow 'git commit -m "docs: explain git push --force origin main"' "commit message quoting a force push"
 allow 'curl -d '"'"'{"note":"reboot the box"}'"'"' http://x' "request body mentioning reboot"
 
+echo "--- python environments go through uv"
+deny 'pip install requests' "pip install"
+deny 'pip3 install x' "pip3 install"
+deny 'python3 -m pip install x' "python3 -m pip install"
+deny 'python -m venv .venv' "python -m venv"
+deny '.venv/bin/pip install x' "venv pip by path"
+deny 'cd app && sudo pip install x' "sudo pip install after cd"
+deny 'python3.12 -m venv env' "versioned python -m venv"
+deny 'virtualenv env' "virtualenv"
+allow 'uv pip install x' "uv pip install"
+allow 'uv add requests' "uv add"
+allow 'uv venv' "uv venv"
+allow 'pip list' "pip list"
+allow 'pip show x' "pip show"
+allow 'git commit -m "drop pip install"' "commit message mentioning pip install"
+allow 'grep "pip install" README.md' "grep for pip install"
+allow 'uv run python -m pytest' "uv run python -m"
+
+OUT=$(jq -n --arg c 'pip install requests' '{hook_event_name: "PreToolUse", tool_input: {command: $c}}' | bash "$HOOK" 2>&1 >/dev/null || true)
+assert "pip block names uv" 'grep -q "uv add" <<<"$OUT"'
+CURSOR_OUT=$(jq -n --arg c 'pip install requests' '{hook_event_name: "beforeShellExecution", command: $c}' | bash "$HOOK" 2>/dev/null || true)
+assert "pip block uses Cursor deny output" '[ "$(jq -r .permission <<<"$CURSOR_OUT")" = deny ]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
