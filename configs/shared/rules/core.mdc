@@ -5,6 +5,10 @@ alwaysApply: true
 
 ## Code Quality
 
+- No emoji characters in source code
+- No inline imports in Python (all imports at file top)
+- No unnecessary one-liner docstrings
+- Format every file you edit (ruff/prettier/gofmt/shfmt as available)
 - No empty catch blocks
 - No broad exception swallowing (`except Exception: pass`, bare `except:`)
 
@@ -12,6 +16,7 @@ alwaysApply: true
 
 - **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences.
 - **No double dashes or em dashes in prose.** Do not use `--` or `—`. Restructure with colons, commas, or parentheses instead.
+- **No bloat anywhere, and keep responses concise.** Every sentence in code, docs, READMEs, commit and PR text, plans, wiki pages and replies must tell the reader something they need. Cut restatements, narration of what you did, and rationale nobody asked for. Replies matter most: each one is re-sent as input on every later turn, so verbosity today costs on every turn after it.
 - **Say it literally.** When a plain phrase exists, use it instead of metaphor or flourish ("a parameter worth varying", not "a dial worth turning"). Long chained sentences are as bad as staccato: one idea per sentence, joined to the next only when they belong together.
 
 ## Response Format
