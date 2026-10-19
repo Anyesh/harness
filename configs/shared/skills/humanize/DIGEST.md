@@ -10,4 +10,4 @@ Condensed operative rules. Full rationale and examples live in SKILL.md; read it
 
 **Auto-bypass:** the global Response Format bypasses apply to the output rules above; the question and phrasing rules hold everywhere.
 
-**Deactivate:** `/humanize off` or "stop humanize". Strict mode extends the one-question rule to code reviews and multi-part answers.
+**Deactivate:** `/humanize off` or "stop humanize". Strict mode adds no new rule; its reminder spells out that a request tacked on after the question ("also tell me X") counts as a second question.

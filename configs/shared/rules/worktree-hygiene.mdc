@@ -5,6 +5,6 @@ alwaysApply: true
 
 ## Worktree Hygiene
 
-- **Whoever creates a worktree removes it, and deletes its branch, in the same session** once the work is merged, or once the user confirms it is abandoned (`git worktree remove <path>`, then `git branch -d <branch>`).
+- **Whoever creates a worktree removes it, and deletes its branch, in the same session** once the work is merged, or once the user confirms it is abandoned (`git worktree remove <path>`, then `git branch -d <branch>`, or `-D` for a branch the user confirmed abandoned).
 - **A session never ends with a worktree it created still registered**, unless the work is unmerged and the user was told which worktree and branch hold it.
 - **The SessionStart sweep is the safety net, not the plan.** `worktree-sweep.sh` removes worktrees idle for 24 h whose commits are all on main (or master), saves uncommitted files to `.git/worktree-salvage/`, and keeps any branch with unlanded commits.

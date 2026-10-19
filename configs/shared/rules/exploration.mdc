@@ -5,7 +5,7 @@ alwaysApply: true
 
 ## Exploration Before Action
 
-- **You must explore before you edit.** Before touching any file, you must have read (1) the file itself, yourself (a targeted range is enough for a large file), (2) for source code, at least one caller or consumer of the code you're changing, and (3) the relevant test file if one exists. If you cannot name the callers, you haven't explored enough.
+- **You must explore before you edit.** Before touching any file, you must have read (1) the file itself, yourself (a targeted range is enough for a large file), (2) for source code, at least one caller or consumer of the code you're changing, and (3) the relevant test file if one exists. If you cannot name the callers, you haven't explored enough. For a new file or function, read the code that will call it and the tests around it instead.
 - **Read the test before writing the fix.** Tests encode the contract. If you change behavior without reading the test, you're guessing what the contract is. Read it, understand what's asserted, then decide if the contract or the implementation is wrong.
 - **Trace the call chain.** Before modifying a function, identify who calls it and what they expect. A grep for the function name is the minimum. If it's exported or public, understand the interface contract before changing it.
 - **State what you found before proposing changes.** Every proposal carries its evidence (file paths, line numbers, actual behavior observed) and its interpretation, ahead of the proposed action, in the order Response Format sets. Never skip straight to "here's the fix."
