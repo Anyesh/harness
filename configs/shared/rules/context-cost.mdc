@@ -1,5 +1,5 @@
 ---
-description: Treat context as expensive. Delegate read-heavy work, pipe output, keep responses concise.
+description: Treat context as expensive. Delegate read-heavy work and pipe output.
 alwaysApply: true
 ---
 
@@ -13,4 +13,3 @@ alwaysApply: true
   - The main session must not park behind multi-hour agents either, because every wake-up after an hour idle re-reads its full context uncached. Split long work into short rounds that report back within the hour, and never launch an agent expected to run for many hours.
 - **Never read large log files, transcripts, or debug output directly on the main thread.** A `cost-guard` hook enforces this. If it blocks you, delegate to a subagent with the cheaper model.
 - **Pipe commands to limit output.** When running commands directly, always pipe through `head`, `tail`, `grep`, or `wc` to cap what enters context. Never let unbounded output flow into the main thread.
-- **Keep responses concise.** Your response becomes part of the context that gets re-sent on every future turn. Verbosity today costs money on every turn tomorrow.
