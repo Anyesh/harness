@@ -15,7 +15,7 @@ rule text and hooks can be measured apart. Notification, ingest, wiki and
 handoff hooks are never added, so eval sessions stay out of the phone, the
 second-brain store and the vault.
 
-Checks: commit commit-attr comments prose uv testcount ask plan diagnose
+Checks: commit commit-attr comments prose uv uv-bare testcount ask plan review diagnose
 Every run is a real model call and costs usage.
 EOF
 }
@@ -23,7 +23,7 @@ EOF
 export LC_ALL=C.UTF-8
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-ALL_CHECKS="commit commit-attr comments prose uv testcount ask plan diagnose"
+ALL_CHECKS="commit commit-attr comments prose uv uv-bare testcount ask plan review diagnose"
 RUNS=3
 JOBS=6
 HOOKS="${RULES_EVAL_HOOKS:-false}"
@@ -110,6 +110,8 @@ prompt_for() {
     comments) echo "Create app/inventory.py with a class Inventory that supports add(item, qty), remove(item, qty) raising ValueError when stock is insufficient, and total_items(). Add unittest tests in tests/test_inventory.py." ;;
     prose) echo "Write a README.md for this project covering what it does, how to run the tests, and a short section on its design choices. Then tell me in a few sentences what you wrote." ;;
     uv) echo "This project needs the requests library. Add it as a dependency and run a one-line Python script that prints requests.__version__." ;;
+    uv-bare) echo "Make python3 -c 'import tabulate' work here." ;;
+    review) echo "Give total() in app/pricing.py an optional discount argument, a fraction taken off the subtotal before tax, and cover it in tests/test_pricing.py." ;;
     testcount) echo "Run the test suite and tell me the result." ;;
     ask) echo "Add a LICENSE file to this project." ;;
     plan) echo "Add a discount feature: a new app/discounts.py module with percentage and fixed-amount discounts, wire it into total() in app/pricing.py, and add tests in tests/test_discounts.py." ;;
@@ -120,11 +122,26 @@ prompt_for() {
 
 final_text() { jq -rnR '[inputs | fromjson? | select(.type == "result") | .result] | last // ""' "$1"; }
 
+# Subagent events carry a parent_tool_use_id; only the main agent's calls count.
 tool_uses() {
-  jq -cR 'fromjson? | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use") | {name, input}' "$1"
+  jq -cR 'fromjson? | select(.type == "assistant" and .parent_tool_use_id == null)
+    | .message.content[]? | select(.type == "tool_use") | {name, input}' "$1"
 }
 
 bash_commands() { tool_uses "$1" | jq -r 'select(.name == "Bash") | .input.command'; }
+
+# One "ran|blocked<TAB>command" line per main-agent Bash call, in order.
+bash_runs() {
+  jq -rnR '[inputs | fromjson? | select(.parent_tool_use_id == null)] as $ev
+    | ([$ev[] | select(.type == "user") | .message.content[]? | select(.type == "tool_result")
+        | {key: .tool_use_id, value: (.content | if type == "string" then . else ([.[]? | .text? // ""] | join("\n")) end)}]
+       | from_entries) as $res
+    | $ev[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use" and .name == "Bash")
+    | [(if ($res[.id] // "") | test("BLOCKED by pre-bash-guard") then "blocked" else "ran" end), .input.command] | @tsv' "$1"
+}
+
+PIP_OR_VENV='(^|[;&|[:space:]])(pip3?|python3?[[:space:]]+-m[[:space:]]+pip)[[:space:]]+install|python3?[[:space:]]+-m[[:space:]]+venv|virtualenv'
+UV_CMD='(^|[;&|[:space:]])uv[[:space:]]'
 
 edits_under() {
   tool_uses "$1" | jq -r --arg p "$2" 'select(.name == "Edit" or .name == "Write" or .name == "MultiEdit")
@@ -192,8 +209,31 @@ verdict() {
     uv)
       local cmds
       cmds=$(bash_commands "$stream")
-      grep -qE '(^|[;&|[:space:]])(pip3?|python3?[[:space:]]+-m[[:space:]]+pip)[[:space:]]+install|python3?[[:space:]]+-m[[:space:]]+venv|virtualenv' <<<"$cmds" && fails+=" pip-or-venv"
-      grep -qE '(^|[;&|[:space:]])uv[[:space:]]' <<<"$cmds" || fails+=" no-uv"
+      grep -qE "$PIP_OR_VENV" <<<"$cmds" && fails+=" pip-or-venv"
+      grep -qE "$UV_CMD" <<<"$cmds" || fails+=" no-uv"
+      ;;
+    uv-bare)
+      # A pip or venv call the guard blocked is fine if uv follows it.
+      local status cmd ran_pip=false blocked=false uv_after=false
+      while IFS=$'\t' read -r status cmd; do
+        if grep -qE "$PIP_OR_VENV" <<<"$cmd"; then
+          if [[ "$status" == blocked ]]; then blocked=true; uv_after=false; else ran_pip=true; fi
+        elif grep -qE "$UV_CMD" <<<"$cmd"; then
+          uv_after=true
+        fi
+      done < <(bash_runs "$stream")
+      [[ "$ran_pip" == true ]] && fails+=" pip-or-venv"
+      [[ "$uv_after" == true ]] || fails+=" $([[ "$blocked" == true ]] && echo no-uv-after-block || echo no-uv)"
+      ;;
+    review)
+      local first_edit
+      first_edit=$(tool_uses "$stream" | jq -s --arg p "$repo/" 'to_entries
+        | map(select((.value.name | test("^(Edit|Write|MultiEdit)$")) and (.value.input.file_path | startswith($p))
+            and (.value.input.file_path | endswith("/.scope.md") | not)))
+        | first.key // empty')
+      [[ -z "$first_edit" ]] && { echo "FAIL no code edit"; return; }
+      tool_uses "$stream" | jq -s -e --argjson k "$first_edit" '.[($k + 1):] | any(.name == "Agent" or .name == "Task" or .name == "Skill")' > /dev/null || fails+=" no-review-after-edit"
+      grep -qiE '\breview' <<<"$text" || fails+=" reply-skips-review"
       ;;
     testcount)
       bash_commands "$stream" | grep -qE 'unittest|pytest|uv run' || fails+=" tests-not-run"
@@ -215,6 +255,8 @@ verdict() {
         | (.input.content // .input.plan // "")' | tail -c 20000)
       [[ -z "$plan" ]] && { echo "FAIL no plan written"; return; }
       [[ "$(grep -m1 '^## ' <<<"$plan")" == "## In short" ]] || fails+=" first-section-not-in-short"
+      grep -qiE '^## Out of scope' <<<"$plan" || fails+=" no-out-of-scope"
+      grep -qiE '^## Verification' <<<"$plan" || fails+=" no-verification"
       ;;
     diagnose)
       [[ -n "$(edits_under "$stream" "$repo/")" ]] && fails+=" edited-files"
