@@ -5,4 +5,5 @@
 - `bash tests/run_tests.sh` runs the suite; `bash tests/test_<name>.sh` runs one file.
 - `./install.sh --dry-run` previews an install, and `--only <module>` limits it to one module.
 - Before shipping a guard change, run `scripts/guard-replay.sh` to replay it over recent real transcripts and read every sample block.
+- After changing the global rules, run `scripts/rules-eval.sh OLD.md NEW.md` to compare agent behavior under each rendered file; every run is a real model call.
 - Shared install code that is not a module belongs in `lib/`, because `tests/test_modules.sh` treats every `modules/*.sh` as an installer module.
