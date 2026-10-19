@@ -44,19 +44,35 @@ dangerous=(
   "${at}iptables\s+-F\b"
 )
 
+python_env=(
+  "${at}(\S*/)?pip3?(\s+-\S+)*\s+install\b"
+  "${at}(\S*/)?python3?(\.[0-9]+)?\s+-m\s+(pip(\s+-\S+)*\s+install|venv)\b"
+  "${at}virtualenv\b"
+)
+
+deny() {
+  local msg="BLOCKED by pre-bash-guard: $1"
+  if [[ "$hook_event" == "beforeShellExecution" ]]; then
+    # Cursor beforeShellExecution uses permission/user_message output
+    harness_log_block pre-bash-guard "$input"
+    jq -cn --arg m "$msg" '{permission: "deny", user_message: $m}'
+    exit 0
+  else
+    # Claude Code PreToolUse uses decision/reason output
+    jq -cn --arg m "$msg" '{decision: "deny", reason: $m}' >&2
+    exit 2
+  fi
+}
+
 for pattern in "${dangerous[@]}"; do
   if printf '%s\n' "$code" | grep -qEi "$pattern"; then
-    msg="BLOCKED by pre-bash-guard: matches dangerous pattern /$pattern/. If this is intentional, run the command manually."
-    if [[ "$hook_event" == "beforeShellExecution" ]]; then
-      # Cursor beforeShellExecution uses permission/user_message output
-      harness_log_block pre-bash-guard "$input"
-      jq -cn --arg m "$msg" '{permission: "deny", user_message: $m}'
-      exit 0
-    else
-      # Claude Code PreToolUse uses decision/reason output
-      jq -cn --arg m "$msg" '{decision: "deny", reason: $m}' >&2
-      exit 2
-    fi
+    deny "matches dangerous pattern /$pattern/. If this is intentional, run the command manually."
+  fi
+done
+
+for pattern in "${python_env[@]}"; do
+  if printf '%s\n' "$code" | grep -qEi "$pattern"; then
+    deny "use uv for Python environments: \`uv add\`, \`uv pip install\`, \`uv venv\`, \`uv run\`."
   fi
 done
 
