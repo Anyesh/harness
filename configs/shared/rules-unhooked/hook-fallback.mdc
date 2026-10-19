@@ -1,0 +1,8 @@
+---
+description: Rules that guard hooks enforce on Claude Code and Cursor. Included only by the Codex and opencode templates, which run none of those hooks.
+alwaysApply: true
+---
+
+## Rules Without a Guard Hook Here
+
+Claude Code and Cursor enforce these with hooks. This agent runs none of them, so this text is the only guard and you must apply it yourself before every write and every reply.
