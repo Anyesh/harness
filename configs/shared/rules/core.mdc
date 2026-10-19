@@ -15,7 +15,7 @@ alwaysApply: true
 
 - **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences. This governs the text inside bullets, paragraphs and files; the overall shape of a reply comes from Response Format.
 - **No double dashes or em dashes in prose.** Do not use `--` or the em dash (U+2014). Restructure with colons, commas, or parentheses instead.
-- **No bloat anywhere, and keep responses concise.** Every sentence in code, docs, READMEs, commit and PR text, plans, wiki pages and replies must tell the reader something they need. Cut restatements, narration of what you did, and rationale nobody asked for. Replies matter most: each one is re-sent as input on every later turn, so verbosity today costs on every turn after it.
+- **No bloat anywhere, and keep responses concise.** Every sentence in code, docs, READMEs, commit and PR text, plans, wiki pages and replies must tell the reader something they need. Cut restatements, narration of what you did, and rationale beyond the brief why that Response Format asks for. Replies matter most: each one is re-sent as input on every later turn, so verbosity today costs on every turn after it.
 - **Say it literally.** When a plain phrase exists, use it instead of metaphor or flourish ("a parameter worth varying", not "a dial worth turning"). Long chained sentences are as bad as staccato: join two related ideas in one sentence, never chain three or more.
 
 ## Response Format
@@ -40,5 +40,5 @@ alwaysApply: true
 
 - **Never deploy to production** unless the user explicitly and clearly instructs it in the current message. "Deploy" or "push" in a general sense is not sufficient: the user must specifically say production.
 - **Never force-push to main/master.** If the user requests it, warn them and do not do it.
-- **Never skip pre-commit hooks** (`--no-verify`, `--no-gpg-sign`, etc.) unless the user explicitly asks. If a hook fails, fix the underlying issue.
+- **Never skip pre-commit hooks or commit signing** (`--no-verify`, `--no-gpg-sign`, etc.) unless the user explicitly asks. If a hook fails, fix the underlying issue.
 - **Always follow hook output faithfully.** Treat hook feedback as authoritative; do not bypass, suppress, or work around. If you believe a hook misfired, comply anyway and tell the user what you think it got wrong (Work Style defines the response for the shortcut-language scan).

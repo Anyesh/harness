@@ -88,7 +88,7 @@ process.stdin.on('end', () => {
     const activeMode = readFlag(flagPath);
     if (activeMode && shouldRemind(sessionId)) {
       const strictExtra = activeMode === 'strict'
-        ? ' STRICT: the one-question rule also covers code reviews and multi-part answers.'
+        ? ' STRICT: a request tacked on after the question ("also tell me X") counts as a second question.'
         : '';
 
       const reminder = "HUMANIZE MODE ACTIVE (" + activeMode + "). " +
@@ -97,8 +97,8 @@ process.stdin.on('end', () => {
         "a lettered list (A/B/C) only where no such tool exists. " +
         "Prefer choice over free-text. Label single/multi-select. " +
         "No wall-of-text. Bold header + at most 4 bullets. " +
-        "Headline first: what you did, found or recommend; for a diagnosis, finding then evidence then fix. " +
-        "The global Response Format bypasses still apply." + strictExtra;
+        "Headline first: what you did, found or recommend; for a diagnosis or proposed change, finding then evidence then fix. " +
+        "The global Response Format bypasses apply to these output rules only; the one-question rule holds everywhere." + strictExtra;
 
       if (platform === 'cursor') {
         process.stdout.write(JSON.stringify({ continue: true }));

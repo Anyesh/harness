@@ -8,4 +8,4 @@ Before implementing any feature or multi-file change, you MUST answer these thre
 
 If `.scope.md` already exists and matches the current task, skip rewriting it. If the task changes mid-conversation, update it.
 
-This does NOT apply to single-file fixes or config changes. The gate exists because losing context on bigger work means losing progress.
+This does NOT apply to single-file fixes or config-only changes, even when a config change spans several files. The gate exists because losing context on bigger work means losing progress.

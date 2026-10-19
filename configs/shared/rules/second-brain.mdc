@@ -28,7 +28,7 @@ Query with the subject (project, component, error text or identifier) rather tha
 - A surprise or gotcha future-you would otherwise re-discover
 - An explicit user preference ("don't do X", "always do Y")
 
-A project decision or project gotcha also gets a wiki entry; the `remember` note is the short form every tool and machine can recall, so writing both is intended. One self-contained topic per memory, naming the project and keeping exact identifiers. Do NOT call `remember` to summarize what was just done; the watcher captures transcripts, so an extra write must add interpretation the transcript does not carry.
+A project design decision also gets a wiki page; the `remember` note is the short form every tool and machine can recall, so writing both is intended. One self-contained topic per memory, naming the project and keeping exact identifiers. Do NOT call `remember` to summarize what was just done; the watcher captures transcripts, so an extra write must add interpretation the transcript does not carry.
 
 ### Retire what is wrong
 
