@@ -10,7 +10,7 @@ is VARIANT.md, with the user CLAUDE.md, settings and hooks left out
 (--setting-sources project,local). Asserts on what the agent produced (files,
 commits, tool calls, final reply) and prints a pass rate per check and variant.
 
---hooks adds the guard and humanize hooks from the deployed settings.json, so
+--hooks adds the guard, humanize and ownit hooks from the deployed settings.json, so
 rule text and hooks can be measured apart. Notification, ingest, wiki and
 handoff hooks are never added, so eval sessions stay out of the phone, the
 second-brain store and the vault.
@@ -30,7 +30,7 @@ HOOKS="${RULES_EVAL_HOOKS:-false}"
 MODEL="${RULES_EVAL_MODEL:-opus}"
 OUT="${RULES_EVAL_OUT:-}"
 ONLY=""
-HOOK_RE='pre-edit|pre-bash|cost-guard|stop-sloppiness|format-on-save|pre-plan-summary|humanize'
+HOOK_RE='pre-edit|pre-bash|cost-guard|stop-sloppiness|format-on-save|pre-plan-summary|humanize|ownit'
 
 VARIANTS=()
 ONE=false
