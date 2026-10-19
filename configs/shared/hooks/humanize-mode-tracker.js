@@ -98,7 +98,7 @@ process.stdin.on('end', () => {
         "Prefer choice over free-text. Label single/multi-select. " +
         "No wall-of-text. Bold header + at most 4 bullets. " +
         "Headline first: what you did, found or recommend; for a diagnosis or proposed change, finding then evidence then fix. " +
-        "The global Response Format bypasses apply to these output rules only; the one-question rule holds everywhere." + strictExtra;
+        "The global Response Format bypasses apply to these output rules only; the question rules (one question, through the structured tool) hold everywhere." + strictExtra;
 
       if (platform === 'cursor') {
         process.stdout.write(JSON.stringify({ continue: true }));
