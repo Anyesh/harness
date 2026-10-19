@@ -120,9 +120,10 @@ function decideScope(turns: number, snapshot: Snapshot, armed: Armed): Step {
     armed: { ...armed, scope: false },
     message:
       `SCOPE CHECK (turn ${turns}): ${condition}. If you are doing feature work or multi-file changes, ` +
-      'answer the Three Questions before continuing: (1) Context: where are specs, plans and the wiki? ' +
+      'answer the Three Questions before continuing (after plan approval when the work needs a plan): ' +
+      '(1) Context: where are specs, plans and the wiki? ' +
       '(2) Definition of done: what declares this complete? (3) Feedback loop: how are you validating? ' +
-      'Write the answers to .scope.md. If this is a quick fix or config change, ignore this reminder.',
+      'Write the answers to .scope.md. If this is a single-file fix or config change, ignore this reminder.',
   }
 }
 
