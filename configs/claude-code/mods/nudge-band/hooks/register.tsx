@@ -31,6 +31,7 @@ function probeIO($: EngineInterface): ProbeIO {
       home: await $.env.get('HOME'),
       configDir: await $.env.get('CLAUDE_CONFIG_DIR'),
       wikiVault: await $.env.get('WIKI_VAULT'),
+      unattended: await $.env.get('HARNESS_UNATTENDED'),
     }),
     cwd: () => $.session.cwd(),
     now: () => $.clock.now(),

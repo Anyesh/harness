@@ -105,6 +105,21 @@ describe('prompt.submit context', () => {
     expect((w.contexts[5] ?? []).join('\n')).toContain('WIKI:')
   })
 
+  test('has no scope or wiki line with HARNESS_UNATTENDED=1', async ($, on) => {
+    const w = world(on, { WIKI_VAULT: '/vault', HARNESS_UNATTENDED: '1' })
+    await prompts($, 12)
+    const lines = w.contexts.map(c => (c ?? []).join('\n'))
+    expect(lines.every(line => !line.includes('WIKI') && !line.includes('SCOPE'))).toBe(true)
+  })
+
+  test('keeps the scope and wiki lines when HARNESS_UNATTENDED is not 1', async ($, on) => {
+    const w = world(on, { WIKI_VAULT: '/vault', HARNESS_UNATTENDED: '0' })
+    await prompts($, 12)
+    const lines = w.contexts.map(c => (c ?? []).join('\n'))
+    expect(lines[4]).toContain('WIKI:')
+    expect(lines[9]).toContain('SCOPE CHECK')
+  })
+
   test('has no wiki line without a vault', async ($, on) => {
     const w = world(on, {}, { files: { [`${ROOT}/.scope.md`]: { mtimeMs: NOW } } })
     await prompts($, 6)

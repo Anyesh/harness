@@ -6,7 +6,7 @@ export type ProbeIO = {
   stat: (path: string) => Promise<{ kind: 'file' | 'dir' | 'other'; mtimeMs: number }>
   read: (path: string) => Promise<string>
   run: (argv: readonly string[], cwd?: string) => Promise<{ exitCode: number; stdout: string }>
-  vars: () => Promise<{ home?: string; configDir?: string; wikiVault?: string }>
+  vars: () => Promise<{ home?: string; configDir?: string; wikiVault?: string; unattended?: string }>
   cwd: () => Promise<string>
   now: () => Promise<number>
 }
@@ -71,5 +71,6 @@ export async function probe(io: ProbeIO, startedAt: number): Promise<Snapshot> {
     junk: (untracked ?? '').split('\n').filter(path => path.length > 0 && isJunk(path)),
     humanize,
     ownit,
+    unattended: vars.unattended === '1',
   }
 }

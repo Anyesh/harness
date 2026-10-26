@@ -112,7 +112,7 @@ type Step = { armed: Armed; message?: string }
 
 function decideScope(turns: number, snapshot: Snapshot, armed: Armed): Step {
   const status = snapshot.scope
-  if (!snapshot.root || !status) return { armed }
+  if (!snapshot.root || !status || snapshot.unattended) return { armed }
   if (status.kind === 'fresh') return { armed: { ...armed, scope: true } }
   if (!armed.scope || turns < THRESHOLDS.scopeTurn) return { armed }
   const condition = status.kind === 'missing' ? '.scope.md is missing' : `.scope.md is ${status.ageHours}h old and may not match the current task`
@@ -129,7 +129,7 @@ function decideScope(turns: number, snapshot: Snapshot, armed: Armed): Step {
 
 function decideWiki(turns: number, edits: number, snapshot: Snapshot, armed: Armed): Step {
   const wiki = snapshot.wiki
-  if (!wiki) return { armed }
+  if (!wiki || snapshot.unattended) return { armed }
   let next = armed
   if (wiki.latestWriteMs > armed.wikiSeenWriteMs) {
     next = { ...next, wikiSeenWriteMs: wiki.latestWriteMs, wikiAnchorTurn: turns, wikiAnchorEdits: edits }

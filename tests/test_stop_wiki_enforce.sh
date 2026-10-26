@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+unset HARNESS_UNATTENDED HARNESS_NOTIFY HERDR_PANE_ID
+while read -r name; do
+  [[ "$name" == GIT_CONFIG_* ]] && unset "$name"
+done < <(compgen -e)
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export HARNESS_BLOCK_LOG=/dev/null
@@ -89,6 +94,13 @@ assert "3 native edits without wiki writes fires" \
 
 OUT=$(run_hook "$(payload "s-edits" "$T_EDITS")")
 assert "already-fired session stays silent" '[ -z "$OUT" ]'
+
+OUT=$(HARNESS_UNATTENDED=1 run_hook "$(payload "s-unattended" "$T_EDITS")")
+assert "unattended session with 3 edits stays silent" '[ -z "$OUT" ]'
+
+OUT=$(HARNESS_UNATTENDED=0 run_hook "$(payload "s-attended" "$T_EDITS")")
+assert "HARNESS_UNATTENDED other than 1 still fires" \
+  'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
 
 T_VERDANT="$TMP_DIR/verdant.jsonl"
 {

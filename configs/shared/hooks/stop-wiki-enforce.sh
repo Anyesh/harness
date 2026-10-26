@@ -5,6 +5,8 @@
 # next user prompt.
 set -uo pipefail
 
+[ "${HARNESS_UNATTENDED:-}" = "1" ] && exit 0
+
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=load-harness-env.sh
 source "$HOOK_DIR/load-harness-env.sh"

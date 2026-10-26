@@ -20,6 +20,7 @@ export type Snapshot = {
   junk: string[]
   humanize: string | null
   ownit: string | null
+  unattended: boolean
 }
 
 export type Armed = {

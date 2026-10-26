@@ -22,6 +22,7 @@ const base: Snapshot = {
   junk: [],
   humanize: null,
   ownit: null,
+  unattended: false,
 }
 
 const unwritten = {
@@ -114,6 +115,10 @@ describe('scope', () => {
   test('says nothing without a project root', () => {
     expect(run(10, { ...missing, root: null }, initialArmed).messages).toEqual([])
   })
+
+  test('says nothing in an unattended session', () => {
+    expect(run(10, { ...missing, unattended: true }, initialArmed).messages).toEqual([])
+  })
 })
 
 describe('wiki', () => {
@@ -166,6 +171,12 @@ describe('wiki', () => {
 
   test('is off without a vault', () => {
     expect(run(5, base, initialArmed).messages).toEqual([])
+  })
+
+  test('is off in an unattended session', () => {
+    const unattended: Snapshot = { ...pending, unattended: true }
+    expect(run(5, unattended, initialArmed).messages).toEqual([])
+    expect(run(15, unattended, initialArmed, 10).messages).toEqual([])
   })
 })
 
