@@ -16,9 +16,10 @@
 # backslash-escaped heredoc delimiters are not tracked.
 
 # ERE prefix meaning "a command starts here": line start, a separator, or a
-# wrapper such as sudo or timeout. For grep -E over shell_code output.
+# wrapper such as sudo, env or xargs, then any leading VAR=value assignments.
+# For grep -E over shell_code output.
 # shellcheck disable=SC2034
-SHELL_CMD_START='(^|[;&|({!]|\$\(|\bsudo(\s+-\S+)*\s|\bdoas\s|\bexec\s|\bnohup\s|\btimeout\s+\S+\s)\s*'
+SHELL_CMD_START='(^|[;&|({!]|\$\(|\bsudo(\s+-\S+)*\s|\bdoas\s|\bexec\s|\bnohup\s|\btimeout\s+\S+\s|\benv(\s+-\S+)*\s|\btime(\s+-\S+)*\s|\bxargs(\s+-\S+)*\s)\s*([A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'
 
 shell_code() {
   local keep=0

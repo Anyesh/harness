@@ -125,6 +125,12 @@ HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'curl -s http://127.0.0.1:7200/rec
 assert "a work session cannot query the daemon over HTTP" '[ "$RC" -eq 2 ]'
 HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'second-brain-api --help'
 assert "a work session cannot run the daemon binary" '[ "$RC" -eq 2 ]'
+for cmd in 'env sb recall x' 'FOO=1 sb recall x' 'env -i FOO=1 sb recall x' 'time sb recall x' 'echo x | xargs sb recall' 'xargs -n1 sb recall < q'; do
+  HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook "$cmd"
+  assert "a work session cannot reach sb through a prefix: $cmd" '[ "$RC" -eq 2 ]'
+done
+run_hook 'env UV_CACHE=1 pip install requests'
+assert "an env prefix does not hide pip" '[ "$RC" -eq 2 ]'
 HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'sbt compile && ls sb'
 assert "a work session may run commands that only start with sb" '[ "$RC" -eq 0 ]'
 HARNESS_ENV="$SB_ENV" run_hook 'sb sync-export > /tmp/all.jsonl'
