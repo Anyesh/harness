@@ -9,7 +9,7 @@ Claude Code and Cursor enforce these with hooks. This agent runs none of them, s
 
 ### Comments
 
-A comment that stays should say why, usually with words like `because`, `so that`, `to avoid`, `to prevent`, `workaround for`, `invariant:`, `safety:`, `must`, `cannot`, `thread-safe` or `lock ordering`. Standard directives are fine: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
+A comment that stays states a reason the code cannot show; words like `because`, `to avoid`, `workaround for`, `invariant:` or `lock ordering` usually appear in one, but adding them to narration does not make it a reason. Standard directives are fine: `# noqa`, `# type: ignore`, `# pylint:`, `# shellcheck disable=`, `// eslint-disable-next-line`, `// @ts-expect-error`, `// prettier-ignore`, `//go:generate`, `//nolint`, `#pragma`, `#[derive(...)]`, `@param`, `@return`, `TODO:`, `FIXME:`, `NOTE:`, `HACK:`, `SAFETY:`, `INVARIANT:`, shebangs.
 
 ### Shortcut language
 
