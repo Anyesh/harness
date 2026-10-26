@@ -28,8 +28,12 @@ LANG_MAP = {
     "php": ({".php"}, ("//", "#"), ("/*", "*/")),
     "sql": ({".sql"}, ("--",), ("/*", "*/")),
     "dart": ({".dart"}, ("///", "//"), ("/*", "*/")),
-    "yaml": (set(), tuple(), None),
+    "yaml": ({".yml", ".yaml"}, ("#",), None),
+    "toml": ({".toml"}, ("#",), None),
+    "hash": (set(), ("#",), None),
 }
+
+HASH_BASENAME_RE = re.compile(r"^(?:Dockerfile(?:\..+)?|Makefile)$")
 
 EXT_TO_LANG = {}
 for lang, (exts, prefs, block) in LANG_MAP.items():
@@ -38,6 +42,8 @@ for lang, (exts, prefs, block) in LANG_MAP.items():
 
 
 def detect_lang(path: str):
+    if HASH_BASENAME_RE.match(Path(path).name):
+        return ("hash", ("#",), None)
     ext = Path(path).suffix.lower()
     return EXT_TO_LANG.get(ext, (None, None, None))
 
@@ -55,12 +61,13 @@ NARRATIVE_VERBS = (
     r"imports?|exports?|uses?|finds?|looks?[- ]?up|matches?|compares?|sorts?|"
     r"groups?|merges?|splits?|joins?|wraps?|unwraps?|tracks?|measures?|records?|"
     r"captures?|collects?|yields?|throws?|raises?|generates?|tests?|verifies|"
-    r"ensures?|prepares?|cleans?[- ]?up|copies|moves?|schedules?)"
+    r"ensures?|prepares?|cleans?[- ]?up|copies|moves?|schedules?|installs?|downloads?|"
+    r"compiles?|deploys?)"
 )
 
 NARRATIVE_RE = [
     re.compile(
-        rf"^{NARRATIVE_VERBS}\s+(?:the|a|an|this|that|our|its?|their|new|old)?\s*[a-z_][\w ]*$",
+        rf"^{NARRATIVE_VERBS}\s+(?:the|a|an|this|that|our|its?|their|new|old)?\s*[a-z_][\w '/()-]*$",
         re.IGNORECASE,
     ),
     re.compile(rf"^{NARRATIVE_VERBS}\s+[a-z_][\w]*$", re.IGNORECASE),
@@ -206,8 +213,22 @@ def has_why_marker(body: str) -> bool:
     return any(m in low for m in WHY_MARKERS)
 
 
+STEP_PREFIX_RE = re.compile(r"^(?:step\s+\d+\s*[:.)-]?|\d+\s*[.)])\s*", re.IGNORECASE)
+TRAILING_PUNCT_RE = re.compile(r"[.:;]+$")
+# "Set while the memo has entries" documents when a flag holds, not an action.
+FLAG_STATE_RE = re.compile(
+    r"^(?:is\s+)?set\s+(?:while|once|when|until|after|before|if)\b", re.IGNORECASE
+)
+
+
+def normalize_comment(s: str) -> str:
+    s = STEP_PREFIX_RE.sub("", s.strip(), count=1)
+    return TRAILING_PUNCT_RE.sub("", s).rstrip()
+
+
 def is_narrative_body(body: str) -> bool:
-    s = body.strip()
+    raw = body.strip()
+    s = normalize_comment(raw)
     if not s:
         return False
     if is_directive_or_allowed(s):
@@ -216,10 +237,9 @@ def is_narrative_body(body: str) -> bool:
         return False
     if len(s) > 80:
         return False
-    for pat in NARRATIVE_RE:
-        if pat.match(s):
-            return True
-    return False
+    if FLAG_STATE_RE.match(s):
+        return False
+    return any(pat.match(s) or pat.match(raw) for pat in NARRATIVE_RE)
 
 
 TRIVIAL_DOCSTRING_RE = [
@@ -257,14 +277,21 @@ PURE_BANNER_RE = [
 ]
 
 
+BANNER_RUN = r"[-=*#~─═━┄┅┉]{3,}"
+ONE_SIDED_BANNER_RE = [
+    re.compile(rf"^{BANNER_RUN}\s*\w"),
+    re.compile(rf"\w\s+{BANNER_RUN}\s*$"),
+]
+
+
 def is_pure_banner(body: str) -> bool:
     s = body.strip()
     if not s:
         return False
-    return any(p.match(s) for p in PURE_BANNER_RE)
+    return any(p.search(s) for p in PURE_BANNER_RE + ONE_SIDED_BANNER_RE)
 
 
-def check_line_comments(lines, line_prefixes, lang):
+def check_line_comments(lines, line_prefixes, lang, known=frozenset()):
     violations = []
     sorted_prefs = sorted(line_prefixes, key=len, reverse=True)
 
@@ -283,7 +310,7 @@ def check_line_comments(lines, line_prefixes, lang):
         pref, body = match_prefix(raw)
         if pref is None or pref in DOC_LINE_PREFIXES:
             continue
-        if is_pure_banner(body):
+        if raw.strip() not in known and is_pure_banner(body):
             violations.append((lineno, raw.rstrip(), "decorative banner comment"))
 
     n = len(lines)
@@ -329,6 +356,19 @@ def check_line_comments(lines, line_prefixes, lang):
             i = j
             continue
 
+        added = [
+            k for k, b in enumerate(block_bodies) if lines[i + k].strip() not in known
+        ]
+        if not added:
+            i = j
+            continue
+        # Judge only the span an edit added, so a new line next to an old
+        # narrating one is reported alone.
+        block_start = i + added[0]
+        block_bodies = block_bodies[added[0] : added[-1] + 1]
+        first_body = block_bodies[0]
+        block_text = " ".join(b.strip() for b in block_bodies).strip()
+
         if len(block_bodies) == 1:
             if is_narrative_body(first_body):
                 violations.append(
@@ -355,48 +395,101 @@ def check_line_comments(lines, line_prefixes, lang):
     return violations
 
 
-def check_python_docstrings(content):
+SECTION_HEADER_RE = re.compile(
+    r"^(?:args|arguments|parameters|params|keyword args|returns?|yields?|attributes)\s*:?$",
+    re.IGNORECASE,
+)
+UNDERLINE_RE = re.compile(r"^[-=~]{3,}$")
+RESTATING_TAG_RE = re.compile(
+    r"^@(?:param|arg|argument|returns?|type|yields?)\b", re.IGNORECASE
+)
+
+
+def is_restating_doc(text: str) -> bool:
+    if has_why_marker(text):
+        return False
+    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return False
+    first = lines[0].strip()
+    if not (is_trivial_docstring(first) or is_narrative_body(first)):
+        return False
+    section_indent = None
+    for ln in lines[1:]:
+        stripped = ln.strip()
+        indent = len(ln) - len(ln.lstrip())
+        if UNDERLINE_RE.match(stripped):
+            continue
+        if SECTION_HEADER_RE.match(stripped):
+            section_indent = indent
+            continue
+        if RESTATING_TAG_RE.match(stripped):
+            continue
+        if section_indent is not None and indent > section_indent:
+            continue
+        return False
+    return True
+
+
+def check_python_docstrings(content, old_text=""):
     violations = []
-    pat = re.compile(r"^([ \t]*)(?:r|b)?(\"\"\"|\'\'\')(.*?)\2[ \t]*$", re.MULTILINE)
+    pat = re.compile(
+        r"^([ \t]*)[rbRB]?(\"\"\"|\'\'\')(.*?)\2[ \t]*$", re.MULTILINE | re.DOTALL
+    )
     for m in pat.finditer(content):
         body = m.group(3)
-        if "\n" in body:
+        if m.group(0).strip() in old_text:
             continue
-        if is_trivial_docstring(body):
+        if "\n" in body:
+            flagged, kind = is_restating_doc(body), "restating multi-line docstring"
+        else:
+            flagged, kind = is_trivial_docstring(body), "trivial one-liner docstring"
+        if flagged:
             lineno = content[: m.start()].count("\n") + 1
-            violations.append(
-                (lineno, m.group(0).strip(), "trivial one-liner docstring")
-            )
+            violations.append((lineno, m.group(0).strip().splitlines()[0], kind))
     return violations
 
 
-def check_block_oneliners(content):
+def check_block_oneliners(content, old_text=""):
     violations = []
     pat = re.compile(r"/\*\*?\s*([^\n*][^\n]{0,200}?)\s*\*/")
     for m in pat.finditer(content):
         body = m.group(1)
+        if m.group(0).strip() in old_text:
+            continue
         if is_trivial_docstring(body) or is_narrative_body(body):
             lineno = content[: m.start()].count("\n") + 1
             violations.append(
                 (lineno, m.group(0).strip(), "trivial one-liner block comment")
             )
+    multi = re.compile(r"/\*\*(?!/)(.*?)\*/", re.DOTALL)
+    for m in multi.finditer(content):
+        if "\n" not in m.group(1) or m.group(0) in old_text:
+            continue
+        text = "\n".join(re.sub(r"^\s*\*+ ?", "", ln) for ln in m.group(1).splitlines())
+        if is_restating_doc(text):
+            lineno = content[: m.start()].count("\n") + 1
+            violations.append(
+                (lineno, m.group(0).strip().splitlines()[0], "restating block comment")
+            )
     return violations
 
 
-def check_content(path, content):
+def check_content(path, content, old_text=""):
     lang, line_prefixes, block = detect_lang(path)
     if not lang or not line_prefixes:
         return []
 
     lines = content.splitlines()
+    known = {ln.strip() for ln in old_text.splitlines()}
     violations = []
-    violations.extend(check_line_comments(lines, line_prefixes, lang))
+    violations.extend(check_line_comments(lines, line_prefixes, lang, known))
 
     if lang == "python":
-        violations.extend(check_python_docstrings(content))
+        violations.extend(check_python_docstrings(content, old_text))
 
     if block and block[0] == "/*":
-        violations.extend(check_block_oneliners(content))
+        violations.extend(check_block_oneliners(content, old_text))
 
     seen = set()
     unique = []
@@ -426,6 +519,22 @@ def log_block(raw: str) -> None:
         print(f"[hook:comment-guard] block log not written: {exc}", file=sys.stderr)
 
 
+MAX_OLD_FILE_BYTES = 1_000_000
+
+
+def previous_text(tool_input, file_path) -> str:
+    old = tool_input.get("old_string")
+    if isinstance(old, str):
+        return old
+    try:
+        path = Path(file_path)
+        if path.is_file() and path.stat().st_size <= MAX_OLD_FILE_BYTES:
+            return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return ""
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -453,7 +562,7 @@ def main():
     if not isinstance(content, str) or not content:
         sys.exit(0)
 
-    violations = check_content(file_path, content)
+    violations = check_content(file_path, content, previous_text(tool_input, file_path))
     if not violations:
         sys.exit(0)
 
@@ -494,14 +603,17 @@ def main():
         print(f"  line {lineno} [{kind}]: {short}", file=out)
     print("", file=out)
     print(
-        "Fix: delete these comments. If the code is genuinely complex, rewrite the",
+        "Fix: delete these comments. Adding a marker word such as 'because' or",
         file=out,
     )
     print(
-        "comment to explain WHY (with a 'because', 'to avoid', 'workaround for', or",
+        "'to avoid' to narration does not make it a reason; keep a comment only",
         file=out,
     )
-    print("'invariant:' marker). Otherwise remove it and trust the code.", file=out)
+    print(
+        "when it states a fact the code cannot, and otherwise trust the code.",
+        file=out,
+    )
     log_block(raw)
     sys.exit(2)
 
