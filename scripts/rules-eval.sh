@@ -193,6 +193,7 @@ check_comments_in() {
   awk '/^[[:space:]]*#/{n++; if (n > 2) bad=1; next} {n=0} END{exit !bad}' "$f" && why+=" comment-block>2"
   grep -qiE '^[[:space:]]*#[[:space:]]*(create|set|get|initiali[sz]e|return|add|remove|check|increment|decrement|loop|iterate|import|define|calculate|update|call|test|verify)s?\b' "$f" && why+=" restating-comment"
   grep -qE '^[[:space:]]*("""|'"'''"').*("""|'"'''"')[[:space:]]*$' "$f" && why+=" one-line-docstring"
+  grep -qiE '^[[:space:]]*[rb]?("""|'"'''"')[[:space:]]*(create|set|get|initiali[sz]e|return|add|remove|check|increment|decrement|loop|iterate|import|define|calculate|update|call|test|verify|load|save|parse|build|compute|fetch|validate|handle)s?\b' "$f" && why+=" paraphrase-docstring"
   grep -qP '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]' "$f" && why+=" emoji"
   grep -qE '^[[:space:]]{4,}(import[[:space:]]|from[[:space:]]+[^[:space:]]+[[:space:]]+import[[:space:]])' "$f" && why+=" inline-import"
   [[ -n "$why" ]] && echo "$(basename "$f"):$why"
