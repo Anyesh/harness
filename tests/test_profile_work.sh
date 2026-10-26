@@ -120,6 +120,11 @@ assert "the work=off profile gets second-brain in its own MCP servers" 'has_serv
 assert "main on a work machine has no me skill" '[ ! -e "$W/.claude/skills/me" ]'
 assert "a profile without a spec on a work machine loses a second-brain it had" '! has_server "$W/.claude-plain" second-brain'
 assert "names --work on lists the spec-less profile on a work machine" '[ "$(profile_tool "$W" names --work on)" = "plain" ]'
+mv "$W/.claude.json" "$TMP_DIR/main-state.json"
+printf '{"mcpServers": {"second-brain": {"command": "sb"}}}\n' >"$W/.claude-plain/.claude.json"
+harness "$W" --profile plain >/dev/null || true
+assert "a profile's MCP drop applies even when main has no .claude.json" '! has_server "$W/.claude-plain" second-brain'
+mv "$TMP_DIR/main-state.json" "$W/.claude.json"
 
 rm -rf "$W/.config/harness/profiles/home"
 printf 'HARNESS_WORK=0\n' >>"$W/.harness.env"

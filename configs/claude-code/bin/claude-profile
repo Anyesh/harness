@@ -142,13 +142,14 @@ link_shared() {
 # Profile-only servers survive; a server defined in both takes the main entry so
 # that harness updates to it reach every profile.
 merge_mcp_servers() {
-  local dir="$1" state tmp drop
-  [[ -f "$MAIN_STATE" ]] || return 0
+  local dir="$1" state tmp drop main="$MAIN_STATE"
   state="$dir/.claude.json"
+  [[ -f "$main" ]] || main=/dev/null
+  [[ -f "$main" || -f "$state" ]] || return 0
   [[ -f "$state" ]] || printf '{}\n' >"$state"
   drop=$(owned_by_install "$dir" drop-mcp | jq -R . | jq -s .)
   tmp=$(mktemp "$state.XXXXXX")
-  if jq --slurpfile main "$MAIN_STATE" --argjson drop "$drop" \
+  if jq --slurpfile main "$main" --argjson drop "$drop" \
     '.mcpServers = ((.mcpServers // {}) + ($main[0].mcpServers // {}) | del(.[$drop[]]))' "$state" >"$tmp"; then
     mv "$tmp" "$state"
   else
