@@ -1,6 +1,6 @@
 ---
 name: crew
-description: "Run a crew: this session becomes the lead and directs separate Claude worker sessions, on the user's other Claude accounts, in Herdr panes; each worker owns one board item in its own worktree and lands it through a reviewed merge gate. Use when the user types /crew or asks to run a crew or work through items with several agents in Herdr. Not for splitting work across subagents inside one session (that is /orchestrate) and not for the team skill's board questions. Claude Code inside Herdr only."
+description: "Run a crew: this session becomes the lead and directs separate Claude worker sessions, on the user's other Claude accounts, in Herdr panes; each worker owns one board item in its own worktree and lands it through a reviewed merge gate. Use when the user types /crew or asks to run a crew or work through items with several agents in Herdr. Not for splitting work across subagents inside one session (that is /orchestrate). Claude Code inside Herdr only."
 trigger: /crew
 ---
 

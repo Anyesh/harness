@@ -95,6 +95,13 @@ assert "fixture: second run skips the overlaid skill" 'grep -qF "skip: skill wik
 assert "fixture: second run skips the overlaid command" 'grep -qF "skip: command commit.md (unchanged)" <<<"$second"'
 assert "fixture: second run redeploys nothing" '! grep -qE "skill: wiki|installed: command|updated: command" <<<"$second"'
 
+for d in "$FH/.claude/skills" "$FH/.cursor/skills" "$FH/.agents/skills"; do
+    mkdir -p "$d/team" && echo retired >"$d/team/SKILL.md"
+done
+install_all "$FIX" "$FH"
+assert "fixture: a retired skill is removed from every agent" '[[ ! -e "$FH/.claude/skills/team" && ! -e "$FH/.cursor/skills/team" && ! -e "$FH/.agents/skills/team" ]]'
+assert "fixture: removing a retired skill leaves live skills" '[[ -f "$FH/.claude/skills/wiki/SKILL.md" && -f "$FH/.agents/skills/wiki/SKILL.md" ]]'
+
 status_out=$(harness_at "$FIX" "$FH" status) || true
 assert "fixture: status is clean" '! grep -qE "DIRTY|MISSING|ORPHAN" <<<"$status_out"'
 assert "fixture: overlay command is recorded against its overlay source" 'jq -e --arg f "$FH/.claude/commands/commit.md" ".files[\$f].source == \"configs/claude-code/commands/commit.md\"" "$FH/manifest.json" > /dev/null'
