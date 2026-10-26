@@ -81,7 +81,7 @@ if [[ -n "$PROFILE_NAME" ]]; then
   [[ -z "$ONLY_MODULE" ]] || die "--profile cannot be combined with --only: it rebuilds one Claude profile and nothing else"
 fi
 
-MODULE_ORDER=(second-brain verdant claude cursor codex opencode wiki leakguard)
+MODULE_ORDER=(second-brain verdant claude cursor codex opencode herdr wiki leakguard)
 
 HOOK_SKIP_FILES=()
 profile_no_memory && HOOK_SKIP_FILES=("${MEMORY_HOOKS[@]}")

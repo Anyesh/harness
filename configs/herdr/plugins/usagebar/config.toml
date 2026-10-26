@@ -1,0 +1,7 @@
+[notify]
+enabled = true
+remaining_thresholds = [50, 20, 10, 5]
+
+[ui]
+limit_percent = "remaining"
+cache_display = true

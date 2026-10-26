@@ -22,6 +22,7 @@ assert() {
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
+HERDR_PINNED=$(sed -n 's/^HERDR_VERSION="\(.*\)"$/\1/p' "$REPO_ROOT/modules/herdr.sh")
 mkdir -p "$TMP_DIR/tmpdir"
 
 MEMORY_HOOK_NAMES=(session-start-wiki.sh wiki-nudge.sh stop-wiki-enforce.sh session-end-ingest.sh)
@@ -35,10 +36,13 @@ new_home() {
     : > "$home/.harness.env"
     [[ "$with_vault" == "vault" ]] && printf 'WIKI_VAULT=%s/vault\n' "$TMP_DIR" > "$home/.harness.env"
     local tool
-    for tool in cursor codex opencode sb cargo systemctl claude; do
+    for tool in cursor codex opencode sb cargo systemctl claude go; do
         printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$tool" "$home" > "$home/.local/bin/$tool"
         chmod +x "$home/.local/bin/$tool"
     done
+    printf '#!/bin/sh\necho "herdr $*" >> "%s/calls.log"\n[ "$1" = --version ] && echo "herdr %s"\nexit 0\n' \
+        "$home" "$HERDR_PINNED" > "$home/.local/bin/herdr"
+    chmod +x "$home/.local/bin/herdr"
 }
 
 add_fake_second_brain() {

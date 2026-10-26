@@ -1,0 +1,12 @@
+layouts:
+  - id: agent-review
+    tabs:
+      - title: code
+        panes:
+          - title: agent
+            agent: claude
+          - title: review
+            command: herdr-reviewr
+            split: vertical
+            size: "40%"
+globalLayout: agent-review

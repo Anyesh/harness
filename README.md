@@ -181,6 +181,10 @@ claude        Claude Code: configs, plugins, hooks, skills, MCP
 cursor        Cursor: rules, mcp.json, hooks.json, skills, commands
 codex         Codex: config.toml, instructions
 opencode      opencode: AGENTS.md, commands, skills via ~/.agents/skills
+herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
+              commits in configs/herdr/plugins.tsv and their configs; Go
+              for plugin builds when none is on PATH. Never restarts a
+              running herdr server.
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
