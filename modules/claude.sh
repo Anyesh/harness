@@ -136,9 +136,13 @@ claude_scripts() {
   done
 }
 
-claude_profile_tool() {
-  deploy_file "$REPO_ROOT/configs/claude-code/bin/claude-profile" "$HOME/.local/bin/claude-profile" \
-    "configs/claude-code/bin/claude-profile" "false" "claude-profile" executable
+claude_bin_tools() {
+  local bin_file filename
+  for bin_file in "$REPO_ROOT/configs/claude-code/bin"/*; do
+    [[ ! -f "$bin_file" ]] && continue
+    filename=$(basename "$bin_file")
+    deploy_file "$bin_file" "$HOME/.local/bin/$filename" "configs/claude-code/bin/$filename" "false" "$filename" executable
+  done
 }
 
 # Handoffs used to live in ~/.claude/handoffs. The old path becomes a symlink to the
@@ -257,7 +261,7 @@ claude_install() {
   deploy_shared_skills "$CLAUDE_CONFIG_DIR/skills" "$REPO_ROOT/configs/claude-code/skills"
   deploy_impeccable_skill "claude" "$CLAUDE_CONFIG_DIR/skills/impeccable"
   deploy_shared_commands "$CLAUDE_CONFIG_DIR/commands" "$REPO_ROOT/configs/claude-code/commands"
-  claude_profile_tool
+  claude_bin_tools
   claude_profiles_render_all
   claude_profiles_sync
 }
