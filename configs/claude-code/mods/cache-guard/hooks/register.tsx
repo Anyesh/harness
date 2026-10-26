@@ -13,6 +13,7 @@ import {
   gateDecision,
   gateQuestion,
   handoffPrompt,
+  isCrewPrompt,
   joinSegments,
   missToast,
   observeStep,
@@ -211,7 +212,9 @@ export const register: Register = (on, options) => {
   // Fails open because this is a cost warning: a broken guard must never eat a prompt.
   on('prompt.submit', async ($, e, next) => {
     // Attachments cannot be put back in the prompt box, so a prompt carrying them is never held.
-    if (e.origin.kind !== 'composer' || e.turnId !== undefined || e.attachments) return next(e)
+    if (e.origin.kind !== 'composer' || e.turnId !== undefined || e.attachments || isCrewPrompt(e.text)) {
+      return next(e)
+    }
     const gate = gateDecision(
       await read($, last),
       await liveContext($),

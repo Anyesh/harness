@@ -235,6 +235,22 @@ describe('gate', () => {
     expect(w.sent).toEqual(['from sdk', 'typed mid-turn'])
   })
 
+  test('a [crew] prompt passes a cold gate', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 72)
+    await submit($, '[crew] read brief.md\nthen item 2')
+    expect(w.asked).toEqual([])
+    expect(w.sent).toEqual(['[crew] read brief.md\nthen item 2'])
+  })
+
+  test('[crew] anywhere but the start is still gated', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 72)
+    await submit($, 'note for [crew] workers')
+    expect(w.asked).toHaveLength(1)
+    expect(w.sent).toEqual(['note for [crew] workers'])
+  })
+
   test('respects the gateUsd option', { options: { gateUsd: 5 } }, async ($, on) => {
     const w = world(on)
     await warmed($, w, 72)

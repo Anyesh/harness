@@ -13,6 +13,7 @@ import {
   gateDecision,
   gateQuestion,
   handoffPrompt,
+  isCrewPrompt,
   learnTtl,
   noBounds,
   observeStep,
@@ -164,6 +165,18 @@ describe('gateDecision', () => {
   test('stays quiet when the re-write is under the threshold', () => {
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 0)).not.toBeNull()
+  })
+})
+
+describe('isCrewPrompt', () => {
+  test('matches only the exact prefix at the start', () => {
+    expect(isCrewPrompt('[crew] review item 3')).toBe(true)
+    expect(isCrewPrompt('[crew] line one\nline two')).toBe(true)
+    expect(isCrewPrompt('review item 3')).toBe(false)
+    expect(isCrewPrompt('please [crew] review')).toBe(false)
+    expect(isCrewPrompt(' [crew] review')).toBe(false)
+    expect(isCrewPrompt('[crew]review')).toBe(false)
+    expect(isCrewPrompt('[Crew] review')).toBe(false)
   })
 })
 

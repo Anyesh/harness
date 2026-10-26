@@ -144,6 +144,10 @@ export function gateDecision(
   return { idleMs, tokens: ctx, rewriteUsd: rewrite }
 }
 
+export function isCrewPrompt(text: string): boolean {
+  return text.startsWith('[crew] ')
+}
+
 export function formatTokens(tokens: number): string {
   if (tokens >= MILLION) return `${(tokens / MILLION).toFixed(1)}M`
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`
