@@ -31,7 +31,7 @@ codex_deploy_config() {
   fi
 
   local shared_hooks=("pre-bash-guard.sh" "format-on-save.sh" "pre-edit-comment-guard.py" "cost-guard.sh" "stop-sloppiness-guard.sh" \
-    "session-start-wiki.sh" "session-end-ingest.sh" "load-harness-env.sh" "harness-project.sh" "detect-agent.sh" "log-block.sh" "shell-code.sh" \
+    "session-start-wiki.sh" "wiki-index-build.sh" "session-end-ingest.sh" "load-harness-env.sh" "harness-project.sh" "detect-agent.sh" "log-block.sh" "shell-code.sh" \
     "post-compact-context.sh" "compact-note.sh" "attention-notify.sh" "attention-core.sh")
   for hook in "${shared_hooks[@]}"; do
     profile_skips_hook "$hook" && continue
@@ -54,8 +54,10 @@ codex_deploy_config() {
 codex_mcp() {
   local dest="$CODEX_CONFIG_DIR/config.toml"
 
-  local sb_mcp="" sb_api=""
-  if ! profile_no_memory; then
+  local sb_mcp="" sb_api="" drop=""
+  if profile_skips_mcp_server second-brain; then
+    profile_work && drop=second-brain
+  else
     declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
     second_brain_find_binaries
     sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
@@ -64,10 +66,10 @@ codex_mcp() {
 
   local tmp_out
   tmp_out=$(mktemp)
-  if ! python3 - "$dest" "$web_strip_path" "$sb_mcp" "$sb_api" "$tmp_out" <<'PYEOF'
-import sys, tomllib
+  if ! python3 - "$dest" "$web_strip_path" "$sb_mcp" "$sb_api" "$tmp_out" "$drop" <<'PYEOF'
+import re, sys, tomllib
 
-dest_path, web_strip_path, sb_mcp, sb_api, out_path = sys.argv[1:6]
+dest_path, web_strip_path, sb_mcp, sb_api, out_path, drop = sys.argv[1:7]
 
 def toml_str(s):
     # Minimal TOML basic-string escaper: backslash and double-quote are the
@@ -112,6 +114,19 @@ if sb_mcp and "second-brain" not in existing:
     blocks.append(f'[mcp_servers.second-brain]\ncommand = "{toml_str(sb_mcp)}"\n{env_line}')
 
 content = raw.decode("utf-8") if raw else ""
+# A withheld server is removed with the marker line the harness wrote above it;
+# each table and subtable runs until the next header or the next block's marker.
+MARKER = r"# harness-managed MCP server \(added by install\.sh\)"
+removed = False
+for name in filter(None, drop.split(",")):
+    if name in existing:
+        content = re.sub(
+            rf"(?m)^(?:{MARKER}\n)?"
+            rf"\[mcp_servers\.{re.escape(name)}(?:\.[^\]\n]+)?\]\n(?:(?!\[|{MARKER}).*(?:\n|$))*",
+            "",
+            content,
+        )
+        removed = True
 for block in blocks:
     if content and not content.endswith("\n"):
         content += "\n"
@@ -119,7 +134,7 @@ for block in blocks:
         content += "\n"
     content += "# harness-managed MCP server (added by install.sh)\n" + block
 
-if blocks:
+if blocks or removed:
     try:
         tomllib.loads(content)
     except tomllib.TOMLDecodeError as e:

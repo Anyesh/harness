@@ -57,6 +57,10 @@ render_candidate() {
     log_error "failed to deploy $label (memory filter could not parse the JSON)"
     return 1
   fi
+  if [[ "$dest" == *.json ]] && ! strip_work_json "$out"; then
+    log_error "failed to deploy $label (work filter could not parse the JSON)"
+    return 1
+  fi
   if ! validate_template "$out"; then
     log_error "failed to deploy $label (unresolved template vars)"
     return 1
@@ -178,6 +182,10 @@ save_merge_base() {
 # blind json.load/dump round-trip would silently drop the user's content.
 deploy_merged_json() {
   local rendered_tmp="$1" dest="$2" manifest_source="$3" label="$4" merge_key="${5:-mcpServers}"
+  # The merge only adds keys, so servers a work install withholds are dropped
+  # from dest explicitly or an earlier personal install's entry would survive.
+  local drop=""
+  profile_work && drop=$(IFS=,; printf '%s' "${WORK_MCP_SERVERS[*]}")
 
   local tmp_merged
   tmp_merged=$(mktemp)
@@ -189,7 +197,7 @@ deploy_merged_json() {
   # formatted exactly like python's output.
   local py_err
   py_err=$(mktemp)
-  if ! python3 - "$rendered_tmp" "$dest" "$tmp_merged" "$merge_key" 2>"$py_err" <<'PYEOF'
+  if ! python3 - "$rendered_tmp" "$dest" "$tmp_merged" "$merge_key" "$drop" 2>"$py_err" <<'PYEOF'
 import json, sys
 try:
     harness = json.load(open(sys.argv[1]))
@@ -206,6 +214,8 @@ except json.JSONDecodeError as e:
     sys.exit(1)
 merged = existing.copy()
 merged.setdefault(merge_key, {}).update(harness.get(merge_key, {}))
+for key in filter(None, sys.argv[5].split(",")):
+    merged[merge_key].pop(key, None)
 json.dump(merged, open(sys.argv[3], "w"), indent=2)
 open(sys.argv[3], "a").write("\n")
 PYEOF

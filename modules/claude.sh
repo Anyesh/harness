@@ -197,6 +197,20 @@ claude_verdant_rules() {
   deploy_file "$src" "$dest" "configs/claude-code/verdant-bash.toml" "false" "verdant-bash.toml"
 }
 
+# A work install withholds these servers; an earlier personal install may have
+# registered them at user scope, where no config file render can reach them.
+claude_withdraw_mcp() {
+  command -v claude &>/dev/null || return 0
+  local name
+  for name in "$@"; do
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would remove MCP server $name (withheld from work installs)"
+    elif claude mcp remove -s user "$name" >/dev/null 2>&1; then
+      log_success "mcp: $name removed (withheld from work installs)"
+    fi
+  done
+}
+
 claude_mcp() {
   if ! command -v claude &>/dev/null; then
     log_warn "claude CLI not found, skipping MCP server registration"
@@ -248,7 +262,9 @@ claude_install() {
     "configs/claude-code/settings.json.tmpl" "settings.json.tmpl" || true
   claude_config ".mcp.json.tmpl" "$CLAUDE_CONFIG_DIR/.mcp.json"
   claude_mcp
-  if ! profile_no_memory; then
+  if profile_work; then
+    claude_withdraw_mcp "${WORK_MCP_SERVERS[@]}"
+  elif ! profile_no_memory; then
     # --claude-only skips loading the second-brain module, so source it for its mcp helper
     declare -f second_brain_mcp >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
     second_brain_mcp

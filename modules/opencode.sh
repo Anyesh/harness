@@ -39,7 +39,7 @@ opencode_mcp() {
   fi
 
   local sb_mcp="" sb_api=""
-  if ! profile_no_memory; then
+  if ! profile_skips_mcp_server second-brain; then
     declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
     second_brain_find_binaries
     sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"

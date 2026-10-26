@@ -110,6 +110,21 @@ render_template() {
   home_escaped="${home_escaped//&/\\&}"
   sed -i "s|{{HOME_DIR}}|${home_escaped}|g" "$output"
 
+  # Resolved before the generic .harness.env loop below, which would otherwise
+  # substitute the personal vault into a work install first.
+  local work_flag=0 wiki_vault
+  profile_work && work_flag=1
+  sed -i "s|{{HARNESS_WORK}}|${work_flag}|g" "$output"
+  wiki_vault=$(profile_wiki_vault)
+  if [[ -n "$wiki_vault" ]]; then
+    wiki_vault="${wiki_vault//\\/\\\\}"
+    sed -i "s|{{WIKI_VAULT}}|${wiki_vault//&/\\&}|g" "$output"
+  elif [[ "$input" == *.json* ]]; then
+    sed -i '/"WIKI_VAULT": *"{{WIKI_VAULT}}",\{0,1\}$/d' "$output"
+  else
+    sed -i 's|{{WIKI_VAULT}}|$WIKI_VAULT|g' "$output"
+  fi
+
   if [[ -f "$env_file" ]]; then
     while IFS='=' read -r key value; do
       [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
@@ -161,6 +176,7 @@ validate_all_templates() {
     tmp=$(mktemp)
     render_template "$tmpl" "$tmp"
     [[ "$tmpl" == *.json.tmpl ]] && profile_no_memory && strip_memory_json "$tmp"
+    [[ "$tmpl" == *.json.tmpl ]] && strip_work_json "$tmp"
 
     checked=$((checked + 1))
     if ! validate_rendered "$tmp"; then

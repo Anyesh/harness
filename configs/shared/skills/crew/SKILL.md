@@ -36,7 +36,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 
 ## Workers
 
-The pool is `claude-profile names` plus `default`. Keep your own `${CLAUDE_PROFILE:-default}` for yourself and spread workers across the rest.
+The pool is the profiles whose work state matches yours, so work never reaches a personal profile or the reverse. Your state is `on` when `HARNESS_WORK` is `1`, else `off`. The pool is `claude-profile names --work <state>`, plus `default` when `jq -r '.env.HARNESS_WORK // "0"' ~/.claude/settings.json` gives the same answer (`1` for on). Keep your own `${CLAUDE_PROFILE:-default}` for yourself and spread workers across the rest.
 
 To spawn one worker:
 

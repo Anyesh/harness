@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
 
+# Env file only: settings env would carry a profile's vault into a main install.
 wiki_check() {
-  local vault="${WIKI_VAULT:-}"
-  if [[ -z "$vault" ]]; then
-    if [[ -f "$HOME/.harness.env" ]]; then
-      vault=$(grep -E '^WIKI_VAULT=' "$HOME/.harness.env" 2>/dev/null | cut -d= -f2- || true)
-    fi
-  fi
-
-  if [[ -z "$vault" ]]; then
+  if [[ -z "$(profile_wiki_vault)" ]]; then
     log_warn "WIKI_VAULT not set"
     log_info "  Set WIKI_VAULT in ~/.harness.env"
     return 1
@@ -18,22 +12,24 @@ wiki_check() {
 }
 
 wiki_install() {
-  local vault="${WIKI_VAULT:-}"
-  if [[ -z "$vault" ]]; then
-    if [[ -f "$HOME/.harness.env" ]]; then
-      vault=$(grep -E '^WIKI_VAULT=' "$HOME/.harness.env" 2>/dev/null | cut -d= -f2- || true)
-    fi
+  local base vault
+  base=$(harness_env_file_value WIKI_VAULT)
+
+  if [[ -z "$base" ]]; then
+    base="$HOME/Obsidian/SecondBrain"
+    log_info "WIKI_VAULT not set, defaulting to $base"
+    wiki_ensure_env "$base"
   fi
 
-  if [[ -z "$vault" ]]; then
-    vault="$HOME/Obsidian/SecondBrain"
-    log_info "WIKI_VAULT not set, defaulting to $vault"
+  vault=$(profile_wiki_vault)
+  # The work vault arrives through sync; a local skeleton would conflict with it.
+  if profile_work && [[ ! -f "$vault/WIKI_SCHEMA.md" ]]; then
+    log_warn "work wiki vault not synced yet at $vault; wiki hooks stay quiet until it is"
+  else
+    wiki_init_vault "${vault:-$base}"
   fi
 
-  wiki_init_vault "$vault"
-  wiki_ensure_env "$vault"
-
-  log_info "wiki hooks (session-start-wiki.sh, session-end-ingest.sh) deployed by claude module"
+  log_info "wiki hooks (session-start-wiki.sh, stop-wiki-enforce.sh, wiki-index-build.sh) deployed by the agent modules"
   log_info "wiki maintenance happens during sessions via /wiki skill (no background export)"
 }
 
@@ -58,34 +54,6 @@ wiki_init_vault() {
   mkdir -p "$vault/wiki/synthesis"
   mkdir -p "$vault/wiki/sources"
   mkdir -p "$vault/raw/assets"
-
-  cat > "$vault/wiki/index.md" <<INDEXEOF
----
-type: index
-created: ${today}
-updated: ${today}
----
-
-# Wiki Index
-
-Master catalog. The LLM reads this first to find relevant pages.
-
-## Projects
-
-_No projects yet._
-
-## Concepts
-
-_No concepts yet._
-
-## Sources
-
-_No sources yet._
-
-## Syntheses
-
-_No syntheses yet._
-INDEXEOF
 
   cat > "$vault/wiki/log.md" <<LOGEOF
 ---
@@ -114,6 +82,7 @@ LLM-maintained knowledge wiki (Karpathy pattern). The LLM reads this at the star
 \`\`\`
 wiki/
 ├── projects/<slug>/         # per-project knowledge
+│   ├── index.md             # lists every page in this folder
 │   ├── overview.md
 │   ├── devlog.md
 │   ├── decisions/
@@ -123,10 +92,12 @@ wiki/
 ├── concepts/                # cross-project concepts
 ├── synthesis/               # cross-project analyses
 ├── sources/                 # external source summaries
-├── index.md                 # master catalog
+├── index.md                 # generated from each folder's index.md; never edit
 └── log.md                   # activity timeline
 raw/                         # immutable source copies
 \`\`\`
+
+Each folder (\`projects/<slug>/\`, \`concepts/\`, \`sources/\`, \`synthesis/\`) keeps its own \`index.md\`, one line per page. Agents edit those; the harness rebuilds \`wiki/index.md\` from them. The project slug is the basename of the main checkout, never a worktree.
 
 ## Page Types
 
@@ -179,19 +150,22 @@ wiki_test() {
 
   local orig_home="$HOME"
   local orig_dry="$DRY_RUN"
-  local orig_vault="${WIKI_VAULT:-}"
+  local orig_env="$HARNESS_ENV"
+  local orig_work="$WORK"
 
   export HOME="$tmp_dir"
   DRY_RUN=true
-  WIKI_VAULT="$tmp_dir/test-vault"
-  echo "WIKI_VAULT=$tmp_dir/test-vault" > "$tmp_dir/.harness.env"
+  WORK=""
+  HARNESS_ENV="$tmp_dir/.harness.env"
+  echo "WIKI_VAULT=$tmp_dir/test-vault" > "$HARNESS_ENV"
 
   local output
   output=$(wiki_install 2>&1)
 
   HOME="$orig_home"
   DRY_RUN="$orig_dry"
-  WIKI_VAULT="$orig_vault"
+  HARNESS_ENV="$orig_env"
+  WORK="$orig_work"
   rm -rf "$tmp_dir"
 
   if ! echo "$output" | grep -q '\[dry-run\]'; then

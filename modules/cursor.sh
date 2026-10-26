@@ -12,6 +12,20 @@ cursor_check() {
     return 0
 }
 
+# Deploying only adds, so a rule this install withholds (memory off, work) is
+# removed if an earlier install left it, or Cursor would keep loading it.
+cursor_withdraw_rule() {
+  local dest="$1"
+  [[ -f "$dest" ]] || return 0
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would remove withheld rule: $dest"
+    return 0
+  fi
+  rm -f "$dest"
+  manifest_drop "$dest"
+  log_success "removed withheld rule: $dest"
+}
+
 cursor_rules() {
   local src_dir="$REPO_ROOT/configs/shared/rules"
   local dest_dir="$CURSOR_CONFIG_DIR/rules"
@@ -37,7 +51,10 @@ cursor_rules() {
     [[ ! -f "$src" ]] && continue
     local filename
     filename=$(basename "$src")
-    profile_skips_rule "$filename" && continue
+    if profile_skips_rule "$filename"; then
+      cursor_withdraw_rule "$dest_dir/$filename"
+      continue
+    fi
     deploy_rendered_template "$src" "$dest_dir/$filename" "configs/shared/rules/$filename" "cursor rule $filename" || true
   done
 }
@@ -56,6 +73,11 @@ cursor_mcp() {
   if profile_no_memory && ! strip_memory_json "$tmp_rendered"; then
     rm -f "$tmp_rendered"
     log_error "failed to deploy cursor mcp.json (memory filter could not parse the JSON)"
+    return
+  fi
+  if ! strip_work_json "$tmp_rendered"; then
+    rm -f "$tmp_rendered"
+    log_error "failed to deploy cursor mcp.json (work filter could not parse the JSON)"
     return
   fi
 

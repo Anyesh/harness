@@ -4,11 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+HARNESS_ENV=$(mktemp)
+export HARNESS_ENV
+trap 'rm -f "$HARNESS_ENV"' EXIT
+echo "WIKI_VAULT=/tmp/harness-test-vault" >"$HARNESS_ENV"
+
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/template.sh"
 
 export HOME_DIR="${HOME:-/tmp/harness-test}"
-export HARNESS_ENV="${HARNESS_ENV:-$HOME/.harness.env}"
 export LC_ALL=C.UTF-8
 
 PASS=0
@@ -28,7 +32,7 @@ assert() {
 }
 
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR" "$HARNESS_ENV"' EXIT
 
 C="$TMP_DIR/CLAUDE.md"
 X="$TMP_DIR/instructions.md"

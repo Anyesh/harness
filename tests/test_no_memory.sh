@@ -177,7 +177,7 @@ assert "identity: CLAUDE.md has no marker text" '! grep -q "MEMORY_" "$FH/.claud
 ident_ok=true
 for pair in "claude-code/settings.json.tmpl:$FH/.claude/settings.json" "claude-code/.mcp.json.tmpl:$FH/.claude/.mcp.json" "codex/hooks.json:$FH/.codex/hooks.json"; do
     tmpl="$REPO_ROOT/configs/${pair%%:*}" out="${pair#*:}"
-    want=$(sed -e "s#{{HOME_DIR}}#$FH#g" -e "s#{{WIKI_VAULT}}#$TMP_DIR/vault#g" "$tmpl" | jq -S -c .)
+    want=$(sed -e "s#{{HOME_DIR}}#$FH#g" -e "s#{{WIKI_VAULT}}#$TMP_DIR/vault#g" -e "s#{{HARNESS_WORK}}#0#g" "$tmpl" | jq -S -c .)
     got=$(jq -S -c . "$out")
     [[ "$want" == "$got" ]] || { echo "    differs: $out"; ident_ok=false; }
 done

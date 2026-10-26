@@ -150,8 +150,10 @@ deploy_shared_skills() {
   mkdir -p "$dest_dir"
 
   # Deploying only adds and updates, so a skill deleted from configs/shared/skills
-  # stays in every agent's skills dir until it is listed here.
+  # stays in every agent's skills dir until it is listed here; a work install
+  # removes the skills it withholds the same way.
   local retired_skills=(team) retired
+  profile_work && retired_skills+=("${WORK_SKILLS[@]}")
   for retired in "${retired_skills[@]}"; do
     [[ -e "$dest_dir/$retired" ]] || continue
     if [[ "$DRY_RUN" == "true" ]]; then
