@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-merge: %s\n' "$*" >&2
+  exit 1
+}
+
+# A detached gc would inherit the lock fd and hold the merge queue after we exit.
+g() { git -c gc.autoDetach=false "$@"; }
+
+(($# == 1)) || {
+  echo "usage: crew-merge <item>" >&2
+  exit 2
+}
+id=$1
+crew=$(crew_dir) || die "not inside a git repository"
+common=$(g rev-parse --path-format=absolute --git-common-dir)
+runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
+mkdir -p "$runs"
+runs=$(cd "$runs" && pwd -P)
+item=$crew/items/$id
+
+row=$(awk -F'\t' -v id="$id" '$1 == id {print $4 "\t" $5}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
+[[ -n $row ]] || die "item $id is not on the board"
+branch=${row%%$'\t'*}
+into=${row#*$'\t'}
+into=${into%%$'\n'*}
+[[ -n $branch && -n $into ]] || die "board row for $id lacks a branch or into"
+
+tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
+# The process name in /proc/<pid>/stat may contain spaces, so count from the last ") ".
+stat=$(<"/proc/$$/stat")
+read -ra stat_fields <<<"${stat##*) }"
+mkdir -p "$item"
+printf 'pid %s\nstart %s\ntip %s\n' "$$" "${stat_fields[19]}" "$tip" >"$item/merging"
+
+exec {lock}>"$common/crew-merge.lock"
+flock -w 1800 "$lock" || die "merge queue busy"
+g worktree prune
+mapfile -t worktrees < <(g worktree list --porcelain | sed -n 's/^worktree //p')
+for wt in "${worktrees[@]}"; do
+  if [[ $wt == "$runs"/merge-* ]]; then g worktree remove --force "$wt"; fi
+done
+
+review=$item/review.md
+[[ -f $review ]] || die "no review at $review"
+last_field() { sed -n "/^$1:/{s/^$1:[[:space:]]*//;s/[[:space:]]*\$//;p}" "$review" | tail -n 1; }
+[[ $(last_field verdict) == green ]] || die "the last verdict in $review is not green"
+[[ $(last_field reviewed) == "$tip" ]] || die "the last reviewed sha in $review is not the tip of $branch ($tip)"
+
+target=$(g worktree list --porcelain | awk -v b="branch refs/heads/$into" '/^worktree /{w = substr($0, 10)} $0 == b {print w}')
+[[ -n $target ]] || die "$into is not checked out in any worktree"
+
+target_ok() {
+  [[ $(g -C "$target" symbolic-ref -q HEAD) == "refs/heads/$into" ]] || die "$target does not have $into checked out"
+  [[ -z $(g -C "$target" status --porcelain --untracked-files=no) ]] || die "$target has uncommitted changes"
+  local op
+  for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+    if [[ -e $(g -C "$target" rev-parse --path-format=absolute --git-path "$op") ]]; then
+      die "$target has a leftover $op"
+    fi
+  done
+  if g -C "$target" rev-parse -q --verify MERGE_AUTOSTASH >/dev/null; then
+    die "$target has a leftover MERGE_AUTOSTASH"
+  fi
+}
+target_ok
+base=$(g -C "$target" rev-parse HEAD)
+[[ -x $crew/check ]] || die "no executable check at $crew/check"
+
+tmp=
+cleanup() {
+  if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+tmp=$(mktemp -d "$runs/merge-XXXXXX")
+g worktree add -q --detach "$tmp" "$base"
+g -C "$tmp" merge -q --no-ff --no-edit -m "Merge branch '$branch' into $into" "$tip" ||
+  die "conflict merging $branch into $into; $into unchanged"
+merged=$(g -C "$tmp" rev-parse HEAD)
+
+unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
+for v in $(compgen -e); do
+  if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
+done
+log=$runs/check-$id.log
+if ! (cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&-; then
+  tail -n 20 "$log" >&2
+  die "check failed on $branch merged into $into; $into unchanged (log: $log)"
+fi
+tail -n 20 "$log"
+
+target_ok
+[[ $(g -C "$target" rev-parse HEAD) == "$base" ]] || die "$into moved during check; $into unchanged, rerun"
+printf 'merged %s\n' "$merged" >>"$item/merging"
+trap '' HUP TERM
+g -C "$target" merge -q --ff-only --no-autostash "$merged"
+[[ $(g rev-parse "refs/heads/$into") == "$merged" ]] || die "refs/heads/$into is not $merged after the fast-forward; see $item/merging"
+printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$tip" "$merged" "$into" >"$item/merged"
+rm "$item/merging"
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+printf '%s\n' "$merged"
