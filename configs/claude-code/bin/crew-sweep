@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Usage: crew-sweep [seconds]   (default 900; 0 compares once without waiting)
+#
+# Output lines:
+#   SUPERSEDED                      crew-role answered none; stop acting as lead
+#   ALL-DONE                        every board row is done or blocked
+#   ERROR <step>: <message>         a failed crew-role or herdr call, retried
+#   CHANGED <path> / REMOVED <path> item files that differ from the last sweep
+#   TIMEOUT                         nothing changed within the wait
+#   GONE <owner>                    an assigned owner herdr no longer lists
+#   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ DIALOG]
+#     a DIALOG line is followed by the owner's screen, each line indented two spaces
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+limit=${1:-900}
+[[ $limit =~ ^[0-9]+$ ]] || {
+  echo "usage: crew-sweep [seconds]" >&2
+  exit 2
+}
+retry_wait=${CREW_SWEEP_RETRY_WAIT:-10}
+retries=30
+screen_lines=12
+
+crew=$(crew_dir) || {
+  echo "crew-sweep: not inside a git repository" >&2
+  exit 1
+}
+board="$crew/board.tsv"
+seen="$crew/.sweep-seen"
+
+role_once() {
+  local out err rc
+  err=$(mktemp)
+  out=$(timeout 2 crew-role 2>"$err")
+  rc=$?
+  if ((rc == 124)); then
+    REPLY="timed out after 2 s"
+  elif ((rc != 0)); then
+    REPLY="exit $rc: $(tr '\n' ' ' <"$err")"
+  else
+    REPLY=$out
+  fi
+  rm -f "$err"
+  ((rc == 0))
+}
+
+check_role() {
+  local i
+  for ((i = 1; i <= retries; i++)); do
+    if role_once; then
+      case $REPLY in
+      lead) return 0 ;;
+      none)
+        echo SUPERSEDED
+        exit 0
+        ;;
+      worker)
+        echo "ERROR crew-role: this session is a crew worker, not the lead"
+        exit 1
+        ;;
+      *) REPLY="unexpected answer: $REPLY" ;;
+      esac
+    fi
+    echo "ERROR crew-role: $REPLY"
+    sleep "$retry_wait"
+  done
+  echo "ERROR crew-role: still failing after $retries attempts"
+  exit 1
+}
+
+all_done() {
+  [[ -f $board ]] || return 1
+  awk -F'\t' '
+    $2 ~ /^(open|assigned|done|blocked)$/ { rows++ }
+    $2 == "open" || $2 == "assigned" { busy = 1 }
+    END { exit !(rows > 0 && !busy) }
+  ' "$board"
+}
+
+snapshot() {
+  local files
+  shopt -s nullglob
+  files=("$crew"/items/*/report.md "$crew"/items/*/review.md "$crew"/items/*/merged)
+  shopt -u nullglob
+  ((${#files[@]})) || return 0
+  stat --printf '%n\t%.9Y\t%s\n' "${files[@]}" 2>/dev/null | LC_ALL=C sort
+}
+
+agent_list() {
+  local i out
+  for ((i = 1; i <= retries; i++)); do
+    if out=$(timeout 10 herdr agent list 2>&1); then
+      if jq -e '.result.agents | type == "array"' <<<"$out" >/dev/null 2>&1; then
+        REPLY=$(jq -r '.result.agents[] | select(.name != null) | [.name, .agent_status] | @tsv' <<<"$out")
+        return 0
+      fi
+      out="unexpected output: ${out:0:200}"
+    fi
+    echo "ERROR herdr agent list: ${out//$'\n'/ }"
+    sleep "$retry_wait"
+  done
+  echo "ERROR herdr agent list: still failing after $retries attempts"
+  exit 1
+}
+
+# Field 22 of /proc/<pid>/stat, counted after the last ") " because the
+# process name may itself hold spaces or parentheses.
+pid_start() {
+  local stat rest
+  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  rest=${stat##*) }
+  awk '{print $20}' <<<"$rest"
+}
+
+merging_live() {
+  local file=$1 pid start
+  [[ -f $file ]] || return 1
+  pid=$(awk '$1 == "pid" {v = $2} END {print v}' "$file")
+  start=$(awk '$1 == "start" {v = $2} END {print v}' "$file")
+  [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ ]] || return 1
+  [[ $(pid_start "$pid") == "$start" ]]
+}
+
+report_since() {
+  local report=$1 updated=$2
+  [[ $updated =~ ^[0-9]+$ ]] || updated=0
+  [[ -f $report ]] && (($(stat -c %Y "$report") > updated))
+}
+
+worker_line() {
+  local id=$1 owner=$2 updated=$3 status=$4 flags="" screen rc
+  local item="$crew/items/$id"
+  if merging_live "$item/merging"; then
+    flags+=" MERGING"
+  elif [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
+    flags+=" IDLE"
+  fi
+  if [[ $status == blocked ]]; then
+    screen=$(timeout 10 herdr agent read "$owner" --source visible --lines "$screen_lines" 2>&1)
+    rc=$?
+    if ((rc != 0)) && [[ $screen == *agent_not_found* ]]; then
+      echo "GONE $owner"
+      return
+    fi
+    ((rc == 0)) || screen="(screen read failed: ${screen//$'\n'/ })"
+    echo "WORKER $owner item $id $status$flags DIALOG"
+    sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' <<<"$screen" | sed 's/^/  /'
+    return
+  fi
+  echo "WORKER $owner item $id $status$flags"
+}
+
+report_workers() {
+  local listed found id status owner _branch _into updated _rest
+  agent_list
+  listed=$REPLY
+  [[ -f $board ]] || return 0
+  while IFS=$'\t' read -r id status owner _branch _into updated _rest; do
+    [[ $status == assigned && -n $owner ]] || continue
+    found=$(awk -F'\t' -v n="$owner" '$1 == n {print "+" $2; exit}' <<<"$listed")
+    if [[ -z $found ]]; then
+      echo "GONE $owner"
+    else
+      worker_line "$id" "$owner" "$updated" "${found#+}"
+    fi
+  done <"$board"
+}
+
+check_role
+if all_done; then
+  echo ALL-DONE
+  exit 0
+fi
+
+previous=$(cat "$seen" 2>/dev/null)
+current=$(snapshot)
+deadline=$((SECONDS + limit))
+while [[ $current == "$previous" ]] && ((SECONDS < deadline)); do
+  sleep 1
+  current=$(snapshot)
+done
+
+if [[ $current == "$previous" ]]; then
+  echo TIMEOUT
+else
+  awk -F'\t' '
+    NR == FNR { if ($0 != "") old[$1] = $0; next }
+    $0 == "" { next }
+    { now[$1] = 1; if (old[$1] != $0) print "CHANGED " $1 }
+    END { for (p in old) if (!(p in now)) print "REMOVED " p }
+  ' <(printf '%s\n' "$previous") <(printf '%s\n' "$current") | LC_ALL=C sort
+fi
+
+report_workers
+
+if [[ -n $current ]]; then
+  printf '%s\n' "$current" >"$seen.tmp"
+else
+  : >"$seen.tmp"
+fi
+mv -f "$seen.tmp" "$seen"
