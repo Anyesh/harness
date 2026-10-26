@@ -71,6 +71,11 @@ assert "launcher sets config dir and profile" '[[ "$(claude-work --version)" == 
 assert "declined sign-in does not call login" '! grep -q "args=auth login" <<<"$out"'
 assert "signed-out profile reported once" '! grep -q unknown <<<"$out"'
 
+echo "=== env: the variables a session needs to run as a profile ==="
+assert "env prints the profile and its config dir" '[[ "$(bash "$TOOL" env work)" == "CLAUDE_PROFILE=work"$'"'"'\n'"'"'"CLAUDE_CONFIG_DIR=$P" ]]'
+assert "env refuses a name that is not a profile" '! bash "$TOOL" env nosuch >/dev/null 2>&1'
+assert "env refuses a missing name" '! bash "$TOOL" env >/dev/null 2>&1'
+
 echo "=== create: name argument, accepts sign-in ==="
 out=$(printf 'y\n' | bash "$TOOL" alt 2>&1)
 assert "sign-in runs auth login in the profile" 'grep -q "cfg=$HOME/.claude-alt profile=alt args=auth login" <<<"$out"'

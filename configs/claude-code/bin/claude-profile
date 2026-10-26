@@ -15,13 +15,14 @@ SHARED=(
   hooks scripts skills commands agents plugins harness-mods dev-mods verdant-bash.toml
   projects plans
 )
-RESERVED=(profile list names sync remove help)
+RESERVED=(profile list names env sync remove help)
 
 usage() {
   cat <<'EOF'
 Usage: claude-profile [name]        create or repair a profile (asks for a name if omitted)
        claude-profile list          show profiles and the account each is signed in to
        claude-profile names         print profile names, one per line
+       claude-profile env <name>    print the variables that run a session as that profile
        claude-profile sync [name]   relink profiles to ~/.claude and merge new MCP servers
        claude-profile remove <name> delete a profile and its launcher
        claude-profile remove --all [--yes]
@@ -258,6 +259,14 @@ command -v jq >/dev/null || die "jq is required"
 case "${1:-}" in
   list) list ;;
   names) our_profiles ;;
+  env)
+    [[ $# -eq 2 ]] || {
+      usage >&2
+      exit 1
+    }
+    is_our_launcher "$(launcher_path "$2")" || die "no profile named '$2'"
+    printf 'CLAUDE_PROFILE=%s\nCLAUDE_CONFIG_DIR=%s\n' "$2" "$(profile_dir "$2")"
+    ;;
   sync)
     [[ $# -le 2 ]] || {
       usage >&2
