@@ -103,6 +103,33 @@ assert "pip block names uv" 'grep -q "uv add" <<<"$OUT"'
 CURSOR_OUT=$(jq -n --arg c 'pip install requests' '{hook_event_name: "beforeShellExecution", command: $c}' | bash "$HOOK" 2>/dev/null || true)
 assert "pip block uses Cursor deny output" '[ "$(jq -r .permission <<<"$CURSOR_OUT")" = deny ]'
 
+SB_ENV=$(mktemp)
+printf 'HARNESS_WORK=1\n' >"$SB_ENV"
+HARNESS_ENV="$SB_ENV" run_hook 'sb recall "deploy notes"'
+assert "a work machine blocks sb recall" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" run_hook 'cd /tmp && sb context harness'
+assert "a work machine blocks sb context" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=0 run_hook 'sb recall x'
+assert "a personal profile on a work machine may recall" '[ "$RC" -eq 0 ]'
+: >"$SB_ENV"
+HARNESS_ENV="$SB_ENV" run_hook 'sb recall x'
+assert "a personal machine may recall" '[ "$RC" -eq 0 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'sb recall x'
+assert "a work profile on a personal machine blocks sb recall" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'git commit -m "sb recall is blocked for work"'
+assert "a commit message mentioning sb recall passes" '[ "$RC" -eq 0 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'sb sync-export > /tmp/all.jsonl'
+assert "a work session cannot export the store" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'curl -s http://127.0.0.1:7200/recall?q=x'
+assert "a work session cannot query the daemon over HTTP" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'second-brain-api --help'
+assert "a work session cannot run the daemon binary" '[ "$RC" -eq 2 ]'
+HARNESS_ENV="$SB_ENV" HARNESS_WORK=1 run_hook 'sbt compile && ls sb'
+assert "a work session may run commands that only start with sb" '[ "$RC" -eq 0 ]'
+HARNESS_ENV="$SB_ENV" run_hook 'sb sync-export > /tmp/all.jsonl'
+assert "a personal session may export the store" '[ "$RC" -eq 0 ]'
+rm -f "$SB_ENV"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

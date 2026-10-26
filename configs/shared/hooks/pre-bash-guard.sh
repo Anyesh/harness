@@ -76,4 +76,13 @@ for pattern in "${python_env[@]}"; do
   fi
 done
 
+if printf '%s\n' "$code" | grep -qE "${at}(\S*/)?(sb|second-brain-[a-z]+)(\s|$)|(127\.0\.0\.1|localhost):7200\b"; then
+  # shellcheck source=load-harness-env.sh
+  source "$HOOK_DIR/load-harness-env.sh"
+  load_harness_var HARNESS_WORK
+  if [[ "${HARNESS_WORK:-}" == 1 ]]; then
+    deny "second-brain holds the user's personal projects and is withheld from work sessions."
+  fi
+fi
+
 exit 0
