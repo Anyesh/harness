@@ -91,19 +91,13 @@ def link_page(target):
 
 
 # Obsidian's resolution: an exact path first, else the shortest path ending in the target.
-def wikilink_pages(pages, folder, targets):
-    stems = {page[:-3]: page for page in pages}
-    found = set()
-    for target in targets:
-        target = target.strip().removesuffix(".md")
-        exact = os.path.normpath(os.path.join(folder, target))
-        if exact in stems:
-            found.add(stems[exact])
-            continue
-        matches = sorted((s for s in stems if s.endswith("/" + target)), key=lambda s: (s.count("/"), s))
-        if matches:
-            found.add(stems[matches[0]])
-    return found
+def resolve_wikilink(stems, folder, target):
+    target = target.strip().removesuffix(".md")
+    exact = os.path.normpath(os.path.join(folder, target))
+    if exact in stems:
+        return exact
+    matches = sorted((s for s in stems if s.endswith("/" + target)), key=lambda s: (s.count("/"), s))
+    return matches[0] if matches else None
 
 
 def markdown_target(page):
@@ -124,17 +118,25 @@ def folder_block(rel_folder, heading_slug, level):
     folder_abs = os.path.join(wiki, rel_folder)
     own_index = os.path.join(folder_abs, "index.md")
     fields, body = frontmatter(read(own_index)) if os.path.isfile(own_index) else ({}, "")
-    lines, listed, wikilinks = [], set(), []
+    pages = pages_under(folder_abs)
+    stems = {page[:-3] for page in pages}
+    lines, listed = [], set()
+
+    def rewrite_wikilink(match):
+        stem = resolve_wikilink(stems, rel_folder, match.group(1))
+        if stem is None:
+            return match.group(0)
+        listed.add(stem + ".md")
+        return "[[" + stem
+
     for line in body.splitlines():
         if not line.lstrip().startswith("- "):
             continue
         line = LINK.sub(lambda m: rewrite_link(rel_folder, m), line)
         listed.update(link_page(t) for t in LINK.findall(line))
-        wikilinks += WIKILINK.findall(line)
+        line = WIKILINK.sub(rewrite_wikilink, line)
         lines.append(line)
     own_rel = os.path.relpath(own_index, wiki)
-    pages = pages_under(folder_abs)
-    listed |= wikilink_pages(pages, rel_folder, wikilinks)
     for page in pages:
         if page == own_rel or page in listed:
             continue

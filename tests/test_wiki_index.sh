@@ -93,6 +93,8 @@ assert "a link written relative to wiki/ resolves instead of doubling the folder
 assert "pages outside the indexed folders are still listed" \
   'grep -qF "[Activity Log](log.md)" <<<"$OUT" && grep -qF "[Loose note](misc/note.md)" <<<"$OUT"'
 assert "the generated index does not list itself" '! grep -qF "](index.md)" <<<"$OUT"'
+assert "a resolvable wikilink is rewritten to its path from wiki/" \
+  'grep -qF "[[projects/alpha/plans/wiki-page|Wiki page]]" <<<"$OUT"'
 assert "a bare wikilink lists only the page it resolves to" \
   'grep -qF "(projects/alpha/worktrees/w1/devlog.md): unlisted" <<<"$OUT"'
 assert "a loose file directly under projects/ is still listed" 'grep -qF "(projects/loose.md)" <<<"$OUT"'
