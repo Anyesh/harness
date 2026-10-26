@@ -45,7 +45,9 @@ To spawn one worker:
 
    ```bash
    envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
-   [[ $profile != default ]] && envs+=(--env "CLAUDE_PROFILE=$profile" --env "CLAUDE_CONFIG_DIR=$HOME/.claude-$profile")
+   if [[ $profile != default ]]; then
+     while read -r kv; do envs+=(--env "$kv"); done < <(claude-profile env "$profile")
+   fi
    n=0
    for r in $(git -C "$main" remote); do
      for v in "" /nonexistent/crew-no-push; do
