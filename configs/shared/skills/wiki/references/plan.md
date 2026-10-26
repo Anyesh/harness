@@ -47,4 +47,4 @@ Fill the content from the current session context (the planning discussion that 
 
 ### Step 3 — Update devlog and index
 
-Add a devlog entry noting the plan was created. Update wiki/index.md with the new plan page entry.
+Add a devlog entry noting the plan was created, and list the plan page in the project's `index.md` with a link relative to that folder (`plans/<title-kebab>.md`) and a short description. Never edit `wiki/index.md`, which is generated.

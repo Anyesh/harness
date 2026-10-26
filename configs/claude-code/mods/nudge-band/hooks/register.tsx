@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { probe } from './probe'
 import type { ProbeIO } from './probe'
-import { countTurnEdits, decide, initialArmed, modeLabels } from './rules'
+import { countTurnEdits, decide, initialArmed, modeLabels, wikiMissing } from './rules'
 import type { Snapshot } from '../types'
 
 const turns = atom({ plugin: 'nudge-band', key: 'turns' } as const, 0)
@@ -30,7 +30,6 @@ function probeIO($: EngineInterface): ProbeIO {
     vars: async () => ({
       home: await $.env.get('HOME'),
       configDir: await $.env.get('CLAUDE_CONFIG_DIR'),
-      wikiVault: await $.env.get('WIKI_VAULT'),
       unattended: await $.env.get('HARNESS_UNATTENDED'),
     }),
     cwd: () => $.session.cwd(),
@@ -77,15 +76,13 @@ export const register: Register = on => {
     if (e.props.hasSurvey || snap === null || (await read($, isHidden))) return next(e)
 
     const scope = snap.scope && snap.scope.kind !== 'fresh' ? snap.scope : null
-    const wiki = snap.wiki && !(snap.wiki.devlogWritten && snap.wiki.indexWritten) ? snap.wiki : null
+    const unwritten = snap.wiki ? wikiMissing(snap.wiki).join(', ') : ''
+    const wiki = unwritten ? snap.wiki : null
     const junk = snap.junk
     if (!scope && !wiki && junk.length === 0) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const fill = (text: string) => () => void $.prompt.fill({ text })
-    const unwritten = wiki
-      ? [!wiki.devlogWritten && 'devlog', !wiki.indexWritten && 'index'].filter(Boolean).join(', ')
-      : ''
 
     const row = (
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>

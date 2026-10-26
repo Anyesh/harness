@@ -2,19 +2,17 @@
 cmd="${1:-}"
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
-if [ -n "$top" ]; then
-  base=$(basename "$top")
-else
-  base=$(basename "$PWD")
-fi
-slug=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')
 
-env_loader="$HOME/.claude/hooks/load-harness-env.sh"
-if [ -f "$env_loader" ]; then
-  . "$env_loader"
+hooks="$HOME/.claude/hooks"
+slug=""
+vault=""
+if [ -f "$hooks/load-harness-env.sh" ] && [ -f "$hooks/harness-project.sh" ]; then
+  . "$hooks/load-harness-env.sh"
+  . "$hooks/harness-project.sh"
   load_wiki_vault
+  slug=$(harness_wiki_slug "${top:-$PWD}")
+  vault=$(harness_wiki_vault_for "$slug")
 fi
-vault="${WIKI_VAULT:-}"
 case "$cmd" in
   decision|devlog|plan)
     if [ -z "$vault" ]; then
@@ -54,7 +52,7 @@ echo "today: $(date +%F)"
 
 if [ -n "$vault" ]; then
   proj="$vault/wiki/projects/$slug"
-  [ -f "$vault/wiki/index.md" ] && echo "wiki_index: exists" || echo "wiki_index: absent"
+  [ -f "$proj/index.md" ] && echo "project_index: exists" || echo "project_index: absent"
   [ -f "$proj/devlog.md" ] && echo "devlog: exists" || echo "devlog: absent"
   case "$cmd" in
     plan|scope)

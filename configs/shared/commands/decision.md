@@ -1,6 +1,6 @@
 # Decision
 
-Write an architecture decision record (ADR) to `$WIKI_VAULT/wiki/projects/<slug>/decisions/<kebab-title>.md`. Slug is the kebab-case basename of the current git repo root.
+Write an architecture decision record (ADR) to `<vault>/wiki/projects/<slug>/decisions/<kebab-title>.md`. Take `<vault>` and `<slug>` from the session's `WIKI:` line; without one, `<vault>` is the vault the wiki-maintenance rule names and the slug is the kebab-case basename of the main checkout (`git rev-parse --path-format=absolute --git-common-dir` without `/.git`), never a worktree.
 
 ## Format
 
@@ -42,4 +42,4 @@ Each alternative with a one-line reason it was rejected.
 - No hedging. State the decision plainly.
 - Cross-link related pages with `[[name]]`.
 
-After writing, update `$WIKI_VAULT/wiki/index.md` to include the new decision.
+After writing, list the decision in `<vault>/wiki/projects/<slug>/index.md` (`decisions/<kebab-title>.md` plus a short description). Never edit `<vault>/wiki/index.md`, which the harness generates.

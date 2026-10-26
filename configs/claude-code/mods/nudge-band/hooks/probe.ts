@@ -6,7 +6,7 @@ export type ProbeIO = {
   stat: (path: string) => Promise<{ kind: 'file' | 'dir' | 'other'; mtimeMs: number }>
   read: (path: string) => Promise<string>
   run: (argv: readonly string[], cwd?: string) => Promise<{ exitCode: number; stdout: string }>
-  vars: () => Promise<{ home?: string; configDir?: string; wikiVault?: string; unattended?: string }>
+  vars: () => Promise<{ home?: string; configDir?: string; unattended?: string }>
   cwd: () => Promise<string>
   now: () => Promise<number>
 }
@@ -28,18 +28,36 @@ async function git(io: ProbeIO, args: string[], cwd?: string): Promise<string | 
   return result.exitCode === 0 ? result.stdout : null
 }
 
-async function wikiStatus(io: ProbeIO, vault: string | undefined, slug: string, startedAt: number): Promise<WikiStatus | null> {
-  if (!vault || !slug) return null
+// The harness hooks own the wiki slug and vault routing rules; a third output
+// line means some page other than the devlog or index changed since start.
+const WIKI_LOCATE = `
+. "$1/load-harness-env.sh" && . "$1/harness-project.sh" || exit 1
+load_wiki_vault
+slug=$(harness_wiki_slug "$2")
+vault=$(harness_wiki_vault_for "$slug")
+printf '%s\\n%s\\n' "$slug" "$vault"
+[ -n "$vault" ] && find "$vault/wiki/projects/$slug" -name '*.md' ! -name devlog.md ! -name index.md -newermt "@$3" -print -quit 2>/dev/null
+exit 0
+`
+
+async function wikiStatus(io: ProbeIO, hooksDir: string, root: string, startedAt: number): Promise<{ slug: string; wiki: WikiStatus | null }> {
+  const located = await io.run(['bash', '-c', WIKI_LOCATE, 'wiki-locate', hooksDir, root, String(Math.floor(startedAt / 1000))])
+  const [slug = '', vault = '', changed = ''] = located.exitCode === 0 ? located.stdout.split('\n') : []
+  if (!vault || !slug) return { slug: slug || projectSlug(root), wiki: null }
   const devlogPath = `${vault}/wiki/projects/${slug}/devlog.md`
-  const indexPath = `${vault}/wiki/index.md`
+  const indexPath = `${vault}/wiki/projects/${slug}/index.md`
   const [devlog, index] = await Promise.all([mtime(io, devlogPath), mtime(io, indexPath)])
   const since = (m: number | null) => (m !== null && m >= startedAt ? m : 0)
   return {
-    devlogPath,
-    indexPath,
-    devlogWritten: since(devlog) > 0,
-    indexWritten: since(index) > 0,
-    latestWriteMs: Math.max(since(devlog), since(index)),
+    slug,
+    wiki: {
+      devlogPath,
+      indexPath,
+      devlogWritten: since(devlog) > 0,
+      indexWritten: since(index) > 0,
+      pagesChanged: changed.length > 0,
+      latestWriteMs: Math.max(since(devlog), since(index)),
+    },
   }
 }
 
@@ -51,12 +69,11 @@ export async function probe(io: ProbeIO, startedAt: number): Promise<Snapshot> {
   const isGit = top !== null
   const cwd = isGit ? top.trim() : await io.cwd()
   const root = cwd && !isToolingDir(cwd, home) ? cwd : null
-  const slug = root ? projectSlug(root) : ''
   const now = await io.now()
 
-  const [scopeMtime, wiki, untracked, humanize, ownit] = await Promise.all([
+  const [scopeMtime, located, untracked, humanize, ownit] = await Promise.all([
     root ? mtime(io, `${root}/.scope.md`) : Promise.resolve(null),
-    root ? wikiStatus(io, vars.wikiVault, slug, startedAt) : Promise.resolve(null),
+    root ? wikiStatus(io, `${configDir}/hooks`, root, startedAt) : Promise.resolve({ slug: '', wiki: null }),
     root && isGit ? git(io, ['ls-files', '--others', '--exclude-standard'], root) : Promise.resolve(null),
     flag(io, `${configDir}/.humanize-active`),
     flag(io, `${configDir}/.ownit-active`),
@@ -65,9 +82,9 @@ export async function probe(io: ProbeIO, startedAt: number): Promise<Snapshot> {
   return {
     root,
     isGit,
-    slug,
+    slug: located.slug,
     scope: root ? scopeStatus(scopeMtime, now) : null,
-    wiki,
+    wiki: located.wiki,
     junk: (untracked ?? '').split('\n').filter(path => path.length > 0 && isJunk(path)),
     humanize,
     ownit,

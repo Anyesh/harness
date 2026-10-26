@@ -35,6 +35,20 @@ harness_project_slug() {
     | sed 's/^-*//;s/-*$//'
 }
 
+# Wiki pages belong to the main checkout, so a worktree logs to its project
+# rather than to a folder named after the worktree.
+harness_wiki_slug() {
+  local root="$1" common main="$1"
+  common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=""
+  case "$common" in
+    "") ;;
+    */.git) main="${common%/.git}" ;;
+    *.git) main="${common%.git}" ;;
+    *) main="$common" ;;
+  esac
+  harness_project_slug "$main"
+}
+
 harness_is_tooling_dir() {
   local root="$1"
   case "$root" in

@@ -1,28 +1,29 @@
 ---
-description: Proactively maintain the Obsidian wiki at $WIKI_VAULT. Write plans, decisions, devlog entries, and spikes during sessions.
+description: Proactively maintain the Obsidian wiki. Write plans, decisions, devlog entries, and spikes during sessions.
 alwaysApply: true
 ---
 
 ## Wiki Maintenance (Proactive)
 
-You maintain a persistent knowledge wiki in Obsidian at the path in `WIKI_VAULT`, as part of your natural workflow, not only when `/wiki` is invoked. It captures knowledge that would otherwise vanish with the conversation.
+You maintain a persistent knowledge wiki in Obsidian as part of your natural workflow, not only when `/wiki` is invoked. It captures knowledge that would otherwise vanish with the conversation. Write to the vault named on the session's `WIKI: project=… vault=…` line; fall back to `{{WIKI_VAULT}}` only when there is no such line.
 
 **Write when a session produces:** a concrete plan or PRD, an architecture or design decision (especially with tradeoffs), a completed spike (succeeded or abandoned), brainstorm ideas worth remembering, a concept discussed in depth for the first time, or scope defined with rationale.
 
 **Do NOT write:** routine fixes or refactors, debugging steps (unless the finding is non-obvious), transcripts or play-by-play, summaries of what was just done (a devlog entry is the exception: it records the outcomes and findings worth finding later, not the steps), file listings or raw output, anything obvious from reading the code.
 
-**Where pages go** (slug: repo basename in kebab-case, create directories as needed):
+**Where pages go** (slug: kebab-case basename of the main checkout, `git rev-parse --path-format=absolute --git-common-dir` without `/.git`, never a worktree's folder name; create directories as needed):
 
 ```
-$WIKI_VAULT/wiki/projects/<slug>/devlog.md   dated entries, newest first
-$WIKI_VAULT/wiki/projects/<slug>/plans|decisions|spikes|concepts/
-$WIKI_VAULT/wiki/concepts/                   cross-project concepts
+<vault>/wiki/projects/<slug>/devlog.md   dated entries, newest first
+<vault>/wiki/projects/<slug>/index.md    one line per page in this folder
+<vault>/wiki/projects/<slug>/plans|decisions|spikes|concepts/
+<vault>/wiki/concepts/                   cross-project concepts, listed in concepts/index.md
 ```
 
 Page frontmatter and section formats (devlog, decision, plan, spike) are defined in the wiki skill's references/ files (plan.md, decide.md, spike.md, log.md); follow them exactly.
 
 **Anti-bloat:** no session narration, no timestamps in prose (frontmatter and devlog entry headings only), no AI attribution, no hedging, at most 2 paragraphs per section, and lists for facts and tradeoffs; write as a knowledgeable colleague documenting for future reference.
 
-**After writing any page, update `$WIKI_VAULT/wiki/index.md`.** Mandatory, no exceptions: one line per page with a short description hook; new projects go under `## Projects`.
+**After writing any page other than the devlog, add a line for it to its folder's `index.md`**: a link relative to that folder and a short description hook. Never edit `<vault>/wiki/index.md`, which the harness generates from the folder indexes.
 
-**Devlog reading:** on Claude Code, Cursor, and Codex, a session-start hook loads the 3 most recent entries automatically. opencode has no equivalent hook (its plugin API can't inject context at session start), so read the project's `devlog.md` and `index.md` yourself at the start of work there. For older context on any tool, grep headings to find the date range, then Read only that section; never load a large devlog whole.
+**Devlog reading:** on Claude Code, Cursor, and Codex, a session-start hook loads the 3 most recent entries and the project's `index.md` automatically. opencode has no equivalent hook (its plugin API can't inject context at session start), so read the project's `devlog.md` and `index.md` yourself at the start of work there. For older context on any tool, grep headings to find the date range, then Read only that section; never load a large devlog whole.

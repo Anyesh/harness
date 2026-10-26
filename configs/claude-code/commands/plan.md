@@ -55,4 +55,4 @@ Things still to decide, with a recommended answer for each if you have one.
 - One plan per concrete piece of work.
 - Approach section names specific files and steps, not vague intentions.
 - Cross-link related pages with `[[name]]`.
-- After writing, update `<wiki_vault>/wiki/index.md` (wiki_index says whether it exists).
+- After writing, list the page in `<wiki_vault>/wiki/projects/<repo_slug>/index.md` (`plans/<kebab-title>.md` plus a short description); `project_index` says whether it exists, and if absent create it with frontmatter (`type: project-index`, `project: <repo_slug>`, `title`). Never edit `<wiki_vault>/wiki/index.md`, which the harness generates.

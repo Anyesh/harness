@@ -52,9 +52,10 @@ The human never writes the wiki. The LLM writes and maintains all of it. The hum
 Find the vault in this order (first match wins):
 
 1. Explicit `--vault <path>` argument
-2. `.wiki-vault` file in current working directory (one line: absolute vault path)
-3. `WIKI_VAULT` environment variable
-4. Error: no vault found
+2. The vault on the session-start `WIKI: project=… vault=…` line (it already routes work projects to the work vault)
+3. `.wiki-vault` file in current working directory (one line: absolute vault path), only when it points inside the vault from step 2 or 4
+4. The vault the wiki-maintenance rule names (rendered per machine and profile, so it is the work vault in work sessions), else the `WIKI_VAULT` environment variable
+5. Error: no vault found
 
 Once resolved, verify path contains `WIKI_SCHEMA.md`.
 
@@ -68,6 +69,7 @@ The wiki is organized by project. Each project the user works on gets its own se
 │   ├── <project-slug>/
 │   │   ├── overview.md        # what the project is, current state
 │   │   ├── devlog.md          # append-only session log
+│   │   ├── index.md           # one line per page in this folder
 │   │   ├── decisions/         # ADRs (architecture decision records)
 │   │   ├── plans/             # planning docs, PRDs, specs
 │   │   ├── spikes/            # explorations, prototypes, things tried
@@ -76,12 +78,14 @@ The wiki is organized by project. Each project the user works on gets its own se
 ├── concepts/                  # cross-project concepts
 ├── synthesis/                 # cross-project analyses, filed queries
 ├── sources/                   # external source summaries
-└── index.md                   # master catalog
+└── index.md                   # generated from every folder's index.md; never edit
 ```
+
+`concepts/`, `sources/` and `synthesis/` each keep their own `index.md` too.
 
 `raw/` (immutable source copies, with `assets/`) and `WIKI_SCHEMA.md` (conventions, written by `/wiki init`) sit at the vault root, next to `wiki/`.
 
-**Project slug** is derived from the git repo name or directory basename (kebab-case). The LLM determines the current project from `git rev-parse --show-toplevel` or `$PWD`.
+**Project slug** is the kebab-case basename of the main checkout (`git rev-parse --path-format=absolute --git-common-dir` without its trailing `/.git`), or of `$PWD` outside git. A worktree logs to its main checkout's project, never to a folder named after the worktree. The session-start `WIKI:` line already names it.
 
 ---
 
@@ -120,7 +124,7 @@ The LLM should update the wiki proactively during sessions when significant work
 
 ## Second-Brain Integration
 
-The wiki can READ from second-brain (via MCP `recall` and `context` tools) to inform page content — pulling in prior decisions, context from past sessions, or knowledge accumulated over time. This helps write richer pages without requiring the user to re-explain history.
+When the second-brain tools are available (work sessions don't have them), the wiki can READ from second-brain through MCP `recall` and `context` to inform page content with prior decisions, context from past sessions, or knowledge accumulated over time, so pages get richer without the user re-explaining history.
 
 The wiki NEVER writes to second-brain. They are separate systems:
 - Second-brain = machine memory (vector search, graph DB, for LLM recall)
@@ -132,7 +136,7 @@ When writing a wiki page, you may `recall` from second-brain to fill in context 
 
 ## Multi-Session Continuity
 
-- Always read `wiki/index.md` before any operation. Read only the current project's section plus the all-projects header list; do not load the full file unless doing a cross-project query.
+- Before any operation, read the folder's own `index.md` (session start injects the current project's). Read the generated `wiki/index.md` only for a cross-project query, and never edit it: list each new page in its folder's `index.md`.
 - Read `WIKI_SCHEMA.md` at the start of first wiki operation per session.
 - The session-start hook injects the 3 most recent devlog entries automatically. If you need earlier context, grep `wiki/projects/<slug>/devlog.md` for the relevant date range, then Read only that section.
 - Wiki files on disk are the source of truth, not conversation memory.

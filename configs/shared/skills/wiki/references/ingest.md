@@ -30,6 +30,8 @@ Write to `wiki/sources/<slug>.md` with Summary, Key Claims, Entities, Concepts s
 
 For each entity or concept identified: create new pages or update existing ones following the page template in `references/concept.md`.
 
-### Step 7 — Update index.md
+### Step 7: List new pages in their folder's index.md
+
+`wiki/sources/index.md` for the source summary, `wiki/concepts/index.md` or the project's `index.md` for new concept pages. Never edit `wiki/index.md`, which is generated.
 
 ### Step 8 — Report results

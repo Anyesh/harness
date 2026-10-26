@@ -8,6 +8,7 @@ export type WikiStatus = {
   indexPath: string
   devlogWritten: boolean
   indexWritten: boolean
+  pagesChanged: boolean
   latestWriteMs: number
 }
 

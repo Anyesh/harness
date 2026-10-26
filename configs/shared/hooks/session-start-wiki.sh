@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sessionStart hook: inject wiki context for current project.
-# Loads 3 most recent devlog entries and a two-level index view:
-# all-project headers (one line each) + full section for the current project.
+# Loads the 3 most recent devlog entries, the project's own index.md and the
+# names of the other projects in the same vault.
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=load-harness-env.sh
@@ -21,26 +21,28 @@ if [[ -z "$WIKI_VAULT" ]]; then
     emit_empty; exit 0
 fi
 
-INDEX_FILE="${WIKI_VAULT}/wiki/index.md"
-if [[ ! -f "$INDEX_FILE" ]]; then
-    emit_empty; exit 0
-fi
-
 PROJECT_ROOT="$(harness_repo_root "$INPUT")"
 if harness_is_tooling_dir "$PROJECT_ROOT"; then
     emit_empty; exit 0
 fi
-PROJECT_SLUG="$(harness_project_slug "$PROJECT_ROOT")"
+PROJECT_SLUG="$(harness_wiki_slug "$PROJECT_ROOT")"
 if [[ -z "$PROJECT_SLUG" ]]; then
     emit_empty; exit 0
 fi
+WIKI_VAULT="$(harness_wiki_vault_for "$PROJECT_SLUG")"
 
-DEVLOG="${WIKI_VAULT}/wiki/projects/${PROJECT_SLUG}/devlog.md"
+if [[ ! -d "$WIKI_VAULT/wiki" ]]; then
+    emit_empty; exit 0
+fi
+bash "$HOOK_DIR/wiki-index-build.sh" "$WIKI_VAULT" --if-changed
 
-python3 - "$AGENT" "$PROJECT_SLUG" "$INDEX_FILE" "$DEVLOG" "$WIKI_VAULT" <<'PY'
-import json, sys, os, re
+python3 - "$AGENT" "$PROJECT_SLUG" "$WIKI_VAULT" <<'PY'
+import json, sys, os
 
-agent, slug, index_file, devlog_file, wiki_vault = sys.argv[1:6]
+agent, slug, wiki_vault = sys.argv[1:4]
+projects_dir = os.path.join(wiki_vault, "wiki", "projects")
+project_index = os.path.join(projects_dir, slug, "index.md")
+devlog_file = os.path.join(projects_dir, slug, "devlog.md")
 
 # Claude Code spills additionalContext over 10,000 chars to a file and injects only a 2 KB
 # preview, so each part gets its own budget and the total stays below that cap.
@@ -65,48 +67,50 @@ def fit_lines(text, budget, pointer):
         used += len(line) + 1
     return "\n".join(kept)
 
-index_ctx = ""
+
+def strip_frontmatter(text):
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        if end >= 0:
+            return text[end + 4:].lstrip("\n")
+    return text
+
+
 try:
-    with open(index_file) as f:
-        index_content = f.read()
-
-    all_headers = re.findall(r'^### .+', index_content, re.MULTILINE)
-    names = [re.split(r'[: ]', h[4:].strip(), maxsplit=1)[0] for h in all_headers]
-    overview, used = [], 0
-    for i, name in enumerate(names):
-        if used + len(name) + 2 > OVERVIEW_BUDGET:
-            overview.append(f"... +{len(names) - i} more (see {index_file})")
-            break
-        overview.append(name)
-        used += len(name) + 2
-    overview = ', '.join(overview)
-
-    sections = re.split(r'^(?=### )', index_content, flags=re.MULTILINE)
-    project_section = next(
-        (s.strip() for s in sections if re.match(rf'### {re.escape(slug)}[: \n]', s)),
-        ''
+    names = sorted(
+        n for n in os.listdir(projects_dir)
+        if not n.startswith(".") and os.path.isdir(os.path.join(projects_dir, n))
     )
+except OSError:
+    names = []
+overview, used = [], 0
+for i, name in enumerate(names):
+    if used + len(name) + 2 > OVERVIEW_BUDGET:
+        overview.append(f"... +{len(names) - i} more (see {projects_dir})")
+        break
+    overview.append(name)
+    used += len(name) + 2
+overview = ', '.join(overview)
 
-    if project_section:
-        project_section = fit_lines(project_section, DETAIL_BUDGET, f"see {index_file}")
-        index_ctx = (
-            f"Wiki index:\n"
-            f"## All projects:\n{overview}\n\n"
-            f"## {slug} detail:\n{project_section}"
-        )
-    else:
-        index_ctx = (
-            f"Wiki index:\n"
-            f"## All projects:\n{overview}\n\n"
-            f"(no index entry yet for {slug} — create one when you write wiki pages)"
-        )
-except Exception:
-    index_ctx = ""
+try:
+    with open(project_index, encoding="utf-8", errors="replace") as f:
+        detail = fit_lines(strip_frontmatter(f.read()).strip(), DETAIL_BUDGET, f"see {project_index}")
+    index_ctx = (
+        f"Wiki index:\n"
+        f"## All projects:\n{overview}\n\n"
+        f"## {slug} detail:\n{detail}"
+    )
+except OSError:
+    index_ctx = (
+        f"Wiki index:\n"
+        f"## All projects:\n{overview}\n\n"
+        f"(no project index yet for {slug}: create {project_index} when you write wiki pages)"
+    )
 
 devlog_ctx = ""
 if os.path.isfile(devlog_file):
     try:
-        with open(devlog_file) as f:
+        with open(devlog_file, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         heading_indices = [i for i, l in enumerate(lines) if l.startswith('## ')]
@@ -130,16 +134,18 @@ if os.path.isfile(devlog_file):
             elif len(kept) < len(entries) or len(heading_indices) > len(kept):
                 excerpt += f"\n... older entries in {devlog_file}"
             devlog_ctx = (
-                f"Recent devlog for {slug} (newest entries first, up to 3 — "
+                f"Recent devlog for {slug} (newest entries first, up to 3; "
                 f"use Read tool for older entries if needed):\n{excerpt}\n\n"
             )
-    except Exception:
+    except OSError:
         pass
 
 header = (
     f"WIKI: project={slug} vault={wiki_vault}\n"
-    "Proactively maintain the wiki per the wiki-maintenance rule. "
-    "Write plans, decisions, spikes, and devlog entries as you work. "
+    "Proactively maintain the wiki per the wiki-maintenance rule, writing every page "
+    "under the vault named on this WIKI line. "
+    "Write plans, decisions, spikes, and devlog entries as you work, and list new pages in "
+    f"{project_index} (never edit wiki/index.md, which is generated). "
     "Use /wiki for full operations (ingest, query, lint).\n\n"
 )
 

@@ -1,6 +1,6 @@
 # Plan
 
-Write a plan or PRD to `$WIKI_VAULT/wiki/projects/<slug>/plans/<kebab-title>.md`. Slug is the kebab-case basename of the current git repo root.
+Write a plan or PRD to `<vault>/wiki/projects/<slug>/plans/<kebab-title>.md`. Take `<vault>` and `<slug>` from the session's `WIKI:` line; without one, `<vault>` is the vault the wiki-maintenance rule names and the slug is the kebab-case basename of the main checkout (`git rev-parse --path-format=absolute --git-common-dir` without `/.git`), never a worktree.
 
 ## Format
 
@@ -44,4 +44,4 @@ Things still to decide, with a recommended answer for each if you have one.
 - One plan per concrete piece of work.
 - Approach section names specific files and steps, not vague intentions.
 - Cross-link related pages with `[[name]]`.
-- After writing, update `$WIKI_VAULT/wiki/index.md`.
+- After writing, list the page in `<vault>/wiki/projects/<slug>/index.md` (`plans/<kebab-title>.md` plus a short description). Never edit `<vault>/wiki/index.md`, which the harness generates.

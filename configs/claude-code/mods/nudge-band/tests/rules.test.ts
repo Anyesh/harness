@@ -27,9 +27,10 @@ const base: Snapshot = {
 
 const unwritten = {
   devlogPath: '/vault/wiki/projects/repo/devlog.md',
-  indexPath: '/vault/wiki/index.md',
+  indexPath: '/vault/wiki/projects/repo/index.md',
   devlogWritten: false,
   indexWritten: false,
+  pagesChanged: false,
   latestWriteMs: 0,
 }
 
@@ -145,21 +146,35 @@ describe('wiki', () => {
     expect(run(15, pending, first).messages).toHaveLength(1)
   })
 
-  test('stays quiet once both pages are written', () => {
+  test('stays quiet once the devlog is written and no other page changed', () => {
     const done: Snapshot = {
       ...base,
-      wiki: { ...unwritten, devlogWritten: true, indexWritten: true, latestWriteMs: 5000 },
+      wiki: { ...unwritten, devlogWritten: true, latestWriteMs: 5000 },
     }
     const first = run(5, pending, initialArmed).armed
     const seen = run(6, done, first, 1).armed
     expect(run(7, done, seen, 2).messages).toEqual([])
   })
 
+  test('asks for the project index when other pages changed', () => {
+    const paged: Snapshot = { ...base, wiki: { ...unwritten, devlogWritten: true, pagesChanged: true } }
+    const nudge = run(5, paged, initialArmed)
+    expect(nudge.messages).toHaveLength(1)
+    expect(nudge.messages[0]).toContain(unwritten.indexPath)
+    expect(nudge.messages[0]).not.toContain(unwritten.devlogPath)
+    const indexed: Snapshot = { ...base, wiki: { ...unwritten, devlogWritten: true, pagesChanged: true, indexWritten: true } }
+    expect(run(5, indexed, initialArmed).messages).toEqual([])
+  })
+
+  test('never points at the generated top index', () => {
+    expect(run(5, pending, initialArmed).messages[0]).not.toContain('/vault/wiki/index.md')
+  })
+
   test('a write moves the anchor, and later work asks for an update', () => {
     const first = run(5, pending, initialArmed, 0).armed
     const written: Snapshot = {
       ...base,
-      wiki: { ...unwritten, devlogWritten: true, indexWritten: true, latestWriteMs: 9000 },
+      wiki: { ...unwritten, devlogWritten: true, latestWriteMs: 9000 },
     }
     const afterWrite = run(6, written, first, 4)
     expect(afterWrite.messages).toEqual([])

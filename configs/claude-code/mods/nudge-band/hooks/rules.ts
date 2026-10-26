@@ -1,4 +1,4 @@
-import type { Armed, ScopeStatus, Snapshot } from '../types'
+import type { Armed, ScopeStatus, Snapshot, WikiStatus } from '../types'
 
 export const THRESHOLDS = {
   scopeTurn: 10,
@@ -127,6 +127,13 @@ function decideScope(turns: number, snapshot: Snapshot, armed: Armed): Step {
   }
 }
 
+export function wikiMissing(wiki: WikiStatus): string[] {
+  return [
+    !wiki.devlogWritten && 'devlog',
+    wiki.pagesChanged && !wiki.indexWritten && 'index',
+  ].filter((part): part is string => Boolean(part))
+}
+
 function decideWiki(turns: number, edits: number, snapshot: Snapshot, armed: Armed): Step {
   const wiki = snapshot.wiki
   if (!wiki || snapshot.unattended) return { armed }
@@ -134,7 +141,8 @@ function decideWiki(turns: number, edits: number, snapshot: Snapshot, armed: Arm
   if (wiki.latestWriteMs > armed.wikiSeenWriteMs) {
     next = { ...next, wikiSeenWriteMs: wiki.latestWriteMs, wikiAnchorTurn: turns, wikiAnchorEdits: edits }
   }
-  const written = wiki.devlogWritten && wiki.indexWritten
+  const missing = wikiMissing(wiki)
+  const written = missing.length === 0
   const editsSince = edits - next.wikiAnchorEdits
   const turnsSince = turns - next.wikiAnchorTurn
   const due = next.wikiFired || written
@@ -147,18 +155,25 @@ function decideWiki(turns: number, edits: number, snapshot: Snapshot, armed: Arm
       armed: fired,
       message:
         `WIKI: ${editsSince} edits and ${turnsSince} turns since the last wiki update. If that work produced ` +
-        `decisions, plans, findings or shipped changes, add a devlog entry at ${wiki.devlogPath} and update ${wiki.indexPath}.`,
+        `decisions, plans, findings or shipped changes, add a devlog entry at ${wiki.devlogPath} and list any ` +
+        `new page in ${wiki.indexPath}.`,
     }
   }
-  const missing = [!wiki.devlogWritten && 'the project devlog', !wiki.indexWritten && 'the wiki index'].filter(Boolean).join(' and ')
+  if (!missing.includes('devlog')) {
+    return {
+      armed: fired,
+      message:
+        `WIKI: pages were written this session but ${wiki.indexPath} does not list them yet. ` +
+        'Add one line per page, with a link relative to that folder and a short description.',
+    }
+  }
   return {
     armed: fired,
     message:
-      `WIKI: You are ${turns} turns into this session and have not written ${missing}. ` +
+      `WIKI: You are ${turns} turns into this session and have not written the project devlog. ` +
       `Write a devlog entry at ${wiki.devlogPath} recording the outcomes and findings worth finding later ` +
-      `(not a play-by-play). If you made plans, decisions, ` +
-      `or ran spikes, create pages in the corresponding subdirectory. Then update ${wiki.indexPath}: ` +
-      'every session must update it. Do this now, before your next task response.',
+      `(not a play-by-play). If you made plans, decisions, or ran spikes, create pages in the ` +
+      `corresponding subdirectory and list each in ${wiki.indexPath}. Do this now, before your next task response.`,
   }
 }
 

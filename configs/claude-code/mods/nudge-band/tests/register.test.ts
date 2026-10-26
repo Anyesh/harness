@@ -6,7 +6,7 @@ const HOUR = 3_600_000
 const NOW = 100 * HOUR
 const ROOT = '/work/repo'
 const DEVLOG = '/vault/wiki/projects/repo/devlog.md'
-const INDEX = '/vault/wiki/index.md'
+const INDEX = '/vault/wiki/projects/repo/index.md'
 const BAND = {
   component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 } as never,
@@ -20,6 +20,8 @@ type World = {
   untracked: string[]
   top: string | null
   messages: SessionMessage[]
+  wikiVault?: string
+  pagesChanged?: boolean
   filled: string[]
   contexts: (readonly string[] | undefined)[]
   beneath?: string
@@ -36,6 +38,10 @@ function world(on: On, env: Record<string, string>, seed: Partial<World> = {}): 
     })
     if (e.argv[1] === 'rev-parse') return w.top ? ok(`${w.top}\n`) : ok('', 128)
     if (e.argv[1] === 'ls-files') return ok(w.untracked.map(path => `${path}\n`).join(''))
+    if (e.argv[0] === 'bash') {
+      const vault = w.wikiVault ?? env.WIKI_VAULT ?? ''
+      return ok(`repo\n${vault}\n${w.pagesChanged ? `${vault}/wiki/projects/repo/decisions/x.md\n` : ''}`)
+    }
     return { deny: `unexpected command ${e.argv.join(' ')}` }
   })
   on('fs.exists', (_$, e) => ({ value: e.path in w.files }))
@@ -118,6 +124,26 @@ describe('prompt.submit context', () => {
     const lines = w.contexts.map(c => (c ?? []).join('\n'))
     expect(lines[4]).toContain('WIKI:')
     expect(lines[9]).toContain('SCOPE CHECK')
+  })
+
+  test('takes the vault from the routing helper, not WIKI_VAULT alone', async ($, on) => {
+    const w = world(on, { WIKI_VAULT: '/vault' }, {
+      wikiVault: '/vault/Work/agent-wiki',
+      files: { [`${ROOT}/.scope.md`]: { mtimeMs: NOW } },
+    })
+    await prompts($, 5)
+    expect((w.contexts[4] ?? []).join('\n')).toContain('/vault/Work/agent-wiki/wiki/projects/repo/devlog.md')
+  })
+
+  test('asks for the project index when other pages changed', async ($, on) => {
+    const w = world(on, { WIKI_VAULT: '/vault' }, {
+      pagesChanged: true,
+      files: { [`${ROOT}/.scope.md`]: { mtimeMs: NOW }, [DEVLOG]: { mtimeMs: NOW + 1 } },
+    })
+    await prompts($, 5)
+    const line = (w.contexts[4] ?? []).join('\n')
+    expect(line).toContain(INDEX)
+    expect(line).not.toContain('/vault/wiki/index.md')
   })
 
   test('has no wiki line without a vault', async ($, on) => {

@@ -36,3 +36,5 @@ source_count: 1
 ```
 
 **Updating:** Read existing page, weave in new information, bump counts, note contradictions.
+
+**Listing:** a new page gets a line in its folder's `index.md` (`wiki/concepts/index.md`, or the project's `index.md` for a project concept). Never edit `wiki/index.md`, which is generated.

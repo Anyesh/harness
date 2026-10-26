@@ -90,35 +90,9 @@ LLM-maintained knowledge wiki. The LLM reads this at the start of every operatio
 - Contradictions noted explicitly with both claims cited
 ```
 
-### Step 4 — Write index.md
+### Step 4: Write the folder indexes
 
-```markdown
----
-type: index
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
----
-
-# Wiki Index
-
-Master catalog. The LLM reads this first to find relevant pages.
-
-## Projects
-
-_No projects yet._
-
-## Concepts
-
-_No concepts yet._
-
-## Sources
-
-_No sources yet._
-
-## Syntheses
-
-_No syntheses yet._
-```
+Write `wiki/concepts/index.md`, `wiki/sources/index.md` and `wiki/synthesis/index.md`, each with frontmatter `type: project-index` and `project: <folder>` and no entries yet. Do not write `wiki/index.md`: the harness generates it from every folder's `index.md` at the next session start.
 
 ### Step 5 — Write .wiki-vault breadcrumb
 
@@ -129,8 +103,8 @@ Write vault path to `.wiki-vault` in current working directory.
 ```
 Wiki initialized at <vault-path>
 
-  WIKI_SCHEMA.md    — conventions (edit to customize)
-  wiki/index.md     — master catalog (update every session, no exceptions)
+  WIKI_SCHEMA.md    conventions (edit to customize)
+  wiki/index.md     generated from each folder's index.md; never edit it
 
 Open in Obsidian and start working. The wiki grows as you do.
 ```

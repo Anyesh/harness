@@ -216,7 +216,7 @@ $WIKI_VAULT/
 │   ├── concepts/           ← cross-project concepts
 │   ├── synthesis/          ← filed query answers
 │   ├── sources/            ← external source summaries
-│   ├── index.md            ← master catalog
+│   ├── index.md            ← generated from each folder's index.md
 │   └── log.md             ← activity timeline
 ├── raw/                    ← immutable source copies
 └── WIKI_SCHEMA.md          ← conventions

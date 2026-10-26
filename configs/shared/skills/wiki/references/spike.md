@@ -34,4 +34,4 @@ project: <project-slug>
 <The takeaway: what to do next, or why this was abandoned>
 ```
 
-Fill from session context. Update devlog and wiki/index.md.
+Fill from session context. Add a devlog entry and list the page in the project's `index.md` (`spikes/<title-kebab>.md` plus a short description). Never edit `wiki/index.md`, which is generated.

@@ -33,6 +33,10 @@ STATE_DIR="$TMP_DIR/state"
 PROJECT="$TMP_DIR/myproj"
 VAULT="$TMP_DIR/vault"
 mkdir -p "$STATE_DIR" "$PROJECT" "$VAULT/wiki/projects/myproj"
+export HARNESS_ENV="$TMP_DIR/harness.env" XDG_STATE_HOME="$TMP_DIR/xdg"
+: >"$HARNESS_ENV"
+PINDEX="$VAULT/wiki/projects/myproj/index.md"
+DEVLOG="$VAULT/wiki/projects/myproj/devlog.md"
 
 payload() {
   jq -n --arg id "$1" --arg t "${2:-}" \
@@ -112,31 +116,85 @@ OUT=$(run_hook "$(payload "s-verdant" "$T_VERDANT")")
 assert "3 verdant edits without wiki writes fires" \
   'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
 
+OUT=$(run_hook "$(payload "s-msg" "$T_EDITS")")
+assert "block message never points at the generated top index" \
+  '! printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md"'
+
 T_DONE="$TMP_DIR/done.jsonl"
 {
   tool_use "Write" "/tmp/a"
   tool_use "Edit" "/tmp/b"
   tool_use "Write" "/tmp/c"
-  tool_use "Write" "$VAULT/wiki/index.md"
-  tool_use "Write" "$VAULT/wiki/projects/myproj/devlog.md"
+  tool_use "Write" "$DEVLOG"
 } > "$T_DONE"
 OUT=$(run_hook "$(payload "s-done" "$T_DONE")")
-assert "edits with wiki index and devlog written stays silent" '[ -z "$OUT" ]'
+assert "a devlog write alone satisfies a session with no new pages" '[ -z "$OUT" ]'
 
-T_PARTIAL="$TMP_DIR/partial.jsonl"
+T_PAGE="$TMP_DIR/page.jsonl"
 {
   tool_use "Write" "/tmp/a"
   tool_use "Edit" "/tmp/b"
-  tool_use "Write" "/tmp/c"
-  tool_use "Write" "$VAULT/wiki/projects/myproj/devlog.md"
-} > "$T_PARTIAL"
-OUT=$(run_hook "$(payload "s-partial" "$T_PARTIAL")")
-assert "devlog written but index missing fires" \
+  tool_use "Write" "$DEVLOG"
+  tool_use "Write" "$VAULT/wiki/projects/myproj/decisions/pick.md"
+} > "$T_PAGE"
+OUT=$(run_hook "$(payload "s-page" "$T_PAGE")")
+assert "a new page without a project index update fires" \
   'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
-assert "message says the index file does not exist" \
-  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md does not exist"'
-assert "message does not list the written devlog" \
-  '! printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md does not exist\|devlog.md exists"'
+assert "the index block names the project index" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$PINDEX"'
+assert "the index block does not ask for the written devlog" \
+  '! printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md"'
+
+{ cat "$T_PAGE"; tool_use "Edit" "$PINDEX"; } > "$TMP_DIR/page-indexed.jsonl"
+OUT=$(run_hook "$(payload "s-page-indexed" "$TMP_DIR/page-indexed.jsonl")")
+assert "a new page listed in the project index stays silent" '[ -z "$OUT" ]'
+
+{ cat "$T_DONE"; tool_use "Read" "$VAULT/wiki/projects/myproj/decisions/old.md"; } > "$TMP_DIR/read-page.jsonl"
+OUT=$(run_hook "$(payload "s-read-page" "$TMP_DIR/read-page.jsonl")")
+assert "a wiki page that was only read does not demand an index line" '[ -z "$OUT" ]'
+
+{ cat "$T_PAGE"; tool_use "Read" "$PINDEX"; } > "$TMP_DIR/read-index.jsonl"
+OUT=$(run_hook "$(payload "s-read-index" "$TMP_DIR/read-index.jsonl")")
+assert "reading the project index does not count as updating it" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$PINDEX"'
+assert "an index-only block does not claim the wiki went untouched" \
+  '! printf "%s" "$OUT" | jq -r ".reason" | grep -q "did not update the project wiki"'
+
+{ cat "$T_EDITS"; tool_use "Read" "$DEVLOG"; } > "$TMP_DIR/read-devlog.jsonl"
+OUT=$(run_hook "$(payload "s-read-devlog" "$TMP_DIR/read-devlog.jsonl")")
+assert "reading the devlog does not count as writing it" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$DEVLOG"'
+
+OUT=$(run_hook "$(payload "s-parts" "$T_EDITS")")
+assert "first stop blocks for the devlog" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md"'
+{ cat "$T_EDITS"; tool_use "Write" "$DEVLOG"; tool_use "Write" "$VAULT/wiki/projects/myproj/plans/p.md"; } > "$TMP_DIR/parts2.jsonl"
+OUT=$(run_hook "$(payload "s-parts" "$TMP_DIR/parts2.jsonl")")
+assert "a later new page still gets one index block" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$PINDEX"'
+OUT=$(run_hook "$(payload "s-parts" "$TMP_DIR/parts2.jsonl")")
+assert "each part blocks only once per session" '[ -z "$OUT" ]'
+
+printf '1\n' > "$STATE_DIR/s-legacy.count"
+OUT=$(run_hook "$(payload "s-legacy" "$T_EDITS")")
+assert "a pre-upgrade fired counter counts as every part fired" '[ -z "$OUT" ]'
+
+assert "the stop hook regenerates the top index" \
+  'grep -q "^generated: true" "$VAULT/wiki/index.md"'
+
+git -C "$TMP_DIR" init -q wtmain
+git -C "$TMP_DIR/wtmain" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$TMP_DIR/wtmain" worktree add -q "$TMP_DIR/w-t8-seed" -b wt
+OUT=$(WIKI_ENFORCE_STATE_DIR="$STATE_DIR" WIKI_VAULT="$VAULT" CLAUDE_PROJECT_DIR="$TMP_DIR/w-t8-seed" \
+  bash "$HOOK" <<<"$(payload "s-worktree" "$T_EDITS")")
+assert "a worktree session is held to the main checkout's devlog" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "projects/wtmain/devlog.md"'
+
+printf 'WIKI_WORK_PROJECTS=myproj\n' > "$HARNESS_ENV"
+OUT=$(run_hook "$(payload "s-routed" "$T_EDITS")")
+assert "a listed work project is held to the work vault's devlog" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$VAULT/Work/agent-wiki/wiki/projects/myproj/devlog.md"'
+: > "$HARNESS_ENV"
 
 OUT=$(run_hook "$(payload "s-notranscript" "")")
 assert "claude session without transcript stays silent" '[ -z "$OUT" ]'
@@ -157,9 +215,6 @@ T_HEREDOC="$TMP_DIR/heredoc.jsonl"
   tool_use "mcp__verdant__write" "/tmp/a"
   tool_use "mcp__verdant__write" "/tmp/b"
   tool_use "mcp__verdant__write" "/tmp/c"
-  bash_use "mcp__verdant__bash" "cat > $VAULT/wiki/index.md <<'EOF'
-- [myproj](projects/myproj/devlog.md)
-EOF"
   bash_use "mcp__verdant__bash" "cat > $VAULT/wiki/projects/myproj/devlog.md <<'EOF'
 ## [2026-07-31] work
 EOF"
@@ -175,7 +230,7 @@ T_PROSE="$TMP_DIR/prose.jsonl"
   tool_use "Write" "/tmp/a"
   tool_use "Edit" "/tmp/b"
   tool_use "Write" "/tmp/c"
-  jq -cn --arg m "WIKI: write a devlog at $VAULT/wiki/projects/myproj/devlog.md then update $VAULT/wiki/index.md, this is mandatory." \
+  jq -cn --arg m "WIKI: write a devlog at $VAULT/wiki/projects/myproj/devlog.md then update $PINDEX, this is mandatory." \
     '{type:"user",message:{content:$m}}'
 } > "$T_PROSE"
 OUT=$(run_hook "$(payload "s-prose" "$T_PROSE")")
@@ -191,11 +246,12 @@ T_MTIME="$TMP_DIR/mtime.jsonl"
   tool_use "mcp__verdant__write" "/tmp/a"
   tool_use "mcp__verdant__write" "/tmp/b"
   tool_use "mcp__verdant__write" "/tmp/c"
-  bash_use "mcp__verdant__bash" 'cd "$WIKI_VAULT/wiki" && cat > index.md <<EOF
+  bash_use "mcp__verdant__bash" 'cd "$WIKI_VAULT/wiki/projects/myproj" && cat > devlog.md <<EOF
 built from a variable
 EOF'
 } > "$T_MTIME"
-touch "$VAULT/wiki/index.md" "$VAULT/wiki/projects/myproj/devlog.md"
+rm -rf "$VAULT/wiki/projects/myproj/decisions" "$VAULT/wiki/projects/myproj/plans"
+touch "$VAULT/wiki/projects/myproj/devlog.md"
 OUT=$(run_hook "$(payload "s-mtime" "$T_MTIME")")
 assert "wiki pages touched after session start satisfy the check" '[ -z "$OUT" ]'
 
@@ -208,22 +264,21 @@ T_STALE="$TMP_DIR/stale.jsonl"
   tool_use "mcp__verdant__write" "/tmp/b"
   tool_use "mcp__verdant__write" "/tmp/c"
 } > "$T_STALE"
-touch -d '-2 hours' "$VAULT/wiki/index.md" "$VAULT/wiki/projects/myproj/devlog.md"
+touch -d '-2 hours' "$VAULT/wiki/projects/myproj/devlog.md"
 OUT=$(run_hook "$(payload "s-stale" "$T_STALE")")
 assert "wiki pages older than session start still fire" \
   'printf "%s" "$OUT" | jq -e ".decision == \"block\"" >/dev/null'
 assert "stale devlog is reported as not updated, not missing" \
   'printf "%s" "$OUT" | jq -r ".reason" | grep -q "devlog.md exists but was not updated this session"'
-assert "index without a project section says the entry is absent" \
-  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "has no \"### myproj:\" entry"'
 assert "no Missing heading when every file exists" \
   '! printf "%s" "$OUT" | jq -r ".reason" | grep -qi "missing"'
 
-printf '### myproj: test project\n' > "$VAULT/wiki/index.md"
-touch -d '-2 hours' "$VAULT/wiki/index.md"
-OUT=$(run_hook "$(payload "s-stale-entry" "$T_STALE")")
-assert "index with a project section is reported as not updated" \
-  'printf "%s" "$OUT" | jq -r ".reason" | grep -q "wiki/index.md has a \"### myproj:\" entry but was not updated this session"'
+mkdir -p "$VAULT/wiki/projects/myproj/spikes"
+printf '# spike\n' > "$VAULT/wiki/projects/myproj/spikes/s.md"
+touch "$VAULT/wiki/projects/myproj/devlog.md"
+OUT=$(run_hook "$(payload "s-mtime-page" "$T_STALE")")
+assert "a page changed after session start without an index update fires" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$PINDEX"'
 
 echo ""
 echo "stop-wiki-enforce: $PASS passed, $FAIL failed"

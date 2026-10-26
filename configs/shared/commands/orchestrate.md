@@ -4,7 +4,7 @@ Turn this session into a multi-agent orchestrator: escalate the plan to a bigger
 
 ## Steps
 
-1. **Find or write the plan.** Use a plan already in this conversation or under `$WIKI_VAULT/wiki/projects/<slug>/plans/` if one exists. If none exists, write one first (see the `plan` command), since there's nothing to split or review without one.
+1. **Find or write the plan.** Use a plan already in this conversation or under `<vault>/wiki/projects/<slug>/plans/` (vault and slug from the session's `WIKI:` line, else the vault the wiki-maintenance rule names and the main checkout's basename) if one exists. If none exists, write one first (see the `plan` command), since there's nothing to split or review without one.
 
 2. **Escalate for review.** Check the model-identification system reminder for the current model, then spawn a fresh `Plan` agent on a strictly bigger one: `model: "fable"` (Fable 5.1) if not already running as Fable, else `model: "opus"`. Give it the full plan content, relevant file paths, and enough codebase context to reason concretely, not just the plan text in isolation. Ask it specifically for:
    - which pieces are truly independent (no shared state, no ordering dependency)

@@ -53,4 +53,4 @@ Each alternative with a one-line reason it was rejected.
 - No hedging. State the decision plainly.
 - Cross-link related pages with `[[name]]`.
 
-After writing, update `<wiki_vault>/wiki/index.md` (wiki_index says whether it exists) to include the new decision.
+After writing, list the decision in `<wiki_vault>/wiki/projects/<repo_slug>/index.md` (`decisions/<kebab-title>.md` plus a short description); `project_index` says whether it exists, and if absent create it with frontmatter (`type: project-index`, `project: <repo_slug>`, `title`). Never edit `<wiki_vault>/wiki/index.md`, which the harness generates.

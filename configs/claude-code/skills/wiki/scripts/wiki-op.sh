@@ -2,22 +2,27 @@
 op="${1:-}"
 skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-env_loader="$HOME/.claude/hooks/load-harness-env.sh"
-if [ -f "$env_loader" ]; then
-  . "$env_loader"
-  load_wiki_vault
-fi
-
-vault=""
-if [ -f .wiki-vault ]; then
-  vault=$(head -1 .wiki-vault)
-elif [ -n "${WIKI_VAULT:-}" ]; then
-  vault="$WIKI_VAULT"
-fi
-
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
-base=$(basename "${top:-$PWD}")
-slug=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')
+hooks="$HOME/.claude/hooks"
+slug=""
+vault=""
+if [ -f "$hooks/load-harness-env.sh" ] && [ -f "$hooks/harness-project.sh" ]; then
+  . "$hooks/load-harness-env.sh"
+  . "$hooks/harness-project.sh"
+  load_wiki_vault
+  slug=$(harness_wiki_slug "${top:-$PWD}")
+  vault=$(harness_wiki_vault_for "$slug")
+fi
+
+# A repo's .wiki-vault may only narrow the vault in use, so a work session
+# can't be pointed back at the personal vault by a file in the checkout.
+if [ -f .wiki-vault ]; then
+  local_vault=$(head -1 .wiki-vault)
+  case "$local_vault" in
+    "$vault"|"$vault"/*) vault="$local_vault" ;;
+    *) [ -z "$vault" ] && vault="$local_vault" ;;
+  esac
+fi
 
 echo "vault: ${vault:-UNRESOLVED}"
 echo "project_slug: $slug"
