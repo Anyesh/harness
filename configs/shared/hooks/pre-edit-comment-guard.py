@@ -288,6 +288,9 @@ def is_pure_banner(body: str) -> bool:
     s = body.strip()
     if not s:
         return False
+    # "---- BEGIN LICENSE" style markers delimit content tools rely on.
+    if re.search(r"\b(?:BEGIN|END)\b", s):
+        return False
     return any(p.search(s) for p in PURE_BANNER_RE + ONE_SIDED_BANNER_RE)
 
 
@@ -382,7 +385,10 @@ def check_line_comments(lines, line_prefixes, lang, known=frozenset()):
             # Multi-line block with no WHY marker. If the combined prose is
             # short enough to be a trivial restate-the-code paragraph, flag
             # it; otherwise assume it's substantive documentation and allow.
-            if len(block_text) <= 160 and is_narrative_body(block_text):
+            all_steps = all(STEP_PREFIX_RE.match(b.strip()) for b in block_bodies)
+            if (len(block_text) <= 160 and is_narrative_body(block_text)) or (
+                all_steps and any(is_narrative_body(b) for b in block_bodies)
+            ):
                 violations.append(
                     (
                         block_start + 1,
