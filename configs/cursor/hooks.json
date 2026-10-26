@@ -17,6 +17,9 @@
       {
         "command": "bash ./hooks/session-start-wiki.sh",
         "timeout": 5
+      },
+      {
+        "command": "bash '{{HOME_DIR}}/.cursor/herdr-agent-state.sh' session"
       }
     ],
     "beforeSubmitPrompt": [

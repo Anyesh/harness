@@ -175,13 +175,12 @@ echo ""
 
 assert "identity: CLAUDE.md has no marker text" '! grep -q "MEMORY_" "$FH/.claude/CLAUDE.md"'
 ident_ok=true
-for pair in "claude-code/settings.json.tmpl:$FH/.claude/settings.json" "claude-code/.mcp.json.tmpl:$FH/.claude/.mcp.json" "codex/hooks.json:$FH/.codex/hooks.json"; do
+for pair in "claude-code/settings.json.tmpl:$FH/.claude/settings.json" "claude-code/.mcp.json.tmpl:$FH/.claude/.mcp.json" "codex/hooks.json:$FH/.codex/hooks.json" "cursor/hooks.json:$FH/.cursor/hooks.json"; do
     tmpl="$REPO_ROOT/configs/${pair%%:*}" out="${pair#*:}"
     want=$(sed -e "s#{{HOME_DIR}}#$FH#g" -e "s#{{WIKI_VAULT}}#$TMP_DIR/vault#g" -e "s#{{HARNESS_WORK}}#0#g" "$tmpl" | jq -S -c .)
     got=$(jq -S -c . "$out")
     [[ "$want" == "$got" ]] || { echo "    differs: $out"; ident_ok=false; }
 done
-cmp -s "$REPO_ROOT/configs/cursor/hooks.json" "$FH/.cursor/hooks.json" || ident_ok=false
 assert "identity: default JSON equals its template with placeholders substituted" '[[ "$ident_ok" == true ]]'
 
 echo ""

@@ -26,6 +26,9 @@ codex_deploy_config() {
       "configs/codex/instructions.md.tmpl" "codex instructions.md" || true
   fi
 
+  deploy_file "$REPO_ROOT/configs/codex/herdr-agent-state.sh" "$CODEX_CONFIG_DIR/herdr-agent-state.sh" \
+    "configs/codex/herdr-agent-state.sh" "false" "codex herdr-agent-state.sh" executable
+
   if [[ -f "$hooks_src" ]]; then
     deploy_rendered_template "$hooks_src" "$CODEX_CONFIG_DIR/hooks.json" "configs/codex/hooks.json" "codex hooks.json" || true
   fi
