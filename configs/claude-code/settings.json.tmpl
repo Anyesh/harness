@@ -78,6 +78,16 @@
         ]
       },
       {
+        "matcher": "AskUserQuestion|ExitPlanMode|EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash {{HOME_DIR}}/.claude/hooks/crew-question-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion|ExitPlanMode",
         "hooks": [
           {

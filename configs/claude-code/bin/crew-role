@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Prints worker, lead or none for the session in this pane; exits non-zero with
+# nothing on stdout when it cannot tell, so callers never mistake an error for none.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-role: %s\n' "$1" >&2
+  exit 1
+}
+
+session=""
+have_session=0
+dir="."
+while (($#)); do
+  case "$1" in
+    --session)
+      (($# >= 2)) && [[ -n "$2" ]] || die "--session needs a non-empty session id"
+      session="$2"
+      have_session=1
+      shift 2
+      ;;
+    -*) die "unknown option: $1" ;;
+    *)
+      dir="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ "${HARNESS_UNATTENDED:-}" == 1 ]]; then
+  echo worker
+  exit 0
+fi
+
+crew=$(crew_dir "$dir") || {
+  echo none
+  exit 0
+}
+lead_pane="" lead_session=""
+if [[ -f "$crew/lead" ]]; then
+  IFS=$'\t' read -r lead_pane lead_session <"$crew/lead" || true
+fi
+
+if [[ -z "$lead_pane" || "${HERDR_PANE_ID:-}" != "$lead_pane" ]]; then
+  echo none
+  exit 0
+fi
+
+if ((!have_session)); then
+  panes=$(herdr pane list 2>&1) || die "herdr pane list failed: $panes"
+  session=$(jq -er --arg p "$lead_pane" \
+    '.result.panes[] | select(.pane_id == $p) | .agent_session.value // empty' <<<"$panes" 2>/dev/null) ||
+    die "herdr shows no agent_session for lead pane $lead_pane"
+  [[ -n "$session" ]] || die "herdr shows no agent_session for lead pane $lead_pane"
+fi
+
+if [[ -n "$lead_session" && "$session" == "$lead_session" ]]; then
+  echo lead
+else
+  echo none
+fi
