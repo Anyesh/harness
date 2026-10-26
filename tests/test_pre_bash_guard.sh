@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export HARNESS_BLOCK_LOG=/dev/null
+unset HARNESS_WORK WIKI_VAULT WIKI_WORK_PROJECTS
 HOOK="$REPO_ROOT/configs/shared/hooks/pre-bash-guard.sh"
 
 PASS=0
