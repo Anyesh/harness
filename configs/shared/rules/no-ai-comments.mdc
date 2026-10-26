@@ -1,22 +1,21 @@
 ---
-description: No AI-narrative comments in any language. Comments are for non-obvious WHY only.
+description: No comment by default in any language. A comment states only a fact the code cannot carry.
 alwaysApply: true
 ---
 
 ## No AI Comments (All Languages)
 
-Comment only where a reader would be lost without it: a constraint, an invariant, a workaround, a reason not visible in the code itself. Everywhere else, let the code speak. This applies to every language you touch.
+Write no comment by default. People and agents read code well, so a comment earns its place only when it states a fact the code cannot carry: a hidden constraint, a subtle invariant, a workaround tied to a named bug, thread safety or lock ordering, or behavior a reader would otherwise misunderstand. This applies to every language you touch.
 
 Never write:
 
-- Narrative comments restating the code (`// Set the user`, `# increment counter`). Delete them.
-- One-line docstrings on trivial functions (`"""Get the user."""`). If the name is clear, the docstring is noise.
+- Narrative comments restating the code (`// Set the user`, `# increment counter`), including numbered steps that narrate the next block (`// 2. Run each member once`). If the steps matter, give them named functions.
+- Section banners (`# ==== Helpers ====`) and labels that only name a field or block (`/// Rows per page.`, `# --- client`). Use names and file structure instead.
+- Docstrings or doc-comments that paraphrase the signature of a function whose name already says what it does (`/** Get user by id */` above `getUserById`), one-line or multi-line. An `Args:`/`Returns:` section that repeats the parameter names is the same noise. When a lint or doc build requires one (`missing_docs`, a published API), state the contract the signature cannot: units, ranges, error modes, side effects.
 - Context-of-origin comments (`# added for the payment flow`, `// handles issue #123`). That belongs in the commit message, not source.
 - Change-history comments (`# was: old_value = 5`, `// renamed from oldFunc`). Use git.
-- Section banners (`# ==== Helpers ====`). Use file structure instead.
-- Doc-comments that paraphrase the signature (`/** Get user by id */` above `getUserById`). Add real content (constraints, error modes, thread safety, examples) or delete.
 - Multi-line rationale, design history or narration, even when it contains a reason. A comment states the one fact the code cannot; the story of how you got there goes in the PR description, or as one sentence in the commit body.
 
-Comments for non-obvious WHY are allowed and encouraged: hidden constraints, subtle invariants, workarounds tied to a named bug, thread-safety and lock ordering, surprising behavior a reader would misunderstand.
+Heavily commented surrounding code is no reason to add more: match its naming and idiom, not its narration, and leave existing comments alone unless your edit changes what they describe.
 
-If a pre-edit hook blocks a Write or Edit, do not argue with it: delete the comment (most common), or rewrite it with an explicit WHY the reader could not learn from the code alone. The test: would a senior engineer reading cold learn something the code itself does not say?
+If a pre-edit hook blocks a Write or Edit, delete the comment (most common), or rewrite it to state a reason the reader could not learn from the code; adding a word like "because" to narration does not make it a reason. The test: would a senior engineer reading cold learn something the code itself does not say?
