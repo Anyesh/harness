@@ -25,7 +25,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 5. A `lead` file means resume:
    - If `herdr agent get "$slug-lead"` finds a live agent other than you, rename it to the first free `$slug-old<N>` and leave it open, since it may be a session the user still uses. Until its current sweep returns `SUPERSEDED` it may still edit the board, prompt a worker or close a tab, so after your first sweep re-read the board and check every worker.
    - Mark `done` every item with a `merged` file, or with a `merging` file whose merged sha is an ancestor of its target, and re-read reports you have not acted on.
-6. Name yourself `$slug-lead` with `herdr agent rename` and write `$crew/lead` as your pane id and session id separated by a tab: `$HERDR_PANE_ID` and the `.agent_session.value` of your pane in `herdr pane list`. After `/clear` your session id changes and your sweep prints `SUPERSEDED`, so run `/crew` again to resume.
+6. Name yourself `$slug-lead` with `herdr agent rename` and write `$crew/lead` as your pane id and session id separated by a tab: `$HERDR_PANE_ID` and the `.agent_session.value` of your pane in `herdr pane list`. Do this before you spawn a worker or start a sweep, because without it every sweep prints `SUPERSEDED`. After `/clear` your session id changes and your sweep prints `SUPERSEDED`, so run `/crew` again to resume. Never restart a sweep that printed `SUPERSEDED`; if you think it is wrong, run `crew-role` and act on its answer.
 
 ## Files you own
 
