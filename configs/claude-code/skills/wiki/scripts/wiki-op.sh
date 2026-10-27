@@ -11,7 +11,7 @@ if [ -f "$hooks/load-harness-env.sh" ] && [ -f "$hooks/harness-project.sh" ]; th
   . "$hooks/harness-project.sh"
   load_wiki_vault
   slug=$(harness_wiki_slug "${top:-$PWD}")
-  vault=$(harness_wiki_vault_for "$slug")
+  vault="${WIKI_VAULT:-}"
 fi
 
 # A repo's .wiki-vault may only narrow the vault in use, so a work session

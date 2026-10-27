@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FAILURES=0
 
 unset HARNESS_UNATTENDED HARNESS_NOTIFY HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_BIN_PATH
-unset HARNESS_WORK WIKI_VAULT WIKI_WORK_PROJECTS
+unset HARNESS_WORK WIKI_VAULT
 while read -r name; do
   [[ "$name" == GIT_CONFIG_* ]] && unset "$name"
 done < <(compgen -e)

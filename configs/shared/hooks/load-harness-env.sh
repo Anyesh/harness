@@ -29,8 +29,9 @@ harness_work_vault() {
   esac
 }
 
-# A profile's settings env carries its own WIKI_VAULT and HARNESS_WORK, so they
-# override the machine's file; mapping an already mapped vault is a no-op.
+# Settings env, rendered from the machine's file at install, wins over a later
+# edit of that file until the next install; mapping an already mapped vault is
+# a no-op.
 load_wiki_vault() {
   load_harness_var WIKI_VAULT
   load_harness_var HARNESS_WORK
@@ -38,23 +39,4 @@ load_wiki_vault() {
     WIKI_VAULT=$(harness_work_vault "$WIKI_VAULT")
     export WIKI_VAULT
   fi
-}
-
-# A work session only ever resolves the work vault; a personal session reaches
-# it only for slugs the machine lists as work, never because a folder exists.
-harness_wiki_vault_for() {
-  local slug="$1" listed
-  [[ -n "${WIKI_VAULT:-}" ]] || return 0
-  if [[ "${HARNESS_WORK:-}" == 1 ]]; then
-    printf '%s' "$WIKI_VAULT"
-    return 0
-  fi
-  load_harness_var WIKI_WORK_PROJECTS
-  for listed in ${WIKI_WORK_PROJECTS:+${WIKI_WORK_PROJECTS//,/ }}; do
-    if [[ "$listed" == "$slug" ]]; then
-      harness_work_vault "$WIKI_VAULT"
-      return 0
-    fi
-  done
-  printf '%s' "$WIKI_VAULT"
 }

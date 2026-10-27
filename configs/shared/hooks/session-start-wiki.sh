@@ -29,7 +29,6 @@ PROJECT_SLUG="$(harness_wiki_slug "$PROJECT_ROOT")"
 if [[ -z "$PROJECT_SLUG" ]]; then
     emit_empty; exit 0
 fi
-WIKI_VAULT="$(harness_wiki_vault_for "$PROJECT_SLUG")"
 
 if [[ ! -d "$WIKI_VAULT/wiki" ]]; then
     emit_empty; exit 0

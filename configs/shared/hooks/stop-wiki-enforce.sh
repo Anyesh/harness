@@ -72,7 +72,6 @@ REPO_ROOT="$(harness_repo_root "$INPUT")"
 harness_is_tooling_dir "$REPO_ROOT" && exit 0
 PROJECT_SLUG="$(harness_wiki_slug "$REPO_ROOT")"
 [[ -z "$PROJECT_SLUG" ]] && exit 0
-WIKI_VAULT="$(harness_wiki_vault_for "$PROJECT_SLUG")"
 
 bash "$HOOK_DIR/wiki-index-build.sh" "$WIKI_VAULT" --if-changed
 

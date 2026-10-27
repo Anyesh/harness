@@ -28,13 +28,13 @@ async function git(io: ProbeIO, args: string[], cwd?: string): Promise<string | 
   return result.exitCode === 0 ? result.stdout : null
 }
 
-// The harness hooks own the wiki slug and vault routing rules; a third output
-// line means some page other than the devlog or index changed since start.
+// The harness hooks own the wiki slug and vault rules; a third output line
+// means some page other than the devlog or index changed since start.
 const WIKI_LOCATE = `
 . "$1/load-harness-env.sh" && . "$1/harness-project.sh" || exit 1
 load_wiki_vault
 slug=$(harness_wiki_slug "$2")
-vault=$(harness_wiki_vault_for "$slug")
+vault="$WIKI_VAULT"
 printf '%s\\n%s\\n' "$slug" "$vault"
 [ -n "$vault" ] && find "$vault/wiki/projects/$slug" -name '*.md' ! -name devlog.md ! -name index.md -newermt "@$3" -print -quit 2>/dev/null
 exit 0

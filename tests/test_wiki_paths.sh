@@ -63,23 +63,16 @@ check "explicit personal settings env wins on a work machine" "/v" \
 check "work settings env is not mapped twice" "/v/Work/agent-wiki" \
   "$(in_env WIKI_VAULT=/v/Work/agent-wiki HARNESS_WORK=1 <<<'load_wiki_vault; printf %s "$WIKI_VAULT"')"
 
-printf 'WIKI_VAULT=/v\nWIKI_WORK_PROJECTS=workco,api-accounting\n' >"$TMP_DIR/harness.env"
+printf 'WIKI_VAULT=/v\n' >"$TMP_DIR/harness.env"
 check "personal machine keeps the personal vault" "/v" \
   "$(in_env <<<'load_wiki_vault; printf %s "$WIKI_VAULT"')"
-check "personal session routes a listed work slug to the work vault" "/v/Work/agent-wiki" \
-  "$(in_env <<<'load_wiki_vault; harness_wiki_vault_for api-accounting')"
-check "personal session keeps an unlisted slug in the personal vault" "/v" \
-  "$(in_env <<<'load_wiki_vault; harness_wiki_vault_for harness')"
 mkdir -p "$TMP_DIR/v2/Work/agent-wiki/wiki/projects/harness"
-printf 'WIKI_VAULT=%s\nWIKI_WORK_PROJECTS=workco\n' "$TMP_DIR/v2" >"$TMP_DIR/harness.env"
-check "a stray work-vault folder never reroutes an unlisted slug" "$TMP_DIR/v2" \
-  "$(in_env <<<'load_wiki_vault; harness_wiki_vault_for harness')"
-printf 'WIKI_VAULT=/v\nHARNESS_WORK=1\nWIKI_WORK_PROJECTS=workco\n' >"$TMP_DIR/harness.env"
-check "work session resolves only the work vault" "/v/Work/agent-wiki" \
-  "$(in_env <<<'load_wiki_vault; harness_wiki_vault_for harness')"
+printf 'WIKI_VAULT=%s\n' "$TMP_DIR/v2" >"$TMP_DIR/harness.env"
+check "a work-vault folder never makes a personal session work" "$TMP_DIR/v2" \
+  "$(in_env <<<'load_wiki_vault; printf %s "$WIKI_VAULT"')"
 : >"$TMP_DIR/harness.env"
 check "no vault configured resolves empty" "" \
-  "$(in_env <<<'load_wiki_vault; harness_wiki_vault_for harness')"
+  "$(in_env <<<'load_wiki_vault; printf %s "${WIKI_VAULT:-}"')"
 
 mkdir -p "$TMP_DIR/home/.claude"
 ln -s "$HOOKS" "$TMP_DIR/home/.claude/hooks"
@@ -97,9 +90,12 @@ check "cmd-context reports the project index, not the top index" "project_index:
 check "wiki-op gives a worktree its main checkout's slug" "project_slug: my-repo" \
   "$(ctx "$TMP_DIR/w-t8-seed-1b57" "$WIKI_OP" log | grep '^project_slug:')"
 printf 'WIKI_VAULT=%s\nWIKI_WORK_PROJECTS=my-repo\n' "$TMP_DIR/v3" >"$TMP_DIR/harness.env"
-check "cmd-context routes a listed work project to the work vault" "wiki_vault: $TMP_DIR/v3/Work/agent-wiki" \
+check "cmd-context keeps a once-listed work slug in the personal vault" "wiki_vault: $TMP_DIR/v3" \
   "$(ctx "$TMP_DIR/My_Repo" "$CMD_CTX" devlog | grep '^wiki_vault:')"
-check "wiki-op routes a listed work project to the work vault" "vault: $TMP_DIR/v3/Work/agent-wiki" \
+printf 'WIKI_VAULT=%s\nHARNESS_WORK=1\n' "$TMP_DIR/v3" >"$TMP_DIR/harness.env"
+check "cmd-context on a work machine uses the work vault" "wiki_vault: $TMP_DIR/v3/Work/agent-wiki" \
+  "$(ctx "$TMP_DIR/My_Repo" "$CMD_CTX" devlog | grep '^wiki_vault:')"
+check "wiki-op on a work machine uses the work vault" "vault: $TMP_DIR/v3/Work/agent-wiki" \
   "$(ctx "$TMP_DIR/My_Repo" "$WIKI_OP" log | grep '^vault:')"
 printf '%s\n' "$TMP_DIR/v3" >"$TMP_DIR/My_Repo/.wiki-vault"
 check "wiki-op ignores a .wiki-vault outside the vault in use" "vault: $TMP_DIR/v3/Work/agent-wiki" \

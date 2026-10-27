@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOOK="$REPO_ROOT/configs/shared/hooks/session-start-wiki.sh"
-unset HARNESS_WORK WIKI_VAULT WIKI_WORK_PROJECTS
+unset HARNESS_WORK WIKI_VAULT
 
 PASS=0
 FAIL=0
@@ -85,9 +85,8 @@ mkdir -p "$VAULT/Work/agent-wiki/wiki/projects/myproj"
 printf -- '- [Work devlog](devlog.md): work log\n' >"$VAULT/Work/agent-wiki/wiki/projects/myproj/index.md"
 printf 'WIKI_WORK_PROJECTS=myproj\n' >"$HARNESS_ENV"
 OUT=$(run_hook)
-assert "a listed work project resolves to the work vault" 'grep -qF "vault=$VAULT/Work/agent-wiki" <<<"$OUT"'
-assert "a routed session sees the work index" 'grep -qF "[Work devlog]" <<<"$OUT"'
-assert "a routed session does not list personal project names" '! grep -q "myproj-extra" <<<"$OUT"'
+assert "a personal session in a once-listed work project stays in the personal vault" \
+  'grep -qF "vault=$VAULT" <<<"$OUT" && ! grep -qF "vault=$VAULT/Work" <<<"$OUT" && ! grep -qF "[Work devlog]" <<<"$OUT"'
 
 printf 'HARNESS_WORK=1\n' >"$HARNESS_ENV"
 OUT=$(run_hook "$TMP_DIR/myproj-main")

@@ -57,9 +57,9 @@ The human never writes the wiki. The LLM writes and maintains all of it. The hum
 Find the vault in this order (first match wins):
 
 1. Explicit `--vault <path>` argument
-2. The vault on the session-start `WIKI: project=… vault=…` line (it already routes work projects to the work vault)
+2. The vault on the session-start `WIKI: project=… vault=…` line
 3. `.wiki-vault` file in current working directory (one line: absolute vault path), only when it points inside the vault from step 2 or 4
-4. The vault the wiki-maintenance rule names (rendered per machine and profile, so it is the work vault in work sessions), else the `WIKI_VAULT` environment variable
+4. The vault the wiki-maintenance rule names (the work vault on a work machine), else the `WIKI_VAULT` environment variable
 5. Error: no vault found
 
 Once resolved, verify path contains `WIKI_SCHEMA.md`.

@@ -192,8 +192,8 @@ assert "a worktree session is held to the main checkout's devlog" \
 
 printf 'WIKI_WORK_PROJECTS=myproj\n' > "$HARNESS_ENV"
 OUT=$(run_hook "$(payload "s-routed" "$T_EDITS")")
-assert "a listed work project is held to the work vault's devlog" \
-  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$VAULT/Work/agent-wiki/wiki/projects/myproj/devlog.md"'
+assert "a personal session in a once-listed work project is held to the personal devlog" \
+  'printf "%s" "$OUT" | jq -r ".reason" | grep -qF "$VAULT/wiki/projects/myproj/devlog.md"'
 : > "$HARNESS_ENV"
 
 OUT=$(run_hook "$(payload "s-notranscript" "")")
