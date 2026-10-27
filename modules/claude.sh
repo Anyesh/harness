@@ -280,6 +280,7 @@ claude_install() {
   claude_bin_tools
   claude_profiles_render_all
   claude_profiles_sync
+  claude_profiles_check_work_mcp
 }
 
 claude_test() {

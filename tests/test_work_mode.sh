@@ -61,6 +61,42 @@ harness() {
 }
 
 echo ""
+echo "=== a work install checks that no Claude config keeps second-brain ==="
+
+C="$TMP_DIR/check"
+mkdir -p "$C/.local/bin" "$C/.claude-x"
+printf 'HARNESS_WORK=1\n' > "$C/.harness.env"
+printf '#!/bin/sh\nexport CLAUDE_PROFILE=x\n' > "$C/.local/bin/claude-x"
+printf '{"mcpServers": {"second-brain": {"command": "sb"}}}\n' > "$C/.claude-x/.claude.json"
+check_work_mcp() {
+    env -i HOME="$C" PATH="$PATH" HARNESS_ENV="$C/.harness.env" REPO_ROOT="$REPO_ROOT" DRY_RUN=false bash -c '
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/profile.sh"
+        source "$REPO_ROOT/lib/claude_profiles.sh"
+        claude_profiles_check_work_mcp' 2>&1
+}
+rc=0
+out=$(check_work_mcp) || rc=$?
+assert "a profile that still lists second-brain fails the check" '[ "$rc" -ne 0 ] && grep -qF "$C/.claude-x/.claude.json" <<<"$out"'
+printf '{"mcpServers": {"web-strip": {"command": "node"}}}\n' > "$C/.claude-x/.claude.json"
+printf '{"mcpServers": {"second-brain": {"command": "sb"}}}\n' > "$C/.claude.json"
+rc=0
+out=$(check_work_mcp) || rc=$?
+assert "main's state that still lists second-brain fails the check" '[ "$rc" -ne 0 ] && grep -qF "$C/.claude.json" <<<"$out"'
+printf '{"projects": {"/r": {"mcpServers": {"second-brain": {}}}}}\n' > "$C/.claude.json"
+rc=0
+check_work_mcp > /dev/null || rc=$?
+assert "a project-scoped second-brain fails the check" '[ "$rc" -ne 0 ]'
+printf '{not json\n' > "$C/.claude.json"
+rc=0
+out=$(check_work_mcp) || rc=$?
+assert "an unreadable state file fails the check" '[ "$rc" -ne 0 ] && grep -q "could not read" <<<"$out"'
+printf '{}\n' > "$C/.claude.json"
+rc=0
+check_work_mcp > /dev/null || rc=$?
+assert "the check passes once every config is clean" '[ "$rc" -eq 0 ]'
+
+echo ""
 echo "=== personal install, then the machine switches to work ==="
 
 H="$TMP_DIR/switch"

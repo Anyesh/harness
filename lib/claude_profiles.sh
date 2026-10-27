@@ -232,6 +232,31 @@ claude_profile_render() (
   exit $rc
 )
 
+claude_profiles_check_work_mcp() {
+  profile_work && [[ "$DRY_RUN" != "true" ]] || return 0
+  local state server name rc leaked=0
+  local -a states=("$HOME/.claude.json")
+  while IFS= read -r name; do
+    [[ -n "$name" ]] && states+=("$HOME/.claude-$name/.claude.json")
+  done < <(bash "$(claude_profile_tool_path)" names 2>/dev/null || true)
+  for state in "${states[@]}"; do
+    [[ -f "$state" ]] || continue
+    for server in "${WORK_MCP_SERVERS[@]}"; do
+      rc=0
+      jq -e --arg s "$server" 'any((.mcpServers, .projects[]?.mcpServers) | objects; has($s))' \
+        "$state" >/dev/null 2>&1 || rc=$?
+      if [[ $rc -eq 0 ]]; then
+        log_error "work mode: $state still lists the $server MCP server"
+        leaked=1
+      elif [[ $rc -ne 1 ]]; then
+        log_error "work mode: could not read $state to check for $server"
+        leaked=1
+      fi
+    done
+  done
+  return $leaked
+}
+
 claude_profiles_render_all() {
   local name
   while IFS= read -r name; do
