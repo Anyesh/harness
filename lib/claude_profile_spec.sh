@@ -7,8 +7,6 @@
 SPEC_LIST_KEYS=(skills_only skills_exclude rules_only rules_exclude commands_only commands_exclude)
 SPEC_DIR=""
 SPEC_MEMORY=on
-SPEC_WORK=""
-SPEC_WORK_DIFFERS=""
 # -g because load_module sources modules (and so this file) inside a function,
 # where a plain declare would make the array local to that call.
 declare -gA SPEC_LISTS=()
@@ -51,7 +49,6 @@ spec_load() {
   local name="$1" conf line key value lineno=0 kind
   SPEC_DIR=""
   SPEC_MEMORY=on
-  SPEC_WORK=""
   SPEC_LISTS=()
   local dir
   dir=$(spec_dir "$name")
@@ -78,11 +75,8 @@ spec_load() {
           SPEC_MEMORY="$value"
           ;;
         work)
-          [[ "$value" == on || "$value" == off ]] || {
-            spec_fail "$conf:$lineno: work must be on or off"
-            return 2
-          }
-          SPEC_WORK="$value"
+          spec_fail "$conf:$lineno: work= was removed; HARNESS_WORK in ~/.harness.env decides for every profile"
+          return 2
           ;;
         skills_only | skills_exclude | rules_only | rules_exclude | commands_only | commands_exclude)
           [[ -z "${SPEC_LISTS[$key]+set}" ]] || {
@@ -92,7 +86,7 @@ spec_load() {
           spec_store_list "$key" "$value" "$conf:$lineno" || return 2
           ;;
         *)
-          spec_fail "$conf:$lineno: unknown key '$key' (known: memory work ${SPEC_LIST_KEYS[*]})"
+          spec_fail "$conf:$lineno: unknown key '$key' (known: memory ${SPEC_LIST_KEYS[*]})"
           return 2
           ;;
       esac
@@ -108,12 +102,6 @@ spec_load() {
   if [[ -f "$dir/settings.json" ]] && ! jq -e 'type == "object"' "$dir/settings.json" >/dev/null 2>&1; then
     spec_fail "$dir/settings.json: must be a strict JSON object"
     return 2
-  fi
-  # A profile routed through its own API gateway is the user's definition of a
-  # work profile; work= in profile.conf overrides it either way.
-  if [[ -z "$SPEC_WORK" && -f "$dir/settings.json" ]] &&
-    [[ -n "$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$dir/settings.json")" ]]; then
-    SPEC_WORK=on
   fi
   SPEC_DIR="$dir"
 }
@@ -143,16 +131,11 @@ spec_touches() {
 
 # The ~/.claude entries this profile builds itself; every other entry stays a
 # link to ~/.claude.
-# A profile whose work state differs from main's (SPEC_WORK_DIFFERS, set by
-# the render) renders its own settings, rules and skills, since main's copies
-# carry main's vault, rules and skill set.
 spec_owned_entries() {
   [[ -n "$SPEC_DIR" ]] || return 0
-  local rebuild=false
-  [[ "$SPEC_MEMORY" == off || -n "$SPEC_WORK_DIFFERS" ]] && rebuild=true
-  if [[ -f "$SPEC_DIR/settings.json" || "$rebuild" == true ]]; then echo settings.json; fi
-  if spec_touches rules || [[ "$rebuild" == true ]]; then echo CLAUDE.md; fi
-  if spec_touches skills || [[ "$rebuild" == true ]]; then echo skills; fi
+  if [[ -f "$SPEC_DIR/settings.json" || "$SPEC_MEMORY" == off ]]; then echo settings.json; fi
+  if spec_touches rules || [[ "$SPEC_MEMORY" == off ]]; then echo CLAUDE.md; fi
+  if spec_touches skills || [[ "$SPEC_MEMORY" == off ]]; then echo skills; fi
   if spec_touches commands || [[ "$SPEC_MEMORY" == off ]]; then echo commands; fi
   return 0
 }

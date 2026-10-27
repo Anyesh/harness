@@ -22,8 +22,6 @@ usage() {
 Usage: claude-profile [name]        create or repair a profile (asks for a name if omitted)
        claude-profile list          show profiles and the account each is signed in to
        claude-profile names         print profile names, one per line
-       claude-profile names --work on|off
-                                    only the profiles whose work state matches
        claude-profile env <name>    print the variables that run a session as that profile
        claude-profile sync [name]   relink profiles to ~/.claude and merge new MCP servers
        claude-profile remove <name> delete a profile and its launcher
@@ -61,29 +59,6 @@ our_profiles() {
   for launcher in "$BIN_DIR"/claude-*; do
     is_our_launcher "$launcher" && printf '%s\n' "${launcher##*/claude-}"
   done
-  return 0
-}
-
-# A profile's work state is the one the installer recorded; a profile it never
-# rendered shares main's settings, so main's HARNESS_WORK answers for it.
-profile_work_state() {
-  local recorded
-  recorded=$(awk '$1 == "work" { print $2 }' "$(profile_dir "$1")/.harness-owned" 2>/dev/null)
-  if [[ -n "$recorded" ]]; then
-    printf '%s\n' "$recorded"
-  elif [[ "$(jq -r '.env.HARNESS_WORK // "0"' "$MAIN_DIR/settings.json" 2>/dev/null)" == 1 ]]; then
-    printf 'on\n'
-  else
-    printf 'off\n'
-  fi
-}
-
-profiles_with_work() {
-  local want="$1" name
-  [[ "$want" == on || "$want" == off ]] || die "--work takes on or off"
-  while IFS= read -r name; do
-    [[ "$(profile_work_state "$name")" == "$want" ]] && printf '%s\n' "$name"
-  done < <(our_profiles)
   return 0
 }
 
@@ -284,13 +259,7 @@ command -v jq >/dev/null || die "jq is required"
 
 case "${1:-}" in
   list) list ;;
-  names)
-    if [[ "${2:-}" == --work ]]; then
-      profiles_with_work "${3:-}"
-    else
-      our_profiles
-    fi
-    ;;
+  names) our_profiles ;;
   env)
     [[ $# -eq 2 ]] || {
       usage >&2

@@ -7,4 +7,9 @@ def overlay($o):
       if $e.value == null then del(.[$e.key]) else .[$e.key] |= overlay($e.value) end)
   else $o end;
 
-overlay($overlay[0])
+# HARNESS_WORK and WIKI_VAULT keep the machine's values, so ~/.harness.env is
+# the only switch between work and personal.
+. as $base
+| overlay($overlay[0])
+| reduce ("HARNESS_WORK", "WIKI_VAULT") as $k (.;
+    if ($base.env // {}) | has($k) then .env[$k] = $base.env[$k] else del(.env[$k]) end)

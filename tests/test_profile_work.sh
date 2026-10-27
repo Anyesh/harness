@@ -69,35 +69,28 @@ mkdir -p "$H/.config/harness/profiles/acme"
 printf '{"env": {"ANTHROPIC_BASE_URL": "https://gateway.example"}}\n' >"$H/.config/harness/profiles/acme/settings.json"
 harness "$H" --profile acme >/dev/null || true
 A="$H/.claude-acme"
-assert "a base URL makes the profile work: its vault is the work vault" \
-  '[ "$(jq -r .env.WIKI_VAULT "$A/settings.json")" = "$WORK_VAULT" ]'
-assert "the work profile's settings say HARNESS_WORK=1" '[ "$(jq -r .env.HARNESS_WORK "$A/settings.json")" = "1" ]'
+assert "a base URL leaves the profile personal: its vault is the personal vault" \
+  '[ "$(jq -r .env.WIKI_VAULT "$A/settings.json")" = "$VAULT" ]'
+assert "the base-URL profile's settings say HARNESS_WORK=0" '[ "$(jq -r .env.HARNESS_WORK "$A/settings.json")" = "0" ]'
 assert "the base URL survives the overlay" '[ "$(jq -r .env.ANTHROPIC_BASE_URL "$A/settings.json")" = "https://gateway.example" ]'
-assert "the work profile owns its CLAUDE.md, without the second-brain rule" \
-  '[ ! -L "$A/CLAUDE.md" ] && ! grep -q "^## Second Brain (MCP)" "$A/CLAUDE.md"'
-assert "the work profile's CLAUDE.md names the work vault" 'grep -qF "$WORK_VAULT" "$A/CLAUDE.md"'
-assert "the work profile's skills have no me" '[ -d "$A/skills" ] && [ ! -L "$A/skills" ] && [ ! -e "$A/skills/me" ]'
-assert "the work profile keeps other skills" '[ -e "$A/skills/wiki" ]'
-assert "the work profile drops second-brain from its MCP servers" '! has_server "$A" second-brain && has_server "$A" web-strip'
-assert "main is untouched by the work profile" \
-  '[ "$(jq -r .env.WIKI_VAULT "$H/.claude/settings.json")" = "$VAULT" ] && [ -e "$H/.claude/skills/me" ]'
+assert "the base-URL profile keeps the me skill" '[ -e "$A/skills/me/SKILL.md" ]'
+assert "the base-URL profile keeps second-brain" 'has_server "$A" second-brain && has_server "$A" web-strip'
 assert "a profile without a spec stays linked to main" '[ -L "$H/.claude-mine/settings.json" ]'
-assert "names --work on lists the base-URL profile" '[ "$(profile_tool "$H" names --work on)" = "acme" ]'
-assert "names --work off lists the personal profile" '[ "$(profile_tool "$H" names --work off)" = "mine" ]'
 
-cp "$H/.harness.env" "$TMP_DIR/personal.env"
-printf 'HARNESS_WORK=1\n' >>"$H/.harness.env"
-harness "$H" --profile mine >/dev/null || true
-assert "a profile-only install follows main's deployed state, not a flag main has not picked up" \
-  '! grep -qx "work on" "$H/.claude-mine/.harness-owned" 2>/dev/null && has_server "$H/.claude-mine" second-brain'
-cp "$TMP_DIR/personal.env" "$H/.harness.env"
-
-printf 'work=off\n' >"$H/.config/harness/profiles/acme/profile.conf"
+printf '{"env": {"HARNESS_WORK": "1", "WIKI_VAULT": "/elsewhere"}}\n' >"$H/.config/harness/profiles/acme/settings.json"
 harness "$H" --profile acme >/dev/null || true
-assert "work=off overrides the base URL" '[ "$(jq -r .env.WIKI_VAULT "$A/settings.json")" = "$VAULT" ]'
+assert "a spec cannot set HARNESS_WORK" '[ "$(jq -r .env.HARNESS_WORK "$A/settings.json")" = "0" ]'
+assert "a spec cannot set WIKI_VAULT" '[ "$(jq -r .env.WIKI_VAULT "$A/settings.json")" = "$VAULT" ]'
+
+printf 'work=on\n' >"$H/.config/harness/profiles/acme/profile.conf"
+rc=0
+out=$(harness "$H" --profile acme) || rc=$?
+assert "work= in profile.conf stops the install" '[ "$rc" -ne 0 ]'
+assert "work= in profile.conf names its replacement" 'grep -qF "work= was removed; HARNESS_WORK in ~/.harness.env decides for every profile" <<<"$out"'
+rm -f "$H/.config/harness/profiles/acme/profile.conf"
 
 echo ""
-echo "=== personal profile on a work machine ==="
+echo "=== profiles on a work machine ==="
 
 W="$TMP_DIR/workmachine"
 setup_home "$W"
@@ -106,20 +99,26 @@ printf '{"mcpServers": {"web-strip": {"command": "node"}}}\n' >"$W/.claude.json"
 harness "$W" --only claude >/dev/null
 printf 'n\n' | profile_tool "$W" home >/dev/null
 printf 'n\n' | profile_tool "$W" plain >/dev/null
-printf '{"mcpServers": {"web-strip": {"command": "node"}, "second-brain": {"command": "sb"}}}\n' >"$W/.claude-plain/.claude.json"
-mkdir -p "$W/.config/harness/profiles/home"
-printf 'work=off\n' >"$W/.config/harness/profiles/home/profile.conf"
+printf 'n\n' | profile_tool "$W" sneaky >/dev/null
+for p in home plain sneaky; do
+  printf '{"mcpServers": {"web-strip": {"command": "node"}, "second-brain": {"command": "sb"}}}\n' >"$W/.claude-$p/.claude.json"
+done
+mkdir -p "$W/.config/harness/profiles/home" "$W/.config/harness/profiles/sneaky"
+printf '{"env": {"ANTHROPIC_BASE_URL": "https://gateway.example"}}\n' >"$W/.config/harness/profiles/home/settings.json"
+printf '{"env": {"HARNESS_WORK": "0", "WIKI_VAULT": "%s"}}\n' "$VAULT" >"$W/.config/harness/profiles/sneaky/settings.json"
 harness "$W" --only claude >/dev/null || true
 P="$W/.claude-home"
+S="$W/.claude-sneaky"
 assert "main on a work machine is work" '[ "$(jq -r .env.WIKI_VAULT "$W/.claude/settings.json")" = "$WORK_VAULT" ]'
-assert "the work=off profile gets the personal vault" '[ "$(jq -r .env.WIKI_VAULT "$P/settings.json")" = "$VAULT" ]'
-assert "the work=off profile says HARNESS_WORK=0" '[ "$(jq -r .env.HARNESS_WORK "$P/settings.json")" = "0" ]'
-assert "the work=off profile gets the second-brain rule back" 'grep -q "^## Second Brain (MCP)" "$P/CLAUDE.md"'
-assert "the work=off profile gets the me skill back" '[ -e "$P/skills/me/SKILL.md" ]'
-assert "the work=off profile gets second-brain in its own MCP servers" 'has_server "$P" second-brain'
 assert "main on a work machine has no me skill" '[ ! -e "$W/.claude/skills/me" ]'
+assert "a profile with a spec on a work machine gets the work vault" '[ "$(jq -r .env.WIKI_VAULT "$P/settings.json")" = "$WORK_VAULT" ]'
+assert "a profile with a spec on a work machine says HARNESS_WORK=1" '[ "$(jq -r .env.HARNESS_WORK "$P/settings.json")" = "1" ]'
+assert "a profile with a spec on a work machine has no me skill" '[ ! -e "$P/skills/me" ]'
+assert "a profile with a spec on a work machine has no second-brain rule" '! grep -q "^## Second Brain (MCP)" "$P/CLAUDE.md"'
+assert "a profile with a spec on a work machine loses second-brain" '! has_server "$P" second-brain && has_server "$P" web-strip'
+assert "a spec cannot switch a work machine's profile back to HARNESS_WORK=0" '[ "$(jq -r .env.HARNESS_WORK "$S/settings.json")" = "1" ]'
+assert "a spec cannot point a work machine's profile at the personal vault" '[ "$(jq -r .env.WIKI_VAULT "$S/settings.json")" = "$WORK_VAULT" ]'
 assert "a profile without a spec on a work machine loses a second-brain it had" '! has_server "$W/.claude-plain" second-brain'
-assert "names --work on lists the spec-less profile on a work machine" '[ "$(profile_tool "$W" names --work on)" = "plain" ]'
 mv "$W/.claude.json" "$TMP_DIR/main-state.json"
 printf '{"mcpServers": {"second-brain": {"command": "sb"}}}\n' >"$W/.claude-plain/.claude.json"
 harness "$W" --profile plain >/dev/null || true

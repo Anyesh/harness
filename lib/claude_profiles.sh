@@ -15,17 +15,6 @@ claude_main_memory_off() {
   profile_no_memory || [[ ! -e "$CLAUDE_CONFIG_DIR/hooks/${MEMORY_HOOKS[0]}" ]]
 }
 
-# Main's deployed state, so a profile-only install never runs ahead of main.
-claude_main_work() {
-  local deployed
-  deployed=$(jq -r '.env.HARNESS_WORK // empty' "$CLAUDE_CONFIG_DIR/settings.json" 2>/dev/null || true)
-  if [[ -n "$deployed" ]]; then
-    [[ "$deployed" == 1 ]]
-  else
-    profile_work
-  fi
-}
-
 claude_profile_owned_list() {
   awk '$1 == "owned" { print $2 }' "$1/.harness-owned" 2>/dev/null || true
 }
@@ -144,15 +133,6 @@ claude_profile_dir() {
     [[ -e "$SPEC_DIR/$kind/$name" ]] && continue
     ln -s "$CLAUDE_CONFIG_DIR/$kind/$name" "$stage/$name"
   done
-  # A personal profile on a work machine gets back the skills main withholds,
-  # linked from the repo because main's dir no longer has them.
-  if [[ "$kind" == skills ]] && ! profile_work; then
-    for name in "${WORK_SKILLS[@]}"; do
-      [[ -e "$stage/$name" || ! -d "$REPO_ROOT/configs/shared/skills/$name" ]] && continue
-      claude_profile_selects skills "$name" || continue
-      ln -s "$REPO_ROOT/configs/shared/skills/$name" "$stage/$name"
-    done
-  fi
   [[ -d "$SPEC_DIR/$kind" ]] && cp -R "$SPEC_DIR/$kind/." "$stage/"
 
   if [[ -d "$dest" && ! -L "$dest" ]] && diff -rq --no-dereference "$stage" "$dest" >/dev/null 2>&1; then
@@ -171,8 +151,8 @@ claude_profile_dir() {
   log_update "rebuilt: $label"
 }
 
-# Besides the owned entries, records the profile's work state for
-# `claude-profile names --work` and the MCP servers sync must drop from it.
+# Besides the owned entries, records the MCP servers sync must drop from the
+# profile, which a work machine needs even when nothing is owned.
 claude_profile_write_owned() {
   local dir="$1" entry server
   shift
@@ -185,11 +165,6 @@ claude_profile_write_owned() {
     for entry in "$@"; do
       printf 'owned %s\n' "$entry"
     done
-    if profile_work; then
-      printf 'work on\n'
-    else
-      printf 'work off\n'
-    fi
     for server in "${MEMORY_MCP_SERVERS[@]}" "${WORK_MCP_SERVERS[@]}"; do
       profile_skips_mcp_server "$server" && printf 'drop-mcp %s\n' "$server"
     done | sort -u
@@ -214,18 +189,10 @@ claude_profile_render() (
   NO_MEMORY=""
   [[ "$memory_off" == true ]] && NO_MEMORY=1
 
-  local main_work=off work_state
-  claude_main_work && main_work=on
-  work_state="${SPEC_WORK:-$main_work}"
-  SPEC_WORK_DIFFERS=""
-  [[ "$work_state" != "$main_work" ]] && SPEC_WORK_DIFFERS=1
-  WORK=""
-  [[ "$work_state" == on ]] && WORK=1
-
   local -a owned previous
   mapfile -t owned < <(spec_owned_entries)
   mapfile -t previous < <(claude_profile_owned_list "$dir")
-  if [[ ${#owned[@]} -eq 0 && ${#previous[@]} -eq 0 && "$work_state" == off ]] &&
+  if [[ ${#owned[@]} -eq 0 && ${#previous[@]} -eq 0 ]] && ! profile_work &&
     ! grep -qE '^(work|drop-mcp) ' "$dir/.harness-owned" 2>/dev/null; then
     exit 0
   fi
@@ -260,33 +227,10 @@ claude_profile_render() (
 
   claude_profile_write_owned "$dir" ${owned[@]+"${owned[@]}"}
   if [[ "$DRY_RUN" != "true" ]]; then
-    [[ -n "$SPEC_WORK_DIFFERS" ]] && ! profile_work && ! profile_no_memory && claude_profile_add_second_brain "$dir"
     bash "$(claude_profile_tool_path)" sync "$name" >/dev/null || rc=1
   fi
   exit $rc
 )
-
-# A personal profile on a work machine needs the server main withholds;
-# merge_mcp_servers keeps servers only the profile defines, so it is written
-# straight into the profile's own .claude.json.
-claude_profile_add_second_brain() {
-  local state="$1/.claude.json" tmp
-  declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
-  second_brain_find_binaries
-  [[ -n "${SB_MCP_BIN:-}" ]] || return 0
-  [[ -f "$state" ]] || printf '{}\n' >"$state"
-  tmp=$(mktemp "$state.XXXXXX")
-  if jq --arg cmd "$SB_MCP_BIN" --arg api "${SB_API_BIN:-}" '
-    .mcpServers["second-brain"] = {
-      type: "stdio", command: $cmd, args: [],
-      env: ({SECOND_BRAIN_API: "http://127.0.0.1:7200"} + (if $api != "" then {SECOND_BRAIN_DAEMON_BIN: $api} else {} end))
-    }' "$state" >"$tmp"; then
-    mv "$tmp" "$state"
-  else
-    rm -f "$tmp"
-    log_warn "could not add second-brain to $state"
-  fi
-}
 
 claude_profiles_render_all() {
   local name
