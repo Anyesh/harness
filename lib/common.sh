@@ -75,3 +75,20 @@ require_command() {
     die "required command not found: $1"
   fi
 }
+
+# The env file can hold tokens: keep its mode (mktemp gives a new one 600) and
+# check every step explicitly, since callers run this under `|| die` where set -e is off.
+harness_env_set() {
+  local name="$1" value="$2" file="$HARNESS_ENV" tmp
+  tmp=$(mktemp "$file.XXXXXX") || return 1
+  if [[ -f "$file" ]]; then
+    cp -p "$file" "$tmp" && { grep -v "^${name}=" "$file" >"$tmp" || [[ $? -eq 1 ]]; } || {
+      rm -f "$tmp"
+      return 1
+    }
+  fi
+  printf '%s=%s\n' "$name" "$value" >>"$tmp" && mv "$tmp" "$file" || {
+    rm -f "$tmp"
+    return 1
+  }
+}

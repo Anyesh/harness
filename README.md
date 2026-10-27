@@ -40,6 +40,12 @@ curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | ba
 
 Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain systemd unit and sync timer, the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
 
+### Work machines
+
+Every machine starts personal. `./install.sh --work` records `HARNESS_WORK=1` in `~/.harness.env` and installs work mode for every agent and Claude profile on the machine, and `./install.sh --personal` switches it back; through the curl bootstrap the flag goes after `bash -s` as with `--no-memory`. Work mode withholds the `me` skill, second-brain and the LLM-preference rule, and the wiki moves to `<vault>/Work/agent-wiki`.
+
+Plain runs keep the recorded mode and log it. Because a switch covers the whole machine, neither flag combines with `--only` or `--profile`, and a work install fails the claude module if `~/.claude.json` or a profile's `.claude.json` still lists second-brain.
+
 ## What gets deployed
 
 ### Claude Code

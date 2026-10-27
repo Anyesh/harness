@@ -86,7 +86,7 @@ printf 'work=on\n' >"$H/.config/harness/profiles/acme/profile.conf"
 rc=0
 out=$(harness "$H" --profile acme) || rc=$?
 assert "work= in profile.conf stops the install" '[ "$rc" -ne 0 ]'
-assert "work= in profile.conf names its replacement" 'grep -qF "work= was removed; HARNESS_WORK in ~/.harness.env decides for every profile" <<<"$out"'
+assert "work= in profile.conf names its replacement" 'grep -qF "work= was removed; ./install.sh --work or --personal sets the mode for every profile" <<<"$out"'
 rm -f "$H/.config/harness/profiles/acme/profile.conf"
 
 echo ""

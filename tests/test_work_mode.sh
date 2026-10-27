@@ -32,6 +32,8 @@ new_home() {
         printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$tool" "$home" > "$home/.local/bin/$tool"
         chmod +x "$home/.local/bin/$tool"
     done
+    printf '#!/bin/sh\nexit 1\n' > "$home/.local/bin/curl"
+    chmod +x "$home/.local/bin/curl"
 }
 
 install_all() {
@@ -59,6 +61,32 @@ harness() {
         "${vars[@]}" \
         bash "$REPO_ROOT/install.sh" --no-plugins "$@" 2>&1
 }
+
+env_set() {
+    HARNESS_ENV="$1" bash -c 'source "$0/lib/common.sh"; harness_env_set "$1" "$2"' "$REPO_ROOT" "$2" "$3"
+}
+
+echo ""
+echo "=== harness_env_set ==="
+
+E="$TMP_DIR/envset"
+mkdir -p "$E"
+env_set "$E/new.env" HARNESS_WORK 1 || true
+assert "a missing env file is created with the value" '[ "$(cat "$E/new.env")" = "HARNESS_WORK=1" ]'
+assert "a created env file is private" '[ "$(stat -c %a "$E/new.env")" = 600 ]'
+printf 'HARNESS_WORK=0\nWIKI_VAULT=/v\nHARNESS_WORK=1\nNTFY_TOKEN=t' > "$E/old.env"
+chmod 640 "$E/old.env"
+env_set "$E/old.env" HARNESS_WORK 0 || true
+assert "every old line for the name is replaced by one" '[ "$(grep -c "^HARNESS_WORK=" "$E/old.env")" = 1 ] && grep -qx "HARNESS_WORK=0" "$E/old.env"'
+assert "other lines are kept in order" '[ "$(grep -v "^HARNESS_WORK=" "$E/old.env")" = "$(printf "WIKI_VAULT=/v\nNTFY_TOKEN=t")" ]'
+assert "the env file keeps its permissions" '[ "$(stat -c %a "$E/old.env")" = 640 ]'
+mkdir -p "$E/ro"
+printf 'NTFY_TOKEN=t\n' > "$E/ro/x.env"
+chmod 555 "$E/ro"
+rc=0
+env_set "$E/ro/x.env" HARNESS_WORK 1 2>/dev/null || rc=$?
+chmod 755 "$E/ro"
+assert "a failed write returns non-zero and leaves the file alone" '[ "$rc" -ne 0 ] && [ "$(cat "$E/ro/x.env")" = "NTFY_TOKEN=t" ] && [ "$(ls "$E/ro")" = x.env ]'
 
 echo ""
 echo "=== a work install checks that no Claude config keeps second-brain ==="
@@ -97,11 +125,12 @@ check_work_mcp > /dev/null || rc=$?
 assert "the check passes once every config is clean" '[ "$rc" -eq 0 ]'
 
 echo ""
-echo "=== personal install, then the machine switches to work ==="
+echo "=== personal install, then --work, a plain install and --personal ==="
 
 H="$TMP_DIR/switch"
 new_home "$H"
 install_all "$H"
+assert "personal is the default: a plain install records no mode" '! grep -q "^HARNESS_WORK=" "$H/.harness.env"'
 assert "personal install deploys the me skill" '[ -d "$H/.claude/skills/me" ]'
 assert "personal install deploys the second-brain Cursor rule" '[ -f "$H/.cursor/rules/second-brain.mdc" ]'
 assert "personal settings carry HARNESS_WORK=0" '[ "$(jq -r .env.HARNESS_WORK "$H/.claude/settings.json")" = "0" ]'
@@ -112,9 +141,25 @@ MARK="# harness-managed MCP server (added by install.sh)"
 printf '%s\n[mcp_servers.second-brain]\ncommand = "sb"\n\n[mcp_servers.second-brain.env]\nEXTRA = "1"\n%s\n[mcp_servers.web-strip]\ncommand = "ws"\n' \
   "$MARK" "$MARK" >"$H/.codex/config.toml"
 
-printf 'HARNESS_WORK=1\n' >> "$H/.harness.env"
+cp "$H/.harness.env" "$TMP_DIR/switch.env"
+rc=0
+out=$(harness "$H" --work --only claude) || rc=$?
+assert "--work refuses --only" '[ "$rc" -ne 0 ] && grep -q "whole machine" <<<"$out"'
+rc=0
+out=$(harness "$H" --personal --profile x) || rc=$?
+assert "--personal refuses --profile" '[ "$rc" -ne 0 ] && grep -q "whole machine" <<<"$out"'
+rc=0
+out=$(HOME="$H" HARNESS_ENV="$H/.harness.env" bash "$REPO_ROOT/install.sh" status --work 2>&1) || rc=$?
+assert "--work refuses commands other than install" '[ "$rc" -ne 0 ] && grep -q "only work with install" <<<"$out"'
+assert "a refused switch leaves the env file alone" 'cmp -s "$H/.harness.env" "$TMP_DIR/switch.env"'
+
 : > "$H/calls.log"
-install_all "$H" HARNESS_WORK=0 WIKI_VAULT=/wrong
+harness "$H" HARNESS_WORK=0 WIKI_VAULT=/wrong --work > "$TMP_DIR/switch-work.log" || true
+assert "--work records one HARNESS_WORK=1 and keeps WIKI_VAULT" \
+  '[ "$(grep -c "^HARNESS_WORK=" "$H/.harness.env")" = 1 ] && grep -qx "HARNESS_WORK=1" "$H/.harness.env" && grep -qx "WIKI_VAULT=$VAULT" "$H/.harness.env"'
+assert "--work logs the mode" 'grep -q "work mode: on" "$TMP_DIR/switch-work.log"'
+assert "the work install runs the claude check and it passes" \
+  'grep -q "Module: claude" "$TMP_DIR/switch-work.log" && ! grep -qE "still lists|could not read" "$TMP_DIR/switch-work.log"'
 assert "work removes the me skill from Claude" '[ ! -e "$H/.claude/skills/me" ]'
 assert "work removes the me skill from Cursor" '[ ! -e "$H/.cursor/skills/me" ]'
 assert "work removes the me skill from ~/.agents" '[ ! -e "$H/.agents/skills/me" ]'
@@ -145,6 +190,25 @@ assert "work keeps the opencode capture plugin" '[ -f "$H/.config/opencode/plugi
 assert "work removes the user-scope second-brain MCP from Claude" 'grep -q "claude mcp remove -s user second-brain" "$H/calls.log"'
 assert "work never registers second-brain with Claude" '! grep -q "claude mcp add.*second-brain" "$H/calls.log"'
 
+harness "$H" > "$TMP_DIR/switch-plain.log" || true
+assert "a plain install after --work stays work" \
+  '[ "$(jq -r .env.HARNESS_WORK "$H/.claude/settings.json")" = "1" ] && [ ! -e "$H/.claude/skills/me" ]'
+
+: > "$H/calls.log"
+harness "$H" --personal > "$TMP_DIR/switch-personal.log" || true
+assert "--personal records one HARNESS_WORK=0" \
+  '[ "$(grep -c "^HARNESS_WORK=" "$H/.harness.env")" = 1 ] && grep -qx "HARNESS_WORK=0" "$H/.harness.env"'
+assert "--personal logs the mode" 'grep -q "work mode: off" "$TMP_DIR/switch-personal.log"'
+assert "--personal restores the me skill to Claude" '[ -d "$H/.claude/skills/me" ]'
+assert "--personal restores the me skill to Cursor" '[ -e "$H/.cursor/skills/me" ]'
+assert "--personal restores the second-brain Cursor rule" '[ -f "$H/.cursor/rules/second-brain.mdc" ]'
+assert "--personal restores the second-brain rule in CLAUDE.md" 'grep -q "^## Second Brain (MCP)" "$H/.claude/CLAUDE.md"'
+assert "--personal restores the personal vault" '[ "$(jq -r .env.WIKI_VAULT "$H/.claude/settings.json")" = "$VAULT" ]'
+assert "--personal settings carry HARNESS_WORK=0" '[ "$(jq -r .env.HARNESS_WORK "$H/.claude/settings.json")" = "0" ]'
+assert "--personal registers second-brain with Claude again" 'grep -q "claude mcp add.*second-brain" "$H/calls.log"'
+assert "--personal restores second-brain in the Cursor MCP config" 'jq -e ".mcpServers[\"second-brain\"]" "$H/.cursor/mcp.json" >/dev/null 2>&1'
+assert "--personal restores second-brain in the Codex config" 'grep -q "mcp_servers.second-brain" "$H/.codex/config.toml"'
+
 echo ""
 echo "=== an exported HARNESS_WORK never makes a personal machine work ==="
 
@@ -153,6 +217,10 @@ new_home "$P"
 install_all "$P" HARNESS_WORK=1 WIKI_VAULT=/wrong
 assert "exported HARNESS_WORK=1 leaves the me skill" '[ -d "$P/.claude/skills/me" ]'
 assert "exported WIKI_VAULT is not baked into settings" '[ "$(jq -r .env.WIKI_VAULT "$P/.claude/settings.json")" = "$VAULT" ]'
+cp "$P/.harness.env" "$TMP_DIR/personal.env"
+harness "$P" --dry-run --work > "$TMP_DIR/dry-work.log" || true
+assert "--dry-run --work leaves the env file alone" 'cmp -s "$P/.harness.env" "$TMP_DIR/personal.env"'
+assert "--dry-run --work previews work mode" 'grep -q "work mode: on" "$TMP_DIR/dry-work.log"'
 
 echo ""
 echo "=== no vault configured ==="

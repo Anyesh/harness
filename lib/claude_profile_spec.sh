@@ -75,7 +75,7 @@ spec_load() {
           SPEC_MEMORY="$value"
           ;;
         work)
-          spec_fail "$conf:$lineno: work= was removed; HARNESS_WORK in ~/.harness.env decides for every profile"
+          spec_fail "$conf:$lineno: work= was removed; ./install.sh --work or --personal sets the mode for every profile"
           return 2
           ;;
         skills_only | skills_exclude | rules_only | rules_exclude | commands_only | commands_exclude)

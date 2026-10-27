@@ -40,6 +40,7 @@ NO_BACKUP=false
 OVERRIDE_SETTINGS=false
 ONLY_MODULE=""
 PROFILE_NAME=""
+SET_WORK=""
 
 if [[ "$COMMAND" == --* ]]; then
   COMMAND="install"
@@ -55,6 +56,8 @@ while [[ $# -gt 0 ]]; do
     --no-backup) NO_BACKUP=true ;;
     --override-settings) OVERRIDE_SETTINGS=true ;;
     --no-memory) NO_MEMORY=1 ;;
+    --work) SET_WORK=1 ;;
+    --personal) SET_WORK=0 ;;
     --only) shift; ONLY_MODULE="${1:-}"; [[ -z "$ONLY_MODULE" ]] && die "--only requires a module name" ;;
     --profile) shift; PROFILE_NAME="${1:-}"; [[ -z "$PROFILE_NAME" ]] && die "--profile requires a profile name" ;;
     --claude-only) ONLY_MODULE="claude" ;;
@@ -79,6 +82,13 @@ fi
 if [[ -n "$PROFILE_NAME" ]]; then
   [[ "$PROFILE_NAME" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || die "'$PROFILE_NAME' is not a valid profile name"
   [[ -z "$ONLY_MODULE" ]] || die "--profile cannot be combined with --only: it rebuilds one Claude profile and nothing else"
+fi
+
+if [[ -n "$SET_WORK" && -n "$ONLY_MODULE$PROFILE_NAME" ]]; then
+  die "--work and --personal switch the whole machine, so they cannot be combined with --only or --profile"
+fi
+if [[ -n "$SET_WORK" && "$COMMAND" != "install" ]]; then
+  die "--work and --personal only work with install, not $COMMAND"
 fi
 
 MODULE_ORDER=(second-brain verdant claude cursor codex opencode herdr wiki leakguard)
@@ -428,6 +438,16 @@ if [[ -n "$PROFILE_NAME" ]]; then
   exit $profile_rc
 fi
 
+if [[ -n "$SET_WORK" ]]; then
+  WORK=""
+  [[ "$SET_WORK" == 1 ]] && WORK=1
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would set HARNESS_WORK=$SET_WORK in $HARNESS_ENV"
+  else
+    harness_env_set HARNESS_WORK "$SET_WORK" || die "could not write HARNESS_WORK to $HARNESS_ENV"
+  fi
+fi
+
 log_section "Harness Bootstrap"
 log_info "repo: $REPO_ROOT"
 
@@ -438,6 +458,11 @@ else
 fi
 
 profile_no_memory && log_info "profile: no-memory (second-brain and wiki are not installed)"
+if profile_work; then
+  log_info "work mode: on (./install.sh --personal switches back)"
+else
+  log_info "work mode: off (./install.sh --work switches this machine)"
+fi
 
 detect_tools
 
