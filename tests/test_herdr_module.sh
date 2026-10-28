@@ -74,8 +74,10 @@ assert "every ref is a full 40-char sha" \
   '[[ $(awk -F"\t" "\$2 ~ /^[0-9a-f]{40}\$/" <<<"$rows" | wc -l) -eq 7 ]]'
 assert "every row has three fields" \
   '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 7 ]]'
-assert "godview builds with cargo" \
-  '[[ $(awk -F"\t" "\$1 == \"Anyesh/godview\" { print \$3 }" <<<"$rows") == cargo ]]'
+for slug in Anyesh/godview razajamil/herdr-plugin-workspace-manager; do
+  assert "$slug builds with cargo and links with cc" \
+    '[[ $(awk -F"\t" -v s="$slug" "\$1 == s { print \$3 }" <<<"$rows") == cargo,cc ]]'
+done
 
 printf '# comment\n\nowner/a\t%040d\t-\n  # indented comment\nowner/b\t%040d\tcargo\n' 0 1 >"$TMP/fixture.tsv"
 rows=$(herdr_read_plugins "$TMP/fixture.tsv")
@@ -320,6 +322,19 @@ missing=$(PATH="$TMP/emptybin" herdr_missing_needs cargo,cc)
 assert "provisioned cargo without cc: names only cc" '[[ "$missing" == cc ]]'
 rm -rf "$RUST_ROOT"
 
+CHECK_BIN="$TMP/checkbin"
+mkdir -p "$CHECK_BIN"
+for tool in curl git jq tar sha256sum btop uname sort head; do
+  real=$(PATH="$NO_RUST_PATH" command -v "$tool") && ln -sf "$real" "$CHECK_BIN/$tool"
+done
+out=$(PATH="$CHECK_BIN" herdr_check 2>&1) || true
+assert "check warns that Rust plugin builds need cc" 'grep -q "cc not found" <<<"$out"'
+if [[ "$(uname -s)" == Linux ]]; then
+  assert "check warns that unpacking Rust needs xz" 'grep -q "xz not found" <<<"$out"'
+fi
+out=$(PATH="$CHECK_BIN:$SYS_RUST" herdr_check 2>&1) || true
+assert "check with a good system rust does not ask for xz" '! grep -q "xz not found" <<<"$out"'
+
 echo "=== config ==="
 
 mkdir -p "$TMP/repo/configs/herdr"
@@ -336,10 +351,11 @@ echo '{"result":{"plugins":[]}}' >"$PLUGIN_JSON"
 : >"$CALLS"
 DRY_RUN=true
 before=$(find "$HOME" | sort)
-out=$(herdr_install 2>&1) && rc=0 || rc=$?
+out=$(PATH="$NO_RUST_PATH" herdr_install 2>&1) && rc=0 || rc=$?
 after=$(find "$HOME" | sort)
 DRY_RUN=false
 assert "dry run succeeds" '[[ $rc -eq 0 ]]'
+assert "dry run without system rust lists rust" 'grep -qF "[dry-run] would install rust $HERDR_RUST_VERSION" <<<"$out"'
 assert "dry run writes nothing under HOME" '[[ "$before" == "$after" && ! -e "$HOME/.config" ]]'
 assert "dry run calls no installer" '! grep -q "plugin install" "$CALLS"'
 assert "dry run lists the binary" 'grep -q "\[dry-run\] would install herdr 0.9.5" <<<"$out"'

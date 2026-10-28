@@ -18,6 +18,10 @@ herdr_check() {
     ok=1
   fi
   command -v btop >/dev/null 2>&1 || log_warn "btop not found; the prefix+alt+t popup needs it"
+  command -v cc >/dev/null 2>&1 || log_warn "cc not found; Rust plugin builds need it to link"
+  if [[ "$(uname -s)" == Linux ]] && ! command -v xz >/dev/null 2>&1 && ! herdr_system_rust_ok; then
+    log_warn "xz not found; tar needs it to unpack the Rust toolchain"
+  fi
   return $ok
 }
 
@@ -25,6 +29,7 @@ herdr_install() {
   local rc=0
   herdr_ensure_binary || return 1
   herdr_ensure_go || rc=1
+  herdr_ensure_rust || rc=1
   herdr_deploy_plugin_configs || rc=1
   herdr_install_plugins || rc=1
   herdr_deploy_config || rc=1
@@ -356,8 +361,10 @@ herdr_prebuild_wsm() {
     log_skip "$label" "already built"
     return 0
   fi
-  if [[ -n "$(herdr_missing_needs cargo)" ]]; then
-    log_warn "$label skipped: it needs cargo"
+  local missing
+  missing=$(herdr_missing_needs cargo,cc)
+  if [[ -n "$missing" ]]; then
+    log_warn "$label skipped: it needs $missing"
     return 0
   fi
   if [[ "$DRY_RUN" == "true" ]]; then
