@@ -77,20 +77,21 @@ rewrite_module() {
 
 main() {
   [[ $# -eq 2 ]] || { usage >&2; exit 2; }
-  local tool="$1" version="$2" var digests rewritten
-  digests=$(mktemp)
-  rewritten=$(mktemp)
-  trap "rm -f '$digests' '$rewritten'" EXIT
+  local tool="$1" version="$2" var
+  DIGESTS="" REWRITTEN=""
+  trap 'rm -f "$DIGESTS" "$REWRITTEN"' EXIT
+  DIGESTS=$(mktemp)
+  REWRITTEN=$(mktemp)
   case "$tool" in
-    rust) var=HERDR_RUST_VERSION; rust_digests "$version" >"$digests" ;;
-    go) var=HERDR_GO_VERSION; go_digests "$version" >"$digests" ;;
+    rust) var=HERDR_RUST_VERSION; rust_digests "$version" >"$DIGESTS" ;;
+    go) var=HERDR_GO_VERSION; go_digests "$version" >"$DIGESTS" ;;
     *) usage >&2; exit 2 ;;
   esac
-  if ! rewrite_module "$var" "$version" "$digests" >"$rewritten"; then
+  if ! rewrite_module "$var" "$version" "$DIGESTS" >"$REWRITTEN"; then
     echo "${MODULE#"$REPO_ROOT/"}: could not find $var and every $tool digest line to rewrite" >&2
     exit 1
   fi
-  cat "$rewritten" >"$MODULE"
+  cat "$REWRITTEN" >"$MODULE"
   echo "pinned $tool $version in ${MODULE#"$REPO_ROOT/"}; now run bash tests/test_herdr_module.sh"
 }
 

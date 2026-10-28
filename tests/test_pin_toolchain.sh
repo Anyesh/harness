@@ -83,8 +83,9 @@ for t in "${TARGETS[@]}"; do
 done
 assert "rust pin rewrites all twelve digests" '[[ $all_match == yes ]]'
 assert "rust pin names the new channel manifest" 'grep -q "channel-rust-1.97.0.toml" "$TMP/herdr.sh"'
-assert "rust pin changes only the rust lines" \
-  '! diff "$REPO_ROOT/modules/herdr.sh" "$TMP/herdr.sh" | grep "^[<>]" | grep -qvE "HERDR_RUST_VERSION=|-(unknown-linux-gnu|apple-darwin)\"\) echo|channel-rust-"'
+changed() { diff "$REPO_ROOT/modules/herdr.sh" "$TMP/herdr.sh" | grep "^>" || true; }
+assert "rust pin changes only the version, the manifest name and twelve digests" \
+  '[[ $(changed | wc -l) -eq 14 && $(changed | grep -cE "HERDR_RUST_VERSION=|channel-rust-1\.97\.0|-(unknown-linux-gnu|apple-darwin)\"\) echo") -eq 14 ]]'
 
 reset_module
 printf '%s  x\n' "$(digest other)" >"$FIXTURES/cargo-1.97.0-x86_64-apple-darwin.tar.xz.sha256"
@@ -106,6 +107,8 @@ for p in "${GO_PLATFORMS[@]}"; do
   [[ "$(pinned herdr_go_sha256 "$p")" == "$(digest "go-$p")" ]] || all_match=no
 done
 assert "go pin rewrites all four digests" '[[ $all_match == yes ]]'
+assert "go pin changes only the version and four digests" \
+  '[[ $(changed | wc -l) -eq 5 && $(changed | grep -cE "HERDR_GO_VERSION=|^>  +(linux|darwin)-(amd64|arm64)\) echo") -eq 5 ]]'
 assert "go pin leaves the herdr binary digests alone" \
   '[[ "$(pinned herdr_asset_sha256 linux-x86_64)" == "$(source "$REPO_ROOT/modules/herdr.sh" && herdr_asset_sha256 linux-x86_64)" ]]'
 
