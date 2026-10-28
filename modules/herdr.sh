@@ -87,7 +87,7 @@ herdr_rust_target() {
   esac
 }
 
-# From the .sha256 files on static.rust-lang.org, matching channel-rust-1.96.1.toml.
+# Written by scripts/pin-toolchain.sh from static.rust-lang.org, matching channel-rust-1.96.1.toml.
 herdr_rust_sha256() {
   case "$1 $2" in
     "rustc x86_64-unknown-linux-gnu") echo 3545a0efad2355ecb0a3b9ac02efee96e27f1f9d24b7ce2fc3f279b2efb0d923 ;;
