@@ -352,9 +352,40 @@ herdr_plugin_source() {
 }
 
 herdr_post_install() {
+  local rc=0
+  herdr_check_declared_toolchain "$1" "$2" "$3" || rc=1
   case "$2" in
-    "$WSM_SLUG") herdr_prebuild_wsm "$1" ;;
+    "$WSM_SLUG") herdr_prebuild_wsm "$1" || rc=1 ;;
   esac
+  return $rc
+}
+
+# A build still passes on a machine whose own toolchain is newer than the pin,
+# so this is what catches a plugin that has outgrown the pin.
+herdr_check_declared_toolchain() {
+  local slug="$2" needs=",$3," root declared rc=0
+  root=$(herdr_plugin_source "$1" "$slug" managed_path)
+  [[ -n "$root" ]] || return 0
+  if [[ "$needs" == *,cargo,* ]]; then
+    declared=$(sed -n -E 's/^rust-version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$root/Cargo.toml" 2>/dev/null | head -1)
+    herdr_pin_covers "$slug" rust "$declared" HERDR_RUST_VERSION "$HERDR_RUST_VERSION" || rc=1
+  fi
+  if [[ "$needs" == *,go,* ]]; then
+    declared=$(sed -n -E 's/^go[[:space:]]+([0-9][0-9.]*).*/\1/p' "$root/go.mod" 2>/dev/null | head -1)
+    herdr_pin_covers "$slug" go "$declared" HERDR_GO_VERSION "$HERDR_GO_VERSION" || rc=1
+  fi
+  return $rc
+}
+
+herdr_pin_covers() {
+  local slug="$1" tool="$2" declared="$3" var="$4" pin="$5"
+  if [[ -z "$declared" ]]; then
+    log_warn "herdr plugin $slug declares no $tool version, so nothing checks it builds with $tool $pin"
+    return 0
+  fi
+  herdr_version_at_least "$declared" "$pin" && return 0
+  log_error "herdr plugin $slug needs $tool $declared but $var is $pin; run scripts/pin-toolchain.sh $tool <version>"
+  return 1
 }
 
 # The wsm shim compiles with cargo on first use, which would otherwise happen
@@ -394,7 +425,7 @@ herdr_install_plugin() {
   current=$(herdr_plugin_source "$bin" "$slug" resolved_commit)
   if [[ "$current" == "$ref" ]]; then
     log_skip "$label" "installed at ${ref:0:7}"
-    herdr_post_install "$bin" "$slug"
+    herdr_post_install "$bin" "$slug" "$needs"
     return
   fi
   missing=$(herdr_missing_needs "$needs")
@@ -421,7 +452,7 @@ herdr_install_plugin() {
   else
     log_success "installed: $label at ${ref:0:7}"
   fi
-  herdr_post_install "$bin" "$slug"
+  herdr_post_install "$bin" "$slug" "$needs"
 }
 
 herdr_install_plugins() {

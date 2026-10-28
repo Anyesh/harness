@@ -134,6 +134,27 @@ out=$(PATH="$(dirname "$(command -v sh)")" herdr_prebuild_wsm "$HERDR" 2>&1) || 
 assert "wsm without cargo: no build attempt" '! grep -q "^wsm" "$CALLS"'
 assert "wsm without cargo: warns and does not fail the module" '[[ $rc -eq 0 ]] && grep -q cargo <<<"$out"'
 
+plugin_json owner repo "$SHA_A" >"$PLUGIN_JSON"
+declared() {
+  printf '[package]\nname = "x"\n%s\n' "$1" >"$TMP/checkout/Cargo.toml"
+  printf 'module x\n\n%s\n' "$2" >"$TMP/checkout/go.mod"
+  rc=0
+  out=$(herdr_install_plugin "$HERDR" owner/repo "$SHA_A" "$3" 2>&1) || rc=$?
+}
+declared 'rust-version = "1.82"' 'go 1.26.0' cargo,cc,go
+assert "declared versions within the pins: no error" '[[ $rc -eq 0 ]] && ! grep -q ERROR <<<"$out"'
+declared 'rust-version = "9.0"' 'go 1.26.0' cargo,cc
+assert "declared rust above the pin fails the step" '[[ $rc -ne 0 ]]'
+assert "declared rust above the pin names the pin" 'grep -q "needs rust 9.0 but HERDR_RUST_VERSION is $HERDR_RUST_VERSION" <<<"$out"'
+declared 'rust-version = "1.82"' 'go 9.1' go
+assert "declared go above the pin fails the step" '[[ $rc -ne 0 ]]'
+assert "declared go above the pin names the pin" 'grep -q "needs go 9.1 but HERDR_GO_VERSION is $HERDR_GO_VERSION" <<<"$out"'
+declared 'edition = "2024"' '' cargo,cc
+assert "no declared rust version: warns without failing" '[[ $rc -eq 0 ]] && grep -q "declares no rust version" <<<"$out"'
+declared 'rust-version = "9.0"' 'go 9.1' tar
+assert "a plugin that builds neither is not checked" '[[ $rc -eq 0 ]] && ! grep -qE "ERROR|declares no" <<<"$out"'
+rm -f "$TMP/checkout/Cargo.toml" "$TMP/checkout/go.mod"
+
 echo '{"result":{"plugins":[]}}' >"$PLUGIN_JSON"
 : >"$CALLS"
 out=$(NO_PLUGINS=true herdr_install_plugins 2>&1) || true
