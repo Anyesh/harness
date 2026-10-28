@@ -310,6 +310,16 @@ DRY_RUN=false
 assert "rust dry run: lists the install" 'grep -qF "[dry-run] would install rust $HERDR_RUST_VERSION ($TARGET)" <<<"$out"'
 assert "rust dry run: no fetch and no root" '! grep -q "^curl" "$CALLS" && [[ ! -e "$RUST_ROOT" ]]'
 
+PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust >/dev/null 2>&1
+found=$(PATH="$NO_RUST_PATH" herdr_with_toolchain command -v cargo) || found=""
+assert "no system cargo: the provisioned cargo resolves" '[[ "$found" == "$RUST_ROOT/bin/cargo" ]]'
+found=$(PATH="$SYS_RUST:$NO_RUST_PATH" herdr_with_toolchain command -v cargo) || found=""
+assert "good system rust: the system cargo resolves" '[[ "$found" == "$SYS_RUST/cargo" ]]'
+mkdir -p "$TMP/emptybin"
+missing=$(PATH="$TMP/emptybin" herdr_missing_needs cargo,cc)
+assert "provisioned cargo without cc: names only cc" '[[ "$missing" == cc ]]'
+rm -rf "$RUST_ROOT"
+
 echo "=== config ==="
 
 mkdir -p "$TMP/repo/configs/herdr"

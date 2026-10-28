@@ -300,12 +300,16 @@ herdr_install_rust_components() {
 }
 
 herdr_with_toolchain() {
-  local root
+  local root path="$PATH"
+  root=$(herdr_rust_root)
+  if [[ -x "$root/bin/cargo" ]] && ! herdr_system_rust_ok; then
+    path="$root/bin:$path"
+  fi
   root=$(herdr_go_root)
   if [[ -x "$root/bin/go" ]] && ! herdr_system_go_ok; then
-    PATH="$root/bin:$PATH" GOPATH="${GOPATH:-$HOME/.local/share/harness/gopath}" "$@"
+    PATH="$root/bin:$path" GOPATH="${GOPATH:-$HOME/.local/share/harness/gopath}" "$@"
   else
-    "$@"
+    PATH="$path" "$@"
   fi
 }
 
