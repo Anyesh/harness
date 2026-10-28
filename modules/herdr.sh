@@ -245,6 +245,60 @@ herdr_ensure_go() {
   log_success "installed: $label"
 }
 
+herdr_rust_root() {
+  printf '%s\n' "$HOME/.local/share/harness/rust"
+}
+
+herdr_ensure_rust() {
+  local root label="rust $HERDR_RUST_VERSION" target
+  root=$(herdr_rust_root)
+  if herdr_system_rust_ok; then
+    log_skip "rust" "rust $HERDR_RUST_MIN or newer already on PATH"
+    return 0
+  fi
+  if [[ -x "$root/bin/cargo" && "$("$root/bin/rustc" --version 2>/dev/null)" == "rustc $HERDR_RUST_VERSION "* ]]; then
+    log_skip "$label" "already installed"
+    return 0
+  fi
+  if ! target=$(herdr_rust_target); then
+    log_error "rust: unsupported platform $(uname -s) $(uname -m)"
+    return 1
+  fi
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would install $label ($target) to ${root/#$HOME/\~}"
+    return 0
+  fi
+
+  local stage
+  mkdir -p "$(dirname "$root")"
+  stage=$(mktemp -d "$(dirname "$root")/.rust.XXXXXX")
+  if ! herdr_install_rust_components "$stage" "$target"; then
+    rm -rf "$stage"
+    log_error "$label was not installed"
+    return 1
+  fi
+  rm -rf "$root"
+  mv "$stage/rust" "$root"
+  rm -rf "$stage"
+  log_success "installed: $label"
+}
+
+herdr_install_rust_components() {
+  local stage="$1" target="$2" component name out
+  for component in rustc cargo rust-std; do
+    name="$component-$HERDR_RUST_VERSION-$target"
+    herdr_fetch_verified "https://static.rust-lang.org/dist/$name.tar.xz" \
+      "$(herdr_rust_sha256 "$component" "$target")" "$stage/$name.tar.xz" || return 1
+    tar -xJf "$stage/$name.tar.xz" -C "$stage" || return 1
+    rm -f "$stage/$name.tar.xz"
+    if ! out=$(bash "$stage/$name/install.sh" --prefix="$stage/rust" --disable-ldconfig 2>&1); then
+      log_warn "$name install.sh failed: $(tail -5 <<<"$out")"
+      return 1
+    fi
+    rm -rf "$stage/$name"
+  done
+}
+
 herdr_with_toolchain() {
   local root
   root=$(herdr_go_root)

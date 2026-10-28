@@ -216,6 +216,100 @@ for pair in linux-x86_64:x86_64-unknown-linux-gnu linux-aarch64:aarch64-unknown-
 done
 assert "an unknown component has no digest" '! herdr_rust_sha256 rust-docs x86_64-unknown-linux-gnu'
 
+TARGET=$(herdr_rust_target)
+FIXTURES="$TMP/rust-dist"
+mkdir -p "$FIXTURES/src"
+for c in rustc cargo rust-std; do
+  dir="$FIXTURES/src/$c-$HERDR_RUST_VERSION-$TARGET"
+  mkdir -p "$dir/payload"
+  cat >"$dir/install.sh" <<EOF
+#!/usr/bin/env bash
+prefix=""
+for a in "\$@"; do [[ "\$a" == --prefix=* ]] && prefix="\${a#--prefix=}"; done
+mkdir -p "\$prefix/bin" "\$prefix/lib/rustlib"
+cp "\$(dirname "\$0")"/payload/* "\$prefix/bin/" 2>/dev/null
+echo "\$*" >"\$prefix/lib/rustlib/$c-args"
+EOF
+done
+printf '#!/bin/sh\necho "rustc %s (fixture 2026-01-01)"\n' "$HERDR_RUST_VERSION" \
+  >"$FIXTURES/src/rustc-$HERDR_RUST_VERSION-$TARGET/payload/rustc"
+printf '#!/bin/sh\necho "cargo %s"\n' "$HERDR_RUST_VERSION" \
+  >"$FIXTURES/src/cargo-$HERDR_RUST_VERSION-$TARGET/payload/cargo"
+chmod +x "$FIXTURES"/src/*/payload/* "$FIXTURES"/src/*/install.sh
+for c in rustc cargo rust-std; do
+  tar -cJf "$FIXTURES/$c-$HERDR_RUST_VERSION-$TARGET.tar.xz" -C "$FIXTURES/src" "$c-$HERDR_RUST_VERSION-$TARGET"
+done
+
+cat >"$FAKE_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+out="" url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+echo "curl $url" >>"$CALLS"
+cp "$FIXTURES/${url##*/}" "$out"
+EOF
+chmod +x "$FAKE_BIN/curl"
+export FIXTURES
+BAD_COMPONENT=""
+herdr_rust_sha256() {
+  [[ "$1" == "$BAD_COMPONENT" ]] && { echo "$BAD_SHA"; return; }
+  herdr_sha256 "$FIXTURES/$1-$HERDR_RUST_VERSION-$2.tar.xz"
+}
+RUST_ROOT=$(herdr_rust_root)
+no_stage() { ! compgen -G "$(dirname "$RUST_ROOT")/.rust.*" >/dev/null; }
+
+mkdir -p "$RUST_ROOT"
+touch "$RUST_ROOT/stale"
+: >"$CALLS"
+rc=0
+out=$(PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust 2>&1) || rc=$?
+assert "rust install succeeds" '[[ $rc -eq 0 ]] && grep -q "installed: rust $HERDR_RUST_VERSION" <<<"$out"'
+assert "rust install fetches each component for the target" \
+  '[[ $(grep -c "^curl https://static.rust-lang.org/dist/.*-$HERDR_RUST_VERSION-$TARGET.tar.xz$" "$CALLS") -eq 3 ]]'
+assert "rust install puts rustc and cargo in the root" '[[ -x "$RUST_ROOT/bin/rustc" && -x "$RUST_ROOT/bin/cargo" ]]'
+assert "rust install includes rust-std" '[[ -e "$RUST_ROOT/lib/rustlib/rust-std-args" ]]'
+assert "rust install runs each installer without ldconfig" \
+  'grep -q -- "--disable-ldconfig" "$RUST_ROOT/lib/rustlib/rustc-args"'
+assert "rust install replaces an older root" '[[ ! -e "$RUST_ROOT/stale" ]]'
+assert "rust install leaves no stage" 'no_stage'
+
+: >"$CALLS"
+out=$(PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust 2>&1)
+assert "provisioned rust: reported as already installed" 'grep -q "skip: rust $HERDR_RUST_VERSION (already installed)" <<<"$out"'
+assert "provisioned rust: no fetch" '! grep -q "^curl" "$CALLS"'
+
+rm -rf "$RUST_ROOT"
+BAD_COMPONENT=cargo
+rc=0
+out=$(PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust 2>&1) || rc=$?
+BAD_COMPONENT=""
+assert "rust digest mismatch fails the step" '[[ $rc -ne 0 ]]'
+assert "rust digest mismatch leaves no root" '[[ ! -e "$RUST_ROOT" ]]'
+assert "rust digest mismatch leaves no stage" 'no_stage'
+
+SYS_RUST="$TMP/sysrust"
+mkdir -p "$SYS_RUST"
+printf '#!/bin/sh\necho "rustc 1.90.0 (0000000 2026-01-01)"\n' >"$SYS_RUST/rustc"
+printf '#!/bin/sh\n' >"$SYS_RUST/cargo"
+chmod +x "$SYS_RUST"/*
+: >"$CALLS"
+out=$(PATH="$FAKE_BIN:$SYS_RUST:$NO_RUST_PATH" herdr_ensure_rust 2>&1)
+assert "good system rust: skipped" 'grep -q "skip: rust" <<<"$out"'
+assert "good system rust: no fetch and no root" '! grep -q "^curl" "$CALLS" && [[ ! -e "$RUST_ROOT" ]]'
+
+: >"$CALLS"
+DRY_RUN=true
+out=$(PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust 2>&1)
+DRY_RUN=false
+assert "rust dry run: lists the install" 'grep -qF "[dry-run] would install rust $HERDR_RUST_VERSION ($TARGET)" <<<"$out"'
+assert "rust dry run: no fetch and no root" '! grep -q "^curl" "$CALLS" && [[ ! -e "$RUST_ROOT" ]]'
+
 echo "=== config ==="
 
 mkdir -p "$TMP/repo/configs/herdr"
