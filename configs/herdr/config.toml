@@ -88,6 +88,12 @@ command = "usagebar.refresh"
 description = "refresh agent usage meters"
 
 [[keys.command]]
+key = "prefix+alt+o"
+type = "plugin_action"
+command = "godview.open"
+description = "godview: every agent and its subagents"
+
+[[keys.command]]
 key = "prefix+alt+l"
 type = "plugin_action"
 command = "herdr-plugin-workspace-manager.apply"

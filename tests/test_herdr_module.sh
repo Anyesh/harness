@@ -69,11 +69,13 @@ plugin_json() {
 echo "=== plugins.tsv ==="
 
 rows=$(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")
-assert "pins six plugins" '[[ $(wc -l <<<"$rows") -eq 6 ]]'
+assert "pins seven plugins" '[[ $(wc -l <<<"$rows") -eq 7 ]]'
 assert "every ref is a full 40-char sha" \
-  '[[ $(awk -F"\t" "\$2 ~ /^[0-9a-f]{40}\$/" <<<"$rows" | wc -l) -eq 6 ]]'
+  '[[ $(awk -F"\t" "\$2 ~ /^[0-9a-f]{40}\$/" <<<"$rows" | wc -l) -eq 7 ]]'
 assert "every row has three fields" \
-  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 6 ]]'
+  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 7 ]]'
+assert "godview builds with cargo" \
+  '[[ $(awk -F"\t" "\$1 == \"Anyesh/godview\" { print \$3 }" <<<"$rows") == cargo ]]'
 
 printf '# comment\n\nowner/a\t%040d\t-\n  # indented comment\nowner/b\t%040d\tcargo\n' 0 1 >"$TMP/fixture.tsv"
 rows=$(herdr_read_plugins "$TMP/fixture.tsv")

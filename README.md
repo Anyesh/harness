@@ -190,7 +190,8 @@ opencode      opencode: AGENTS.md, commands, skills via ~/.agents/skills
 herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               commits in configs/herdr/plugins.tsv and their configs; Go
               for plugin builds when none is on PATH. Never restarts a
-              running herdr server.
+              running herdr server. godview (our own, prefix+alt+o) shows
+              every agent with its subagents in one tab.
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
