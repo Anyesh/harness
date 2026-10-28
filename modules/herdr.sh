@@ -3,6 +3,9 @@
 HERDR_VERSION="0.9.5"
 HERDR_GO_VERSION="1.27.2"
 HERDR_GO_MIN="1.26.0"
+HERDR_RUST_VERSION="1.96.1"
+# godview uses let chains under edition 2024, stable since 1.88.
+HERDR_RUST_MIN="1.88.0"
 WSM_SLUG="razajamil/herdr-plugin-workspace-manager"
 
 herdr_check() {
@@ -163,9 +166,20 @@ herdr_go_root() {
 herdr_system_go_ok() {
   local version
   version=$(go env GOVERSION 2>/dev/null) || return 1
-  version="${version#go}"
-  version="${version%%[!0-9.]*}"
-  [[ -n "$version" && "$(printf '%s\n%s\n' "$HERDR_GO_MIN" "$version" | sort -V | head -1)" == "$HERDR_GO_MIN" ]]
+  herdr_version_at_least "$HERDR_GO_MIN" "${version#go}"
+}
+
+herdr_version_at_least() {
+  local min="$1" version="${2%%[!0-9.]*}"
+  [[ -n "$version" && "$(printf '%s\n%s\n' "$min" "$version" | sort -V | head -1)" == "$min" ]]
+}
+
+herdr_system_rust_ok() {
+  local version
+  command -v cargo >/dev/null 2>&1 || return 1
+  version=$(rustc --version 2>/dev/null) || return 1
+  version="${version#rustc }"
+  herdr_version_at_least "$HERDR_RUST_MIN" "${version%% *}"
 }
 
 herdr_ensure_go() {
