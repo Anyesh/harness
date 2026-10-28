@@ -173,13 +173,13 @@ export PATH="$ORIG_PATH"
 
 echo "=== go ==="
 
-for v in go1.20.4 go1.25.9 go1.26.0 go1.27.2; do
+for v in go1.20.4 go1.26.0 go1.27.1 "go$HERDR_GO_VERSION" go1.99.0; do
   printf '#!/bin/sh\n[ "$1 $2" = "env GOVERSION" ] && echo %s\n' "$v" >"$FAKE_BIN/go"
   chmod +x "$FAKE_BIN/go"
   PATH="$FAKE_BIN:$ORIG_PATH" herdr_system_go_ok && ok=yes || ok=no
   case "$v" in
-    go1.20.4 | go1.25.9) assert "system $v is too old for the plugin builds" '[[ $ok == no ]]' ;;
-    *) assert "system $v is new enough" '[[ $ok == yes ]]' ;;
+    go1.20.4 | go1.26.0 | go1.27.1) assert "system $v is older than the pin" '[[ $ok == no ]]' ;;
+    *) assert "system $v is at or above the pin" '[[ $ok == yes ]]' ;;
   esac
 done
 rm -f "$FAKE_BIN/go"
@@ -194,13 +194,13 @@ done
 
 printf '#!/bin/sh\n' >"$FAKE_BIN/cargo"
 chmod +x "$FAKE_BIN/cargo"
-for v in 1.85.0 1.88.0 1.96.1 1.97.0-nightly; do
+for v in 1.85.0 1.88.0 1.96.0 "$HERDR_RUST_VERSION" 1.99.0-nightly; do
   printf '#!/bin/sh\n[ "$1" = --version ] && echo "rustc %s (0000000 2026-01-01)"\n' "$v" >"$FAKE_BIN/rustc"
   chmod +x "$FAKE_BIN/rustc"
   PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_system_rust_ok && ok=yes || ok=no
   case "$v" in
-    1.85.0) assert "system rustc $v is too old for the plugin builds" '[[ $ok == no ]]' ;;
-    *) assert "system rustc $v is new enough" '[[ $ok == yes ]]' ;;
+    1.85.0 | 1.88.0 | 1.96.0) assert "system rustc $v is older than the pin" '[[ $ok == no ]]' ;;
+    *) assert "system rustc $v is at or above the pin" '[[ $ok == yes ]]' ;;
   esac
 done
 rm -f "$FAKE_BIN/cargo"
@@ -307,7 +307,7 @@ rm -rf "$RUST_ROOT"
 
 SYS_RUST="$TMP/sysrust"
 mkdir -p "$SYS_RUST"
-printf '#!/bin/sh\necho "rustc 1.90.0 (0000000 2026-01-01)"\n' >"$SYS_RUST/rustc"
+printf '#!/bin/sh\necho "rustc 1.99.0 (0000000 2026-01-01)"\n' >"$SYS_RUST/rustc"
 printf '#!/bin/sh\n' >"$SYS_RUST/cargo"
 chmod +x "$SYS_RUST"/*
 : >"$CALLS"

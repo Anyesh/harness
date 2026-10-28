@@ -2,10 +2,7 @@
 
 HERDR_VERSION="0.9.5"
 HERDR_GO_VERSION="1.27.2"
-HERDR_GO_MIN="1.26.0"
 HERDR_RUST_VERSION="1.96.1"
-# godview uses let chains under edition 2024, stable since 1.88.
-HERDR_RUST_MIN="1.88.0"
 WSM_SLUG="razajamil/herdr-plugin-workspace-manager"
 
 herdr_check() {
@@ -200,7 +197,7 @@ herdr_go_root() {
 herdr_system_go_ok() {
   local version
   version=$(go env GOVERSION 2>/dev/null) || return 1
-  herdr_version_at_least "$HERDR_GO_MIN" "${version#go}"
+  herdr_version_at_least "$HERDR_GO_VERSION" "${version#go}"
 }
 
 herdr_version_at_least() {
@@ -213,14 +210,14 @@ herdr_system_rust_ok() {
   command -v cargo >/dev/null 2>&1 || return 1
   version=$(rustc --version 2>/dev/null) || return 1
   version="${version#rustc }"
-  herdr_version_at_least "$HERDR_RUST_MIN" "${version%% *}"
+  herdr_version_at_least "$HERDR_RUST_VERSION" "${version%% *}"
 }
 
 herdr_ensure_go() {
   local root label="go $HERDR_GO_VERSION" platform
   root=$(herdr_go_root)
   if herdr_system_go_ok; then
-    log_skip "go" "go $HERDR_GO_MIN or newer already on PATH"
+    log_skip "go" "go $HERDR_GO_VERSION or newer already on PATH"
     return 0
   fi
   if [[ "$("$root/bin/go" env GOVERSION 2>/dev/null)" == "go$HERDR_GO_VERSION" ]]; then
@@ -273,7 +270,7 @@ herdr_ensure_rust() {
   local root label="rust $HERDR_RUST_VERSION" target
   root=$(herdr_rust_root)
   if herdr_system_rust_ok; then
-    log_skip "rust" "rust $HERDR_RUST_MIN or newer already on PATH"
+    log_skip "rust" "rust $HERDR_RUST_VERSION or newer already on PATH"
     return 0
   fi
   if [[ -x "$root/bin/cargo" && "$("$root/bin/rustc" --version 2>/dev/null)" == "rustc $HERDR_RUST_VERSION "* ]]; then
