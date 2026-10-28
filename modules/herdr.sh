@@ -367,18 +367,38 @@ herdr_check_declared_toolchain() {
   root=$(herdr_plugin_source "$1" "$slug" managed_path)
   [[ -n "$root" ]] || return 0
   if [[ "$needs" == *,cargo,* ]]; then
-    declared=$(sed -n -E 's/^rust-version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$root/Cargo.toml" 2>/dev/null | head -1)
-    herdr_pin_covers "$slug" rust "$declared" HERDR_RUST_VERSION "$HERDR_RUST_VERSION" || rc=1
+    declared=$(herdr_cargo_rust_version "$root/Cargo.toml")
+    herdr_pin_covers "$slug" rust "$root/Cargo.toml" "$declared" HERDR_RUST_VERSION "$HERDR_RUST_VERSION" || rc=1
   fi
   if [[ "$needs" == *,go,* ]]; then
     declared=$(sed -n -E 's/^go[[:space:]]+([0-9][0-9.]*).*/\1/p' "$root/go.mod" 2>/dev/null | head -1)
-    herdr_pin_covers "$slug" go "$declared" HERDR_GO_VERSION "$HERDR_GO_VERSION" || rc=1
+    herdr_pin_covers "$slug" go "$root/go.mod" "$declared" HERDR_GO_VERSION "$HERDR_GO_VERSION" || rc=1
   fi
   return $rc
 }
 
+# [package] wins; a virtual workspace root declares it in [workspace.package].
+herdr_cargo_rust_version() {
+  awk '
+    /^[[:space:]]*\[/ { table = $0; sub(/#.*/, "", table); gsub(/[[:space:]]/, "", table); next }
+    table != "[package]" && table != "[workspace.package]" { next }
+    /^[[:space:]]*rust-version[[:space:]]*=/ {
+      v = $0
+      sub(/^[^=]*=[[:space:]]*["\047]/, "", v)
+      sub(/["\047].*$/, "", v)
+      if (table == "[package]") pkg = v
+      else ws = v
+    }
+    END { if (pkg != "") print pkg; else if (ws != "") print ws }
+  ' "$1" 2>/dev/null
+}
+
 herdr_pin_covers() {
-  local slug="$1" tool="$2" declared="$3" var="$4" pin="$5"
+  local slug="$1" tool="$2" manifest="$3" declared="$4" var="$5" pin="$6"
+  if [[ ! -f "$manifest" ]]; then
+    log_warn "herdr plugin $slug has no ${manifest##*/} at its root, so nothing checks it builds with $tool $pin"
+    return 0
+  fi
   if [[ -z "$declared" ]]; then
     log_warn "herdr plugin $slug declares no $tool version, so nothing checks it builds with $tool $pin"
     return 0

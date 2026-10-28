@@ -136,11 +136,32 @@ assert "wsm without cargo: warns and does not fail the module" '[[ $rc -eq 0 ]] 
 
 plugin_json owner repo "$SHA_A" >"$PLUGIN_JSON"
 declared() {
-  printf '[package]\nname = "x"\n%s\n' "$1" >"$TMP/checkout/Cargo.toml"
+  printf '[package]\nname = "x"\n%b\n' "$1" >"$TMP/checkout/Cargo.toml"
   printf 'module x\n\n%s\n' "$2" >"$TMP/checkout/go.mod"
   rc=0
-  out=$(herdr_install_plugin "$HERDR" owner/repo "$SHA_A" "$3" 2>&1) || rc=$?
+  out=$(herdr_install_plugin "$HERDR" owner/repo "${4:-$SHA_A}" "$3" 2>&1) || rc=$?
 }
+declared "rust-version = \"$HERDR_RUST_VERSION\"" "go $HERDR_GO_VERSION" cargo,go
+assert "declared versions equal to the pins: no error" '[[ $rc -eq 0 ]] && ! grep -qE "ERROR|declares no" <<<"$out"'
+declared "rust-version = '9.0'" 'go 1.26.0' cargo
+assert "single-quoted rust-version is read" 'grep -q "needs rust 9.0" <<<"$out"'
+declared 'rust-version = "9.0"\n\n[workspace.package]\nrust-version = "1.80"' 'go 1.26.0' cargo
+assert "the package rust-version wins over the workspace one" 'grep -q "needs rust 9.0" <<<"$out"'
+declared 'rust-version.workspace = true\n\n[workspace.package]\nrust-version = "9.0"' 'go 1.26.0' cargo
+assert "rust-version inherited from the workspace is read" 'grep -q "needs rust 9.0" <<<"$out"'
+declared 'edition = "2024"\n\n[dependencies.foo]\nrust-version = "9.0"' 'go 1.26.0' cargo
+assert "a rust-version outside the package tables is ignored" '! grep -q "needs rust" <<<"$out"'
+mkdir -p "$TMP/stubgo"
+printf '#!/bin/sh\n' >"$TMP/stubgo/go"
+chmod +x "$TMP/stubgo/go"
+PATH="$TMP/stubgo:$PATH" declared 'rust-version = "1.82"' 'go 9.1' go "$SHA_B"
+assert "a fresh install also checks the declared version" '[[ $rc -ne 0 ]] && grep -q "needs go 9.1" <<<"$out"'
+declared 'rust-version = "1.82"' 'go 1.24rc1 // x' go
+assert "a go prerelease line parses to its version" '[[ $rc -eq 0 ]] && ! grep -q "declares no" <<<"$out"'
+command rm -f "$TMP/checkout/Cargo.toml"
+rc=0
+out=$(herdr_install_plugin "$HERDR" owner/repo "$SHA_A" cargo 2>&1) || rc=$?
+assert "a missing Cargo.toml is named, not read as no version" '[[ $rc -eq 0 ]] && grep -q "no Cargo.toml" <<<"$out"'
 declared 'rust-version = "1.82"' 'go 1.26.0' cargo,cc,go
 assert "declared versions within the pins: no error" '[[ $rc -eq 0 ]] && ! grep -q ERROR <<<"$out"'
 declared 'rust-version = "9.0"' 'go 1.26.0' cargo,cc
