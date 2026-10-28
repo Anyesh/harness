@@ -1,8 +1,8 @@
-# slug<TAB>commit<TAB>tools the build needs, comma-separated, - for none
+# slug<TAB>commit, or a branch to follow for our own plugins<TAB>tools the build needs, comma-separated, - for none
 persiyanov/herdr-reviewr	a253b1bfe4b34182af3204b7fcc42ccfed1b87d9	tar
 razajamil/herdr-plugin-workspace-manager	8302970a088b8dff4aca9a3d9034907d66be80a7	cargo,cc
 senna-lang/herdr-agent-usage	592e277bfe8963c64eeedc137e94bbfce05069f9	go
 aemrebarut/herdr-dagr	c0f8b333a92d2eec74386d8989dc642a867f787b	tar
 speardragon/herdr-plugin-manager	8ed222ab7efe735b3ef5e037e7ee81d6d7650e4e	python3,perl
 Crokily/herdr-lazygit	e085baf5fb1a474f93d2f989d058ee82fceb21b2	python3,tar
-Anyesh/godview	74dd03bcb91fbb91e61775bb1229bff61fc482e3	cargo,cc
+Anyesh/godview	main	cargo,cc

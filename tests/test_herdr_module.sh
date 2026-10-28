@@ -69,9 +69,11 @@ plugin_json() {
 echo "=== plugins.tsv ==="
 
 rows=$(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")
-assert "pins seven plugins" '[[ $(wc -l <<<"$rows") -eq 7 ]]'
-assert "every ref is a full 40-char sha" \
-  '[[ $(awk -F"\t" "\$2 ~ /^[0-9a-f]{40}\$/" <<<"$rows" | wc -l) -eq 7 ]]'
+assert "lists seven plugins" '[[ $(wc -l <<<"$rows") -eq 7 ]]'
+assert "every third-party ref is a full 40-char sha" \
+  '[[ -z $(awk -F"\t" "\$1 !~ /^Anyesh\// && \$2 !~ /^[0-9a-f]{40}\$/" <<<"$rows") ]]'
+assert "godview, our own, follows main" \
+  '[[ $(awk -F"\t" "\$1 == \"Anyesh/godview\" { print \$2 }" <<<"$rows") == main ]]'
 assert "every row has three fields" \
   '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 7 ]]'
 for slug in Anyesh/godview razajamil/herdr-plugin-workspace-manager; do
@@ -100,6 +102,35 @@ out=$(herdr_install_plugin "$HERDR" owner/repo "$SHA_B" - 2>&1)
 assert "installed at another commit: install at the pin" \
   'grep -qx "plugin install owner/repo --ref $SHA_B --yes" "$CALLS"'
 assert "installed at another commit: reported as update" 'grep -q "updated: herdr plugin owner/repo" <<<"$out"'
+
+FAKE_GIT="$TMP/fakegit"
+mkdir -p "$FAKE_GIT"
+cat >"$FAKE_GIT/git" <<'EOF'
+#!/usr/bin/env bash
+echo "git $*" >>"$CALLS"
+[[ "$1" == ls-remote && -n "${REMOTE_HEAD:-}" ]] || exit 2
+printf '%s\trefs/heads/main\n' "$REMOTE_HEAD"
+EOF
+chmod +x "$FAKE_GIT/git"
+export REMOTE_HEAD="$SHA_A"
+: >"$CALLS"
+out=$(PATH="$FAKE_GIT:$PATH" herdr_install_plugin "$HERDR" owner/repo main - 2>&1)
+assert "branch at the installed commit: asks the remote for the branch head" \
+  'grep -qx "git ls-remote https://github.com/owner/repo refs/heads/main" "$CALLS"'
+assert "branch at the installed commit: skip, naming the branch" 'grep -q "installed at ${SHA_A:0:7}, main" <<<"$out"'
+assert "branch at the installed commit: no install call" '! grep -q "plugin install" "$CALLS"'
+REMOTE_HEAD="$SHA_B"
+: >"$CALLS"
+out=$(PATH="$FAKE_GIT:$PATH" herdr_install_plugin "$HERDR" owner/repo main - 2>&1)
+assert "branch moved on: installs the new head by sha" 'grep -qx "plugin install owner/repo --ref $SHA_B --yes" "$CALLS"'
+assert "branch moved on: reported as update" 'grep -q "updated: herdr plugin owner/repo ${SHA_A:0:7} -> ${SHA_B:0:7}" <<<"$out"'
+REMOTE_HEAD=""
+: >"$CALLS"
+rc=0
+out=$(PATH="$FAKE_GIT:$PATH" herdr_install_plugin "$HERDR" owner/repo main - 2>&1) || rc=$?
+assert "unresolvable branch fails the step without installing" '[[ $rc -ne 0 ]] && ! grep -q "plugin install" "$CALLS"'
+assert "unresolvable branch names it" 'grep -q "could not resolve main" <<<"$out"'
+unset REMOTE_HEAD
 
 echo '{"result":{"plugins":[]}}' >"$PLUGIN_JSON"
 : >"$CALLS"
@@ -412,7 +443,7 @@ echo '{"result":{"plugins":[]}}' >"$PLUGIN_JSON"
 : >"$CALLS"
 DRY_RUN=true
 before=$(find "$HOME" | sort)
-out=$(PATH="$NO_RUST_PATH" herdr_install 2>&1) && rc=0 || rc=$?
+out=$(PATH="$FAKE_GIT:$NO_RUST_PATH" herdr_install 2>&1) && rc=0 || rc=$?
 after=$(find "$HOME" | sort)
 DRY_RUN=false
 assert "dry run succeeds" '[[ $rc -eq 0 ]]'

@@ -440,11 +440,28 @@ herdr_prebuild_wsm() {
   fi
 }
 
+herdr_branch_head() {
+  local head
+  head=$(GIT_TERMINAL_PROMPT=0 git ls-remote "https://github.com/$1" "refs/heads/$2" 2>/dev/null | cut -f1)
+  [[ "$head" =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$head"
+}
+
 herdr_install_plugin() {
-  local bin="$1" slug="$2" ref="$3" needs="$4" label="herdr plugin $2" current missing
+  local bin="$1" slug="$2" ref="$3" needs="$4" label="herdr plugin $2" current missing branch=""
+  if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+    branch="$ref"
+    if ! ref=$(herdr_branch_head "$slug" "$branch"); then
+      if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "[dry-run] would install: $label at the head of $branch"
+        return 0
+      fi
+      log_error "$label: could not resolve $branch on github.com/$slug"
+      return 1
+    fi
+  fi
   current=$(herdr_plugin_source "$bin" "$slug" resolved_commit)
   if [[ "$current" == "$ref" ]]; then
-    log_skip "$label" "installed at ${ref:0:7}"
+    log_skip "$label" "installed at ${ref:0:7}${branch:+, $branch}"
     herdr_post_install "$bin" "$slug" "$needs"
     return
   fi
