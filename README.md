@@ -195,7 +195,8 @@ herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               scripts/pin-toolchain.sh rust|go <version> moves a pin. A
               C linker (cc) must come from the system. Never restarts a
               running herdr server. godview (our own, prefix+alt+o) shows
-              every agent with its subagents in one tab.
+              every agent with its subagents in one tab; it follows main
+              instead of a pinned commit, so each install updates it.
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 watch         File watcher for auto-ingest
