@@ -245,8 +245,22 @@ herdr_ensure_go() {
     log_error "$label was not installed"
     return 1
   fi
-  rm -rf "$root"
-  mv "$stage/go" "$root"
+  herdr_replace_root "$stage" "$stage/go" "$root" "$label"
+}
+
+herdr_replace_root() {
+  local stage="$1" built="$2" root="$3" label="$4"
+  if [[ -e "$root" ]] && ! mv "$root" "$stage/previous"; then
+    rm -rf "$stage"
+    log_error "$label was not installed: could not move the old ${root/#$HOME/\~} aside"
+    return 1
+  fi
+  if ! mv "$built" "$root"; then
+    [[ -e "$stage/previous" ]] && mv "$stage/previous" "$root"
+    rm -rf "$stage"
+    log_error "$label was not installed: could not move it into ${root/#$HOME/\~}"
+    return 1
+  fi
   rm -rf "$stage"
   log_success "installed: $label"
 }
@@ -283,10 +297,7 @@ herdr_ensure_rust() {
     log_error "$label was not installed"
     return 1
   fi
-  rm -rf "$root"
-  mv "$stage/rust" "$root"
-  rm -rf "$stage"
-  log_success "installed: $label"
+  herdr_replace_root "$stage" "$stage/rust" "$root" "$label"
 }
 
 herdr_install_rust_components() {

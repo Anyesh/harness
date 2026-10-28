@@ -227,6 +227,7 @@ for c in rustc cargo rust-std; do
   cat >"$dir/install.sh" <<EOF
 #!/usr/bin/env bash
 prefix=""
+[[ -n "\${FAIL_INSTALL:-}" ]] && exit 1
 for a in "\$@"; do [[ "\$a" == --prefix=* ]] && prefix="\${a#--prefix=}"; done
 mkdir -p "\$prefix/bin" "\$prefix/lib/rustlib"
 cp "\$(dirname "\$0")"/payload/* "\$prefix/bin/" 2>/dev/null
@@ -295,6 +296,15 @@ assert "rust digest mismatch fails the step" '[[ $rc -ne 0 ]]'
 assert "rust digest mismatch leaves no root" '[[ ! -e "$RUST_ROOT" ]]'
 assert "rust digest mismatch leaves no stage" 'no_stage'
 
+mkdir -p "$RUST_ROOT"
+touch "$RUST_ROOT/kept"
+rc=0
+out=$(FAIL_INSTALL=1 PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_ensure_rust 2>&1) || rc=$?
+assert "failing component installer fails the step" '[[ $rc -ne 0 ]]'
+assert "failing component installer keeps the old root" '[[ -e "$RUST_ROOT/kept" ]]'
+assert "failing component installer leaves no stage" 'no_stage'
+rm -rf "$RUST_ROOT"
+
 SYS_RUST="$TMP/sysrust"
 mkdir -p "$SYS_RUST"
 printf '#!/bin/sh\necho "rustc 1.90.0 (0000000 2026-01-01)"\n' >"$SYS_RUST/rustc"
@@ -317,6 +327,13 @@ found=$(PATH="$NO_RUST_PATH" herdr_with_toolchain command -v cargo) || found=""
 assert "no system cargo: the provisioned cargo resolves" '[[ "$found" == "$RUST_ROOT/bin/cargo" ]]'
 found=$(PATH="$SYS_RUST:$NO_RUST_PATH" herdr_with_toolchain command -v cargo) || found=""
 assert "good system rust: the system cargo resolves" '[[ "$found" == "$SYS_RUST/cargo" ]]'
+OLD_RUST="$TMP/oldrust"
+mkdir -p "$OLD_RUST"
+printf '#!/bin/sh\necho "rustc 1.85.0 (0000000 2026-01-01)"\n' >"$OLD_RUST/rustc"
+printf '#!/bin/sh\n' >"$OLD_RUST/cargo"
+chmod +x "$OLD_RUST"/*
+found=$(PATH="$OLD_RUST:$NO_RUST_PATH" herdr_with_toolchain command -v cargo) || found=""
+assert "too old system rust: the provisioned cargo resolves" '[[ "$found" == "$RUST_ROOT/bin/cargo" ]]'
 mkdir -p "$TMP/emptybin"
 missing=$(PATH="$TMP/emptybin" herdr_missing_needs cargo,cc)
 assert "provisioned cargo without cc: names only cc" '[[ "$missing" == cc ]]'
