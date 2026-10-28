@@ -320,13 +320,15 @@ assert "good system rust: the system cargo resolves" '[[ "$found" == "$SYS_RUST/
 mkdir -p "$TMP/emptybin"
 missing=$(PATH="$TMP/emptybin" herdr_missing_needs cargo,cc)
 assert "provisioned cargo without cc: names only cc" '[[ "$missing" == cc ]]'
-rm -rf "$RUST_ROOT"
 
 CHECK_BIN="$TMP/checkbin"
 mkdir -p "$CHECK_BIN"
 for tool in curl git jq tar sha256sum btop uname sort head; do
   real=$(PATH="$NO_RUST_PATH" command -v "$tool") && ln -sf "$real" "$CHECK_BIN/$tool"
 done
+out=$(PATH="$CHECK_BIN" herdr_check 2>&1) || true
+assert "check with provisioned rust does not ask for xz" '! grep -q "xz not found" <<<"$out"'
+rm -rf "$RUST_ROOT"
 out=$(PATH="$CHECK_BIN" herdr_check 2>&1) || true
 assert "check warns that Rust plugin builds need cc" 'grep -q "cc not found" <<<"$out"'
 if [[ "$(uname -s)" == Linux ]]; then

@@ -19,7 +19,8 @@ herdr_check() {
   fi
   command -v btop >/dev/null 2>&1 || log_warn "btop not found; the prefix+alt+t popup needs it"
   command -v cc >/dev/null 2>&1 || log_warn "cc not found; Rust plugin builds need it to link"
-  if [[ "$(uname -s)" == Linux ]] && ! command -v xz >/dev/null 2>&1 && ! herdr_system_rust_ok; then
+  if [[ "$(uname -s)" == Linux && ! -x "$(herdr_rust_root)/bin/cargo" ]] &&
+    ! command -v xz >/dev/null 2>&1 && ! herdr_system_rust_ok; then
     log_warn "xz not found; tar needs it to unpack the Rust toolchain"
   fi
   return $ok
