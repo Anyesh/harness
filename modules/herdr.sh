@@ -75,6 +75,34 @@ herdr_go_sha256() {
   esac
 }
 
+herdr_rust_target() {
+  local platform
+  platform=$(herdr_platform) || return 1
+  case "$platform" in
+    linux-*) printf '%s-unknown-linux-gnu\n' "${platform#linux-}" ;;
+    macos-*) printf '%s-apple-darwin\n' "${platform#macos-}" ;;
+  esac
+}
+
+# From the .sha256 files on static.rust-lang.org, matching channel-rust-1.96.1.toml.
+herdr_rust_sha256() {
+  case "$1 $2" in
+    "rustc x86_64-unknown-linux-gnu") echo 3545a0efad2355ecb0a3b9ac02efee96e27f1f9d24b7ce2fc3f279b2efb0d923 ;;
+    "cargo x86_64-unknown-linux-gnu") echo ecc53a3c49fab5ab8c9301b3bbc8fb1dff9be6c65287add3f57a0fe8fddfea9e ;;
+    "rust-std x86_64-unknown-linux-gnu") echo 1bf4fde5048cca33e6ea00c7471281ed96d792f6923141e3db45072743a1afae ;;
+    "rustc aarch64-unknown-linux-gnu") echo 4bc079af433c730af16aa90c96777985b86d40c4670670380160bd61626a577f ;;
+    "cargo aarch64-unknown-linux-gnu") echo 02a4d7bf424ea28d574fe5b5d29e7ae99b0bc11a5920d8f28fa7408aa6a37992 ;;
+    "rust-std aarch64-unknown-linux-gnu") echo 24bd362ff484421cae8be8c4d326fde143a086782e59e21fc7f353a5d04cd630 ;;
+    "rustc x86_64-apple-darwin") echo 814e1ed2d19952cf9771aeff5e0d4e0b77eefa76a689809f2c1bf769187ab051 ;;
+    "cargo x86_64-apple-darwin") echo 128041aa757a6bbc60664079ff294281cdbabd51cc4b7c1f7d40cd1b1ea955f5 ;;
+    "rust-std x86_64-apple-darwin") echo a094fc4d30985f48aff70629d7a6c1f16d314a63f3cb141927095b6d506edd35 ;;
+    "rustc aarch64-apple-darwin") echo 9b548f0665f85f3c7fd45165611e3dea79f048c69d163be193986310d204fc2c ;;
+    "cargo aarch64-apple-darwin") echo 2f43d75e9ad3febae5022c6f295cf93b74131cfdb1293a83e291f878ea9585a0 ;;
+    "rust-std aarch64-apple-darwin") echo 0d433a74c303febc915f8fa1091ef166445706461d0c96984ecb7303aa8208f5 ;;
+    *) return 1 ;;
+  esac
+}
+
 herdr_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | cut -d' ' -f1

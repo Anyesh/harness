@@ -206,6 +206,16 @@ PATH="$FAKE_BIN:$NO_RUST_PATH" herdr_system_rust_ok && ok=yes || ok=no
 assert "system rustc without cargo is not enough" '[[ $ok == no ]]'
 rm -f "$FAKE_BIN/rustc"
 
+for pair in linux-x86_64:x86_64-unknown-linux-gnu linux-aarch64:aarch64-unknown-linux-gnu \
+  macos-x86_64:x86_64-apple-darwin macos-aarch64:aarch64-apple-darwin; do
+  target=$(herdr_platform() { echo "${pair%%:*}"; } && herdr_rust_target) || target=""
+  assert "${pair%%:*} maps to ${pair#*:}" '[[ "$target" == "${pair#*:}" ]]'
+  for c in rustc cargo rust-std; do
+    assert "$c has a pinned digest for ${pair#*:}" '[[ "$(herdr_rust_sha256 "$c" "${pair#*:}")" =~ ^[0-9a-f]{64}$ ]]'
+  done
+done
+assert "an unknown component has no digest" '! herdr_rust_sha256 rust-docs x86_64-unknown-linux-gnu'
+
 echo "=== config ==="
 
 mkdir -p "$TMP/repo/configs/herdr"
