@@ -98,3 +98,9 @@ key = "prefix+alt+l"
 type = "plugin_action"
 command = "herdr-plugin-workspace-manager.apply"
 description = "apply the workspace-manager layout"
+
+[[keys.command]]
+key = "prefix+k"
+type = "plugin_action"
+command = "herdr-bar.open"
+description = "jump to any tab, pane, agent, repo or branch"

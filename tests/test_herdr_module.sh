@@ -69,13 +69,15 @@ plugin_json() {
 echo "=== plugins.tsv ==="
 
 rows=$(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")
-assert "lists seven plugins" '[[ $(wc -l <<<"$rows") -eq 7 ]]'
+assert "lists eight plugins" '[[ $(wc -l <<<"$rows") -eq 8 ]]'
+assert "herdr-bar downloads its release with curl" \
+  '[[ $(awk -F"\t" "\$1 == \"jeffarese/herdr-bar\" { print \$3 }" <<<"$rows") == curl ]]'
 assert "every third-party ref is a full 40-char sha" \
   '[[ -z $(awk -F"\t" "\$1 !~ /^Anyesh\// && \$2 !~ /^[0-9a-f]{40}\$/" <<<"$rows") ]]'
 assert "godview, our own, follows main" \
   '[[ $(awk -F"\t" "\$1 == \"Anyesh/godview\" { print \$2 }" <<<"$rows") == main ]]'
 assert "every row has three fields" \
-  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 7 ]]'
+  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 8 ]]'
 for slug in Anyesh/godview razajamil/herdr-plugin-workspace-manager; do
   assert "$slug builds with cargo and links with cc" \
     '[[ $(awk -F"\t" -v s="$slug" "\$1 == s { print \$3 }" <<<"$rows") == cargo,cc ]]'

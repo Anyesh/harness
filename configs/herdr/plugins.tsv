@@ -5,4 +5,5 @@ senna-lang/herdr-agent-usage	592e277bfe8963c64eeedc137e94bbfce05069f9	go
 aemrebarut/herdr-dagr	c0f8b333a92d2eec74386d8989dc642a867f787b	tar
 speardragon/herdr-plugin-manager	8ed222ab7efe735b3ef5e037e7ee81d6d7650e4e	python3,perl
 Crokily/herdr-lazygit	e085baf5fb1a474f93d2f989d058ee82fceb21b2	python3,tar
+jeffarese/herdr-bar	a88c7b06c7a0f354d6120d465b0caa56fbde3fbf	curl
 Anyesh/godview	main	cargo,cc
