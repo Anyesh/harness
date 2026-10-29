@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Usage: crew-sweep [seconds]   (default 900; 0 compares once without waiting)
 #
+# Refreshes the dagr run file with crew-dagr after the role check, every 60 s
+# while waiting and before exiting; its failures never reach the output.
+#
 # Output lines:
 #   SUPERSEDED                      crew-role answered none; stop acting as lead
 #   ALL-DONE                        every board row is done or blocked
@@ -23,6 +26,7 @@ limit=${1:-900}
 retry_wait=${CREW_SWEEP_RETRY_WAIT:-10}
 retries=30
 screen_lines=12
+publish_every=${CREW_DAGR_INTERVAL:-60}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
@@ -157,8 +161,7 @@ report_workers() {
   local listed found id status owner _branch _into updated _rest
   agent_list
   listed=$REPLY
-  [[ -f $board ]] || return 0
-  while IFS=$'\t' read -r id status owner _branch _into updated _rest; do
+  while IFS=$'\037' read -r id status owner _branch _into updated _rest; do
     [[ $status == assigned && -n $owner ]] || continue
     found=$(awk -F'\t' -v n="$owner" '$1 == n {print "+" $2; exit}' <<<"$listed")
     if [[ -z $found ]]; then
@@ -166,10 +169,16 @@ report_workers() {
     else
       worker_line "$id" "$owner" "$updated" "${found#+}"
     fi
-  done <"$board"
+  done < <(crew_board "$board")
+}
+
+publish() {
+  timeout 30 crew-dagr >/dev/null 2>&1 || true
+  next_publish=$((SECONDS + publish_every))
 }
 
 check_role
+publish
 if all_done; then
   echo ALL-DONE
   exit 0
@@ -180,6 +189,7 @@ current=$(snapshot)
 deadline=$((SECONDS + limit))
 while [[ $current == "$previous" ]] && ((SECONDS < deadline)); do
   sleep 1
+  ((SECONDS >= next_publish)) && publish
   current=$(snapshot)
 done
 
@@ -202,3 +212,4 @@ else
   : >"$seen.tmp"
 fi
 mv -f "$seen.tmp" "$seen"
+publish

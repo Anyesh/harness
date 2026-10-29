@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# Usage: crew-dagr
+#
+# Writes the crew as a dagr run document to .dagr/run.json under the lead
+# pane's cwd, or under the main checkout when that cwd lies outside it, and
+# only when `dagr check` finds no errors. Failures go to $crew/dagr.log and
+# leave the previous document in place. Without a dagr binary or a lead file
+# it does nothing.
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+crew=$(crew_dir) || {
+  echo "crew-dagr: not inside a git repository" >&2
+  exit 1
+}
+main=$(crew_main)
+board="$crew/board.tsv"
+log="$crew/dagr.log"
+now=$(date +%s)
+
+fail() {
+  printf '%s %s\n' "$(date -u -d "@$now" +%FT%TZ)" "$*" >>"$log"
+  printf 'crew-dagr: %s\n' "$*" >&2
+  exit 1
+}
+
+find_dagr() {
+  local root
+  if [[ -n ${DAGR_BIN:-} && -x $DAGR_BIN ]]; then
+    REPLY=$DAGR_BIN
+    return 0
+  fi
+  REPLY=$(command -v dagr) && return 0
+  root=$(timeout 10 herdr plugin list --json 2>/dev/null |
+    jq -r 'first(.result.plugins[]? | select(.plugin_id == "herdr-dagr") | .plugin_root) // empty' 2>/dev/null)
+  [[ -n $root && -x $root/bin/dagr ]] || return 1
+  REPLY=$root/bin/dagr
+}
+
+target_dir() {
+  local cwd
+  cwd=$(timeout 10 herdr pane list 2>/dev/null |
+    jq -r --arg p "$lead_pane" 'first(.result.panes[]? | select(.pane_id == $p) | .cwd) // empty' 2>/dev/null)
+  if [[ -n $cwd ]] && cwd=$(cd "$cwd" 2>/dev/null && pwd -P) && [[ $cwd == "$main" || $cwd == "$main"/* ]]; then
+    REPLY=$cwd
+  else
+    REPLY=$main
+  fi
+}
+
+# Locked because an old lead's sweep may still run during a handover. A
+# replacement starts at the row's update only when the lead bumped it past the
+# previous start, so a predecessor's report never counts for it.
+record_owner() {
+  local file="$crew/items/$1/attempts" owner=$2 start=$3 fd last
+  mkdir -p "${file%/*}"
+  exec {fd}>>"$file"
+  flock "$fd"
+  last=$(tail -n 1 "$file")
+  if [[ ${last%%$'\t'*} != "$owner" ]]; then
+    [[ -n $last ]] && ((start <= ${last##*$'\t'})) && start=$now
+    printf '%s\t%s\n' "$owner" "$start" >&"$fd"
+  fi
+  exec {fd}>&-
+}
+
+key_value() {
+  awk -v k="$2" '$1 == k {v = $2} END {print v}' "$1"
+}
+
+item_facts() {
+  local id=$1 status=$2 owner=$3 updated=$4 title=$5
+  local item="$crew/items/$id" attempts='[]' report=null merged=null rs
+  [[ $updated =~ ^[0-9]+$ ]] && ((updated <= now)) || updated=
+  if [[ $status != open && -n $owner ]]; then
+    record_owner "$id" "$owner" "${updated:-$now}"
+  fi
+  if [[ -s $item/attempts ]]; then
+    attempts=$(jq -R -s -c 'split("\n") | map(select(. != "") | split("\t") | {actor: .[0], start: (.[1] | tonumber)})' "$item/attempts")
+  fi
+  if [[ -f $item/report.md ]]; then
+    rs=$(sed -n 's/^status:[[:space:]]*//p' "$item/report.md" | head -n 1 | tr -d '[:space:]')
+    report=$(jq -n -c --arg s "$rs" --argjson m "$(stat -c %Y "$item/report.md")" '{status: $s, mtime: $m}')
+  fi
+  if [[ -f $item/merged ]]; then
+    merged=$(jq -n -c --arg sha "$(key_value "$item/merged" merged)" --arg into "$(key_value "$item/merged" into)" \
+      --argjson m "$(stat -c %Y "$item/merged")" '{sha: $sha, into: $into, mtime: $m}')
+  fi
+  jq -n -c --arg id "$id" --arg status "$status" --arg owner "$owner" --arg title "$title" \
+    --arg updated "$updated" --argjson attempts "$attempts" --argjson report "$report" --argjson merged "$merged" \
+    '{id: $id, status: $status, owner: (if $owner == "" then null else $owner end),
+      title: (if $title == "" then "item \($id)" else $title end),
+      updated: (if $updated == "" then null else ($updated | tonumber) end),
+      attempts: $attempts, report: $report, merged: $merged}'
+}
+
+# shellcheck disable=SC2016
+project='
+def iso: todate;
+def clean: with_entries(select(.value != null));
+def later($a; $b): if $b == null or $a > $b then $a else $b end;
+
+def task:
+  . as $f
+  | (if $f.status == "open" then []
+     elif ($f.attempts | length) > 0 then $f.attempts
+     elif $f.status == "done" then [{actor: $f.owner, start: ($f.updated // $now)}]
+     else [] end) as $list
+  | ($list | length) as $n
+  | (if $n > 0 and $f.report != null and ($n == 1 or $f.report.mtime > $list[-1].start)
+     then $f.report.status else null end) as $rs
+  | (if $n > 0 then $agents[$list[-1].actor // ""] else null end) as $pane
+  | ($f.status == "done" or ($f.status == "assigned" and $rs == "done")) as $done
+  | (if $done then "done"
+     elif $rs == "rate-limited" or $pane == null then "lost"
+     else "working" end) as $last
+  | [range($n) as $i
+     | $list[$i] as $a
+     | {id: "\($f.id)·a\($i + 1)", n: ($i + 1),
+        cause: (if $i == 0 then {type: "initial"} else {type: "superseded", ref: "\($f.id)·a\($i)"} end),
+        actor: $a.actor, started_at: ($a.start | iso)}
+     + if $i < $n - 1 then
+         {state: "lost", ended_at: (later($list[$i + 1].start; $a.start) | iso)}
+       elif $last == "done" then
+         {state: "done",
+          ended_at: (later($f.merged.mtime // (if $rs == "done" then $f.report.mtime else null end) // $f.updated // $now; $a.start) | iso),
+          outcome: ({result: "done",
+                     evidence: (if $f.merged then "verified" else "reported" end),
+                     receipt: (if $f.merged then "merged \($f.merged.sha[:12]) into \($f.merged.into)" else null end)} | clean)}
+       elif $last == "lost" then
+         {state: "lost", ended_at: (later(if $rs == "rate-limited" then $f.report.mtime else $now end; $a.start) | iso)}
+       else
+         {state: "working",
+          locator: {pane: $pane, agent: $a.actor},
+          liveness: {prompt_acknowledged: true,
+                     last_output_at: (later(later(if $rs then $f.report.mtime else null end; $f.updated); $a.start) | iso),
+                     queued_input: 0}}
+       end
+     | clean] as $attempts
+  | (if $f.status == "open" then {state: "queued"}
+     elif $done then {state: "done"}
+     elif $f.status == "blocked" then {state: "blocked", unblock: "user"}
+     elif $n == 0 then {state: "queued"}
+     elif $rs == "question" or $rs == "blocked" or $last == "lost" then {state: "blocked", unblock: "lead"}
+     else {state: "working"} end) as $state
+  | {id: $f.id, title: $f.title, kind: "impl", owner: $f.owner} + $state + {attempts: $attempts}
+  | clean;
+
+{dagr: 3,
+ run: {id: $run_id, title: "crew \($repo)", started_at: $run_started, orchestrator: {pane: $lead_pane}},
+ generated_at: ($now | iso),
+ tasks: map(task)}
+'
+
+find_dagr || exit 0
+dagr=$REPLY
+[[ -f $crew/lead ]] || exit 0
+IFS=$'\t' read -r lead_pane _ <"$crew/lead"
+[[ -n $lead_pane ]] || fail "no pane id in $crew/lead"
+
+agent_out=$(timeout 10 herdr agent list 2>&1) || fail "herdr agent list: ${agent_out//$'\n'/ }"
+agents=$(jq -c '.result.agents | if type == "array" then map(select(.name != null) | {(.name): .pane_id}) | add // {} else error("no agents array") end' \
+  <<<"$agent_out" 2>/dev/null) || fail "herdr agent list: unexpected output: ${agent_out:0:200}"
+
+run_file="$crew/dagr-run"
+if [[ ! -s $run_file ]]; then
+  printf '%s-%s\t%s\n' "$(crew_slug)" "$now" "$(date -u -d "@$now" +%FT%TZ)" >"$run_file"
+fi
+IFS=$'\t' read -r run_id run_started <"$run_file"
+
+facts=()
+while IFS=$'\037' read -r id status owner _branch _into updated title; do
+  [[ $status =~ ^(open|assigned|done|blocked)$ && -n $id ]] || continue
+  facts+=("$(item_facts "$id" "$status" "$owner" "$updated" "$title")")
+done < <(crew_board "$board")
+
+target_dir
+dir="$REPLY/.dagr"
+mkdir -p "$dir" || fail "cannot create $dir"
+tmp=$(mktemp "$dir/.run.json.XXXXXX") || fail "cannot create a temporary file in $dir"
+trap 'rm -f "$tmp"' EXIT
+
+printf '%s\n' "${facts[@]}" | jq -s \
+  --argjson now "$now" --argjson agents "$agents" --arg run_id "$run_id" --arg run_started "$run_started" \
+  --arg repo "${main##*/}" --arg lead_pane "$lead_pane" "$project" >"$tmp" || fail "building the document failed"
+
+findings=$("$dagr" check "$tmp" --json 2>&1)
+if ! errors=$(jq -c '[.[] | select(.level == "error")]' <<<"$findings" 2>/dev/null); then
+  fail "dagr check gave unreadable output: ${findings:0:200}"
+fi
+[[ $errors == "[]" ]] || fail "dagr check: $errors"
+mv -f "$tmp" "$dir/run.json"

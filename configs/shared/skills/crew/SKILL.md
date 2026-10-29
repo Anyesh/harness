@@ -20,8 +20,8 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
    crew=$(crew_dir) slug=$(crew_slug) main=$(crew_main)
    ```
 
-3. Create `$crew` if needed and make sure `<git common dir>/info/exclude` lists `.claude/crew/` and `.claude/worktrees/`.
-4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `items/` and `.sweep-seen` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md` and `check`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
+3. Create `$crew` if needed and make sure `<git common dir>/info/exclude` lists `.claude/crew/`, `.claude/worktrees/` and `.dagr/` (the run file `crew-sweep` writes for the dagr pane, wherever your pane's directory is).
+4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `items/`, `.sweep-seen`, `dagr-run` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md` and `check`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
 5. A `lead` file means resume:
    - If `herdr agent get "$slug-lead"` finds a live agent other than you, rename it to the first free `$slug-old<N>` and leave it open, since it may be a session the user still uses. Until its current sweep returns `SUPERSEDED` it may still edit the board, prompt a worker or close a tab, so after your first sweep re-read the board and check every worker.
    - Mark `done` every item with a `merged` file, or with a `merging` file (`key value` lines `pid`, `start`, `tip` and, once the fast-forward is under way, `merged`) whose `merged` sha is an ancestor of its target, and re-read reports you have not acted on.

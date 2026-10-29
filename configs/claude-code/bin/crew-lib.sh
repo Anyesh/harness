@@ -8,6 +8,12 @@ crew_main() {
   (cd "$common/.." && pwd -P)
 }
 
+# Prints board.tsv with tabs turned into \037 for `IFS=$'\037' read`, because
+# a tab IFS collapses empty columns and shifts the rest left.
+crew_board() {
+  [[ -f $1 ]] && tr '\t' '\037' <"$1"
+}
+
 crew_dir() {
   local main
   main=$(crew_main "${1:-.}") || return 1

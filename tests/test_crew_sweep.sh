@@ -85,7 +85,18 @@ slow:*) if ((n < ${mode#slow:})); then sleep 3; fi ;;
 esac
 cat "$d/role"
 EOF
-chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role"
+
+# Fake crew-dagr: appends a line to dagr_calls; with dagr_fail present it also
+# writes to stderr and fails.
+cat >"$FAKE_BIN/crew-dagr" <<'EOF'
+#!/usr/bin/env bash
+echo call >>"$FAKE_STATE/dagr_calls"
+if [[ -f $FAKE_STATE/dagr_fail ]]; then
+  echo "crew-dagr: dagr check failed" >&2
+  exit 1
+fi
+EOF
+chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr"
 
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
@@ -295,6 +306,13 @@ wait "$LIVE" 2>/dev/null || true
 agents 'x-w8 idle'
 sweep 1
 assert "a dead merging pid is not MERGING" 'has "WORKER x-w8 item 8 idle IDLE"'
+printf '8\tassigned\tx-w8\t\tmain\t%s\tx\n' "$NOW" >"$CREW/board.tsv"
+echo "status: done" >"$CREW/items/8/report.md"
+touch -d "@$((NOW - 60))" "$CREW/items/8/report.md"
+sweep 1
+assert "an empty column keeps updated in place" 'has "WORKER x-w8 item 8 idle IDLE"'
+rm "$CREW/items/8/report.md"
+{ row 8 assigned x-w8 "$NOW"; } >"$CREW/board.tsv"
 
 cp "$(command -v sleep)" "$TMP_DIR/my sleep"
 "$TMP_DIR/my sleep" 30 &
@@ -331,6 +349,37 @@ rm "$FAKE_STATE/list_fail"
 echo 'not json' >"$FAKE_STATE/agents.json"
 sweep 0
 assert "unparseable agent list output is an error, not GONE" '[[ $RC -ne 0 ]] && has_re "^ERROR herdr agent list" && ! has_re "^GONE"'
+
+echo "dagr publishing"
+dagr_calls() { cat "$FAKE_STATE/dagr_calls" 2>/dev/null | wc -l; }
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
+rm -f "$FAKE_STATE/dagr_calls"
+set_role none
+sweep 1
+assert "nothing is published after SUPERSEDED" '[[ $(dagr_calls) -eq 0 ]]'
+set_role lead
+
+{ row 1 done x-w1; } >"$CREW/board.tsv"
+sweep 1
+assert "ALL-DONE publishes once, after the role check" 'has ALL-DONE && [[ $(dagr_calls) -eq 1 ]]'
+
+{ row 1 open ''; } >"$CREW/board.tsv"
+rm -f "$FAKE_STATE/dagr_calls"
+sweep 1
+assert "a wait shorter than the interval publishes at start and at exit" 'has TIMEOUT && [[ $(dagr_calls) -eq 2 ]]'
+
+rm -f "$FAKE_STATE/dagr_calls"
+OUT=$(cd "$REPO" && CREW_DAGR_INTERVAL=1 "$SWEEP" 3 2>&1) || true
+assert "the wait publishes on every interval" '[[ $(dagr_calls) -ge 4 ]]'
+
+touch "$FAKE_STATE/dagr_fail"
+sweep 0
+assert "a failing crew-dagr changes neither output nor exit status" '[[ $RC -eq 0 && $OUT == TIMEOUT ]]'
+{ row 1 done x-w1; } >"$CREW/board.tsv"
+sweep 0
+assert "a failing crew-dagr does not fail ALL-DONE" '[[ $RC -eq 0 && $OUT == ALL-DONE ]]'
+rm "$FAKE_STATE/dagr_fail"
 
 echo "worker role"
 set_role worker
