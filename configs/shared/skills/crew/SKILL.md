@@ -21,22 +21,28 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
    ```
 
 3. Create `$crew` if needed and make sure `<git common dir>/info/exclude` lists `.claude/crew/`, `.claude/worktrees/` and `.dagr/` (the run file `crew-sweep` writes for the dagr pane, wherever your pane's directory is).
-4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `items/`, `.sweep-seen`, `dagr-run` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md` and `check`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
+4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `plan.md`, `reflections.md`, `items/`, `.sweep-seen`, `dagr-run` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md`, `check`, `sweep-check` and `lead-notes.md`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
 5. A `lead` file means resume:
    - If `herdr agent get "$slug-lead"` finds a live agent other than you, rename it to the first free `$slug-old<N>` and leave it open, since it may be a session the user still uses. Until its current sweep returns `SUPERSEDED` it may still edit the board, prompt a worker or close a tab, so after your first sweep re-read the board and check every worker.
    - Mark `done` every item with a `merged` file, or with a `merging` file (`key value` lines `pid`, `start`, `tip` and, once the fast-forward is under way, `merged`) whose `merged` sha is an ancestor of its target, and re-read reports you have not acted on.
 6. Name yourself `$slug-lead` with `herdr agent rename` and write `$crew/lead` as your pane id and session id separated by a tab: `$HERDR_PANE_ID` and the `.agent_session.value` of your pane in `herdr pane list`. Do this before you spawn a worker or start a sweep, because without it every sweep prints `SUPERSEDED`. After `/clear` your session id changes and your sweep prints `SUPERSEDED`, so run `/crew` again to resume. Never restart a sweep that printed `SUPERSEDED`; if you think it is wrong, run `crew-role` and act on its answer.
+7. Read `lead-notes.md` and the `## Lessons` lines in `brief.md`. On a fresh start, append the first dated line to `reflections.md`, so the first sweep does not ask for a reflection.
+8. If the user handed you a plan, split it into board items with `references/intake.md` now, after any archive in step 4.
 
 ## Files you own
 
-- `board.tsv`: tab-separated `id status owner branch into updated deliverable`, no header, `status` one of `open|assigned|done|blocked`, `updated` in epoch seconds, `owner` the worker's agent name and `branch` `w/<id>`. Only you edit it, with your file tools.
+- `board.tsv`: tab-separated `id status owner branch into updated deliverable deps`, no header, `status` one of `open|assigned|done|blocked`, `updated` in epoch seconds, `owner` the worker's agent name, `branch` `w/<id>` and the optional `deps` the comma-separated ids of items that must be `done` first. Only you edit it, with your file tools.
 - `rulings.md`: timestamped decisions, the done bar, and every worker number used with its profile.
-- `brief.md`: what workers in this repo need beyond `references/worker.md`, such as test commands, build paths that must not depend on the checkout location and what not to touch.
+- `brief.md`: what workers in this repo need beyond `references/worker.md`, such as test commands, build paths that must not depend on the checkout location and what not to touch, with the lessons from reflection under `## Lessons`.
 - `check`: an executable gate that `crew-merge` runs in a temporary merge of the item into its target. Write it before the first assignment.
+- `sweep-check`: an optional executable that `crew-sweep` runs in the main checkout after each wait, for checks that should run while work is under way (stray logs, a full disk). It prints its findings and exits 0; a non-zero exit means the check itself broke. It only reads: it never changes tracked files, the index or refs, because `crew-merge` needs the main checkout clean and fast-forwards it.
+- `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
+- `lead-notes.md`: rules for you from reflection, and `## Proposed /crew changes` for every crew in any repo.
+- `reflections.md`: one dated line per reflection round (`references/reflect.md`).
 
 ## Workers
 
-The pool is `claude-profile names` plus `default`. Keep your own `${CLAUDE_PROFILE:-default}` for yourself and spread workers across the rest.
+The pool is `claude-profile names` plus `default`. Keep your own `${CLAUDE_PROFILE:-default}` for yourself and spread workers across the rest, at most two live workers per profile (or the number `rulings.md` sets), since workers on one profile share its usage limit.
 
 To spawn one worker:
 
@@ -67,7 +73,7 @@ To spawn one worker:
 
    If `herdr agent list` then shows the pane with an empty `.name // ""`, rename it.
 5. Only now set the item's board row to `assigned`, with this owner and `updated` set to now.
-6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable and stop point (by default the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over.
+6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. Say that the user asked for workflows only when they did.
 
 Address workers only by name: `send-keys` and `agent prompt` take the name. To close a worker's tab, take the `tab_id` of the `herdr tab list` entry labelled `$slug-wN` at that moment, and close nothing unless exactly one tab carries that label, noting it in `rulings.md` instead.
 
@@ -79,11 +85,16 @@ Run `crew-sweep` with `run_in_background` (it waits up to 900 seconds for an ite
 - `ALL-DONE`: assign the next open work if there is any, otherwise close out.
 - `ERROR <step>: <message>`: a crew-role or herdr call failed and the sweep retried it; if the sweep exited after repeated errors, tell the user what failed and start it again.
 - `CHANGED <path>` or `REMOVED <path>`: read that file. `TIMEOUT` means nothing changed during the wait.
-- A changed `report.md`: answer a `question` with a `[crew]` prompt; for `done` with a `merged` file, mark the row `done` and give the worker its next item or close its tab; for `blocked`, mark the row `blocked` and log the reason; replace a `rate-limited` worker.
+- A changed `report.md`: answer a `question` with a `[crew]` prompt and set the row's `updated` to now, so the sweep watches that worker again; for `done` with a `merged` file, mark the row `done`, assign in the same turn what it unblocks, and give the worker its next item or close its tab; for `blocked`, mark the row `blocked` and log the reason; replace a `rate-limited` worker.
+- `READY <id>`: an open item whose deps are all `done`. Assign READY items while a profile has room before you start the sweep again.
+- `DEPS <id> <problem>`: an open item that can never start, because a dep `names unknown` id, it `waits on blocked` item, `is in a cycle` or `waits on stuck` item. Fix the order on the board or mark the row `blocked`, logging in `rulings.md` which dep blocked it; for `waits on stuck`, fix the stuck dep's own DEPS line instead. When a dep you logged as a cause can finish again (reopened, added to the board or its order fixed), reopen the rows you blocked because of it.
 - `GONE <name>`: its Claude exited or its pane closed (herdr drops a name 10 to 15 seconds after exit). Close its tab by label, then give the item to a fresh worker that takes over the same worktree.
 - `IDLE`: read its screen. "Usage limit reached" means it is rate-limited and cannot write its own report, so replace it on another profile; otherwise prompt it or replace it.
+- `QUIET`: the item shows no progress (row update, report, notes, merging file or commit on its branch) for an hour. Read the worker's screen and `items/<id>/notes.md`, then prompt it, split the item or replace the worker. A worker with an unanswered `question` or `blocked` report is never QUIET.
 - `DIALOG`: read the screen it shows, then answer with `send-keys` within the same limits as at spawn or replace the worker, and log the call in `rulings.md`.
-- `MERGING`: leave it alone, and never close or replace a worker while it merges.
+- `MERGING`: leave it alone, and never close or replace a worker while it merges. `MERGING QUIET` means its merge has run for an hour, possibly a hung `check` holding the merge lock for every item: read `check-<id>.log` in `${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$slug` and tell the user, without closing the worker.
+- `REFLECT`: run a reflection round with `references/reflect.md`. It may arrive up to one wait late.
+- `CHECK <line>`: output from `sweep-check`; act on what it flags. `CHECK failed: <message>` means the check itself failed or timed out after 30 seconds, so fix it.
 
 When you replace a worker, close its tab first, then spawn the new one and brief it with the worktree it takes over.
 
@@ -99,7 +110,8 @@ When the user says to stop the crew, close every worker tab (waiting for any `ME
 
 ## Close-out
 
-1. Delete `$crew/lead`, which also ends the question guard for you.
+1. Run a last reflection round with `references/reflect.md`, then delete `$crew/lead`, which also ends the question guard for you.
 2. For every `w/<id>` whose tip is already in its target, run `git -C "$main" worktree remove <path>` and then `git -C "$main" branch -d w/<id>`, never with `--force`, and list any that refuse.
 3. Write one devlog entry for the crew's outcomes.
-4. For each `blocked` item, tell the user the branch it is left on if that branch still exists, and `.git/worktree-salvage/` if the SessionStart worktree sweep salvaged its worktree. That sweep may remove a worktree after a day idle but keeps unlanded branches.
+4. Tell the user the list under `## Proposed /crew changes` in `lead-notes.md`, then remove the entries you told, so the next crew does not repeat them.
+5. For each `blocked` item, tell the user the branch it is left on if that branch still exists, and `.git/worktree-salvage/` if the SessionStart worktree sweep salvaged its worktree. That sweep may remove a worktree after a day idle but keeps unlanded branches.

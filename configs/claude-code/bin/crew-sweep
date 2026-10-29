@@ -11,8 +11,20 @@
 #   CHANGED <path> / REMOVED <path> item files that differ from the last sweep
 #   TIMEOUT                         nothing changed within the wait
 #   GONE <owner>                    an assigned owner herdr no longer lists
-#   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ DIALOG]
-#     a DIALOG line is followed by the owner's screen, each line indented two spaces
+#   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ QUIET][ DIALOG]
+#     a DIALOG line is followed by the owner's screen, each line indented two spaces;
+#     QUIET means no progress for CREW_QUIET seconds (default 3600), or for a live
+#     MERGING a merging file that old
+#   READY <id>                      an open row whose deps are all done
+#   DEPS <id> <problem>             an open row that can never start: names unknown
+#                                   <dep>, waits on blocked <dep>, is in a cycle, or
+#                                   waits on stuck <dep>
+#   REFLECT                         reflections.md is missing or older than
+#                                   CREW_REFLECT_EVERY seconds (default 2700)
+#   CHECK <line>                    the last 20 lines of $crew/sweep-check, run in
+#                                   the main checkout
+#   CHECK failed: <message>         sweep-check exited non-zero, timed out or is not
+#                                   executable
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -27,11 +39,15 @@ retry_wait=${CREW_SWEEP_RETRY_WAIT:-10}
 retries=30
 screen_lines=12
 publish_every=${CREW_DAGR_INTERVAL:-60}
+quiet=${CREW_QUIET:-3600}
+reflect_every=${CREW_REFLECT_EVERY:-2700}
+check_timeout=${CREW_SWEEP_CHECK_TIMEOUT:-30}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
   exit 1
 }
+main=$(crew_main)
 board="$crew/board.tsv"
 seen="$crew/.sweep-seen"
 
@@ -131,16 +147,46 @@ merging_live() {
 report_since() {
   local report=$1 updated=$2
   [[ $updated =~ ^[0-9]+$ ]] || updated=0
-  [[ -f $report ]] && (($(stat -c %Y "$report") > updated))
+  local t
+  t=$(stat -c %Y "$report" 2>/dev/null) && ((t > updated))
+}
+
+# A question or blocked report newer than the row's update waits on the lead
+# or the user; answering it bumps updated, which ends the wait.
+waits_on_answer() {
+  report_since "$1" "$2" && [[ $(crew_report_status "$1") =~ ^(question|blocked)$ ]]
+}
+
+last_progress() {
+  local id=$1 branch=$2 latest=$3 item="$crew/items/$1" f t
+  [[ $latest =~ ^[0-9]+$ ]] || latest=0
+  for f in "$item/report.md" "$item/notes.md" "$item/merging"; do
+    if t=$(stat -c %Y "$f" 2>/dev/null) && ((t > latest)); then latest=$t; fi
+  done
+  if [[ -n $branch ]] && t=$(GIT_OPTIONAL_LOCKS=0 git -C "$main" log -1 --format=%ct "refs/heads/$branch" -- 2>/dev/null) &&
+    [[ $t =~ ^[0-9]+$ ]] && ((t > latest)); then
+    latest=$t
+  fi
+  echo "$latest"
+}
+
+quiet_since() {
+  [[ $1 =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - $1 > quiet))
 }
 
 worker_line() {
-  local id=$1 owner=$2 updated=$3 status=$4 flags="" screen rc
+  local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags="" screen rc
   local item="$crew/items/$id"
   if merging_live "$item/merging"; then
     flags+=" MERGING"
-  elif [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
-    flags+=" IDLE"
+    quiet_since "$(stat -c %Y "$item/merging" 2>/dev/null)" && flags+=" QUIET"
+  else
+    if [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
+      flags+=" IDLE"
+    fi
+    if ! waits_on_answer "$item/report.md" "$updated" && quiet_since "$(last_progress "$id" "$branch" "$updated")"; then
+      flags+=" QUIET"
+    fi
   fi
   if [[ $status == blocked ]]; then
     screen=$(timeout 10 herdr agent read "$owner" --source visible --lines "$screen_lines" 2>&1)
@@ -158,18 +204,112 @@ worker_line() {
 }
 
 report_workers() {
-  local listed found id status owner _branch _into updated _rest
+  local listed found id status owner branch _into updated _rest
   agent_list
   listed=$REPLY
-  while IFS=$'\037' read -r id status owner _branch _into updated _rest; do
+  while IFS=$'\037' read -r id status owner branch _into updated _rest; do
     [[ $status == assigned && -n $owner ]] || continue
     found=$(awk -F'\t' -v n="$owner" '$1 == n {print "+" $2; exit}' <<<"$listed")
     if [[ -z $found ]]; then
       echo "GONE $owner"
     else
-      worker_line "$id" "$owner" "$updated" "${found#+}"
+      worker_line "$id" "$owner" "$branch" "$updated" "${found#+}"
     fi
   done < <(crew_board "$board")
+}
+
+# Open rows whose deps can all reach done are found by a fixpoint from the done
+# and assigned rows; the rest can never start and get a DEPS line. A dep on a
+# row with a status other than open, assigned, done or blocked counts as unknown,
+# because the rest of the crew ignores such rows.
+report_order() {
+  [[ -f $board ]] || return 0
+  crew_board "$board" | awk -F'\037' '
+    function search(id, target,    stack, top, seen, cur, j, d) {
+      top = 0
+      stack[++top] = id
+      while (top > 0) {
+        cur = stack[top--]
+        for (j = 1; j <= nd[cur]; j++) {
+          d = dep[cur, j]
+          if (!(d in known) || (d in seen)) continue
+          seen[d] = 1
+          if (target != "" && d == target) return d
+          if (target == "" && status[d] == "blocked") return d
+          if (status[d] == "open" && !reach[d]) stack[++top] = d
+        }
+      }
+      return ""
+    }
+    function problem(id,    j, root) {
+      for (j = 1; j <= nd[id]; j++) if (!(dep[id, j] in known)) return "names unknown " dep[id, j]
+      for (j = 1; j <= nd[id]; j++) if (status[dep[id, j]] == "blocked") return "waits on blocked " dep[id, j]
+      if (search(id, id) != "") return "is in a cycle"
+      root = search(id, "")
+      if (root != "") return "waits on blocked " root
+      for (j = 1; j <= nd[id]; j++) if (!reach[dep[id, j]]) return "waits on stuck " dep[id, j]
+    }
+    $1 != "" && $2 ~ /^(open|assigned|done|blocked)$/ {
+      if (!($1 in known)) order[++n] = $1
+      known[$1] = 1
+      status[$1] = $2
+      raw[$1] = $8
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        id = order[i]
+        nd[id] = split(raw[id], parts, ",")
+        for (j = 1; j <= nd[id]; j++) dep[id, j] = parts[j]
+        reach[id] = status[id] == "done" || status[id] == "assigned"
+      }
+      do {
+        changed = 0
+        for (i = 1; i <= n; i++) {
+          id = order[i]
+          if (reach[id] || status[id] != "open") continue
+          ok = 1
+          for (j = 1; j <= nd[id]; j++) if (!reach[dep[id, j]]) ok = 0
+          if (ok) { reach[id] = 1; changed = 1 }
+        }
+      } while (changed)
+      for (i = 1; i <= n; i++) {
+        id = order[i]
+        if (status[id] != "open") continue
+        if (!reach[id]) { print "DEPS " id " " problem(id); continue }
+        ready = 1
+        for (j = 1; j <= nd[id]; j++) if (status[dep[id, j]] != "done") ready = 0
+        if (ready) print "READY " id
+      }
+    }
+  '
+}
+
+report_reflect() {
+  local file="$crew/reflections.md" t
+  if ! t=$(stat -c %Y "$file" 2>/dev/null) || ((EPOCHSECONDS - t > reflect_every)); then
+    echo REFLECT
+  fi
+}
+
+# The output goes to a file, not a pipe, so a background child the check leaves
+# behind cannot hold the sweep open.
+run_sweep_check() {
+  local check="$crew/sweep-check" out rc
+  [[ -e $check ]] || return 0
+  if [[ ! -x $check ]]; then
+    echo "CHECK failed: sweep-check is not executable"
+    return
+  fi
+  out=$(mktemp)
+  (cd "$main" && GIT_OPTIONAL_LOCKS=0 exec timeout -k 5 "$check_timeout" "$check") >"$out" 2>&1 </dev/null
+  rc=$?
+  tail -n 20 "$out" | awk '{print "CHECK " $0}'
+  rm -f "$out"
+  if ((rc == 124 || rc == 137)); then
+    echo "CHECK failed: sweep-check timed out after $check_timeout s"
+  elif ((rc != 0)); then
+    echo "CHECK failed: sweep-check exited $rc"
+  fi
 }
 
 publish() {
@@ -205,6 +345,9 @@ else
 fi
 
 report_workers
+report_order
+report_reflect
+run_sweep_check
 
 if [[ -n $current ]]; then
   printf '%s\n' "$current" >"$seen.tmp"

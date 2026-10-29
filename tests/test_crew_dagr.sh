@@ -110,9 +110,11 @@ plugins() {
   fi >"$FAKE_STATE/plugins.json"
 }
 
-# row id status owner updated [deliverable]
+# row id status owner updated [deliverable] [deps]
 row() {
-  printf '%s\t%s\t%s\tw/%s\tmain\t%s\t%s\n' "$1" "$2" "$3" "$1" "$4" "${5-deliver item $1}"
+  printf '%s\t%s\t%s\tw/%s\tmain\t%s\t%s' "$1" "$2" "$3" "$1" "$4" "${5-deliver item $1}"
+  [[ -z ${6+x} ]] || printf '\t%s' "$6"
+  printf '\n'
 }
 
 # report id status mtime
@@ -252,6 +254,28 @@ agents 'x-w5b wB:p13'
 run_dagr
 assert "a replacement without a row update starts at first sight" '[[ $(date -d "$(tq 5 ".attempts[1].started_at")" +%s) -ge $NOW ]]'
 assert "so the predecessor's question does not block it" '[[ $(tq 5 ".state, .attempts[1].state" | tr "\n" " ") == "working working " ]]'
+
+echo "deps"
+rm -rf "$CREW/items" "$REPO/.dagr"
+mkdir -p "$CREW/items"
+{
+  row 1 done x-w1 "$U"
+  row 2 open '' "$U" 'second item' 1
+  row 3 open '' "$U" 'third item' '1, 2'
+  row 4 open '' "$U" 'fourth item' 2,99,5
+  printf '5\tfinished\tx-w5\tw/5\tmain\t0\tx\n'
+  row 6 open '' "$U" 'sixth item'
+  row 7 blocked x-w7 "$U" 'seventh item' 8
+  row 8 blocked x-w8 "$U" 'eighth item' 7
+} >"$CREW/board.tsv"
+agents
+run_dagr
+assert "deps are emitted" '[[ $(tq 2 ".deps | join(\",\")") == 1 && $(tq 3 ".deps | join(\",\")") == 1,2 ]]'
+assert "the deps column does not leak into the title" '[[ $(tq 2 .title) == "second item" && $(tq 3 .title) == "third item" ]]'
+assert "unknown ids and rows with an unknown status are dropped from deps" '[[ $(tq 4 ".deps | join(\",\")") == 2 ]]'
+assert "a row without deps has no deps field" '[[ $(tq 6 "has(\"deps\")") == false && $(tq 1 "has(\"deps\")") == false ]]'
+assert "a blocked row drops its deps, so blocking a cycle publishes" '[[ $RC -eq 0 && $(tq 7 "has(\"deps\")") == false && $(tq 8 "has(\"deps\")") == false ]]'
+assert "the real dagr check finds no errors with deps" 'real_check "$RUN"'
 
 echo "failures"
 cp "$RUN" "$TMP_DIR/before.json"

@@ -9,9 +9,27 @@ crew_main() {
 }
 
 # Prints board.tsv with tabs turned into \037 for `IFS=$'\037' read`, because
-# a tab IFS collapses empty columns and shifts the rest left.
+# a tab IFS collapses empty columns and shifts the rest left. Every line ends in
+# a newline, which read needs to see the last row, and the deps column becomes
+# comma-separated ids with no spaces or empty entries.
 crew_board() {
-  [[ -f $1 ]] && tr '\t' '\037' <"$1"
+  [[ -f $1 ]] && awk -F'\t' -v OFS='\037' '
+    NF >= 8 {
+      n = split($8, parts, ",")
+      deps = ""
+      for (i = 1; i <= n; i++) {
+        gsub(/^ +| +$/, "", parts[i])
+        if (parts[i] != "") deps = deps (deps == "" ? "" : ",") parts[i]
+      }
+      $8 = deps
+    }
+    { $1 = $1; print }
+  ' "$1"
+}
+
+crew_report_status() {
+  [[ -f $1 ]] || return 0
+  sed -n 's/^status:[[:space:]]*//p' "$1" | head -n 1 | tr -d '[:space:]'
 }
 
 crew_dir() {

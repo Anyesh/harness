@@ -35,6 +35,7 @@ trap cleanup EXIT
 
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_SWEEP_RETRY_WAIT=0.05
+export CREW_QUIET=1000000
 export FAKE_STATE="$TMP_DIR/state"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_STATE" "$FAKE_BIN"
@@ -102,7 +103,8 @@ REPO="$TMP_DIR/repo"
 git init -q "$REPO"
 REPO=$(cd "$REPO" && pwd -P)
 CREW="$REPO/.claude/crew"
-mkdir -p "$CREW/items"
+mkdir -p "$CREW/items" "$REPO/sub"
+date >"$CREW/reflections.md"
 
 set_role() {
   echo "$1" >"$FAKE_STATE/role"
@@ -120,9 +122,11 @@ agents() {
   done | jq -s '{result: {agents: .}}' >"$FAKE_STATE/agents.json"
 }
 
-# row id status owner [updated]
+# row id status owner [updated] [deps]; without deps the row has seven columns.
 row() {
-  printf '%s\t%s\t%s\tw/%s\tmain\t%s\tdeliver item %s\n' "$1" "$2" "$3" "$1" "${4:-0}" "$1"
+  printf '%s\t%s\t%s\tw/%s\tmain\t%s\tdeliver item %s' "$1" "$2" "$3" "$1" "${4:-0}" "$1"
+  [[ -z ${5+x} ]] || printf '\t%s' "$5"
+  printf '\n'
 }
 
 now_ms() { echo $(($(date +%s%N) / 1000000)); }
@@ -374,12 +378,173 @@ OUT=$(cd "$REPO" && CREW_DAGR_INTERVAL=1 "$SWEEP" 3 2>&1) || true
 assert "the wait publishes on every interval" '[[ $(dagr_calls) -ge 4 ]]'
 
 touch "$FAKE_STATE/dagr_fail"
+{ row 1 open ''; } >"$CREW/board.tsv"
 sweep 0
-assert "a failing crew-dagr changes neither output nor exit status" '[[ $RC -eq 0 && $OUT == TIMEOUT ]]'
+assert "a failing crew-dagr changes neither output nor exit status" '[[ $RC -eq 0 && $OUT == $'"'"'TIMEOUT\nREADY 1'"'"' ]]'
 { row 1 done x-w1; } >"$CREW/board.tsv"
 sweep 0
 assert "a failing crew-dagr does not fail ALL-DONE" '[[ $RC -eq 0 && $OUT == ALL-DONE ]]'
 rm "$FAKE_STATE/dagr_fail"
+
+echo "ready and deps"
+NOW=$(date +%s)
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+mkdir -p "$CREW/items"
+{
+  row 1 done x-w1 "$NOW"
+  row 2 open ''
+  row 3 open '' 0 1
+  row 4 open '' 0 1,2
+  row 5 assigned x-w5 "$NOW"
+  row 6 open '' 0 5
+  row 7 blocked x-w7 "$NOW"
+  row 8 open '' 0 7
+  row 9 open '' 0 8
+  row 10 open '' 0 99
+  printf '11\tfinished\tx-w11\tw/11\tmain\t0\tx\n'
+  row 12 open '' 0 11
+  row 13 open '' 0 14
+  row 14 open '' 0 13
+  row 15 assigned x-w15 "$NOW" 1
+  row 16 open '' 0 13
+  row 17 open '' 0 17
+  row 18 open '' 0 ' 1 '
+} >"$CREW/board.tsv"
+agents 'x-w5 working' 'x-w15 working'
+sweep 1
+assert "an open row with no deps is READY" 'has "READY 2"'
+assert "an open row whose deps are all done is READY" 'has "READY 3"'
+assert "a dep that is open, assigned or blocked holds READY back" '! has_re "^READY (4|6|8)$"'
+assert "assigned and done rows are never READY" '! has_re "^READY (1|5|15)$"'
+assert "deps that can still finish give no DEPS line" '! has_re "^DEPS (2|3|4|6) "'
+assert "a direct blocked dep is named" 'has "DEPS 8 waits on blocked 7"'
+assert "a blocked dep through an open row is named" 'has "DEPS 9 waits on blocked 7"'
+assert "a dep with no row is unknown" 'has "DEPS 10 names unknown 99"'
+assert "a dep on a row with an unknown status is unknown" 'has "DEPS 12 names unknown 11"'
+assert "a two-row cycle is named on both rows" 'has "DEPS 13 is in a cycle" && has "DEPS 14 is in a cycle"'
+assert "a row that depends on itself is in a cycle" 'has "DEPS 17 is in a cycle"'
+assert "a row waiting on a cycle names the stuck row" 'has "DEPS 16 waits on stuck 13"'
+assert "spaces around dep ids are ignored" 'has "READY 18"'
+assert "each stuck row gets exactly one DEPS line" '[[ $(grep -c "^DEPS " <<<"$OUT") -eq 8 ]]'
+assert "READY never shortens the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+{ row 1 done x-w1 "$NOW"; row 2 open '' 0 1; row 3 open '' 0 2; } >"$CREW/board.tsv"
+sweep 0
+assert "only the head of a chain is READY" 'has "READY 2" && ! has "READY 3" && ! has_re "^DEPS"'
+{ row 1 done x-w1 "$NOW"; row 2 done x-w2 "$NOW" 1; } >"$CREW/board.tsv"
+sweep 0
+assert "ALL-DONE comes before READY and DEPS" '[[ $OUT == ALL-DONE ]]'
+
+echo "quiet"
+export CREW_QUIET=100
+NOW=$(date +%s)
+OLD=$((NOW - 1000))
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+mkdir -p "$CREW/items"/{1..11}
+gc() { git -C "$REPO" -c user.name=t -c user.email=t@example.com "$@"; }
+tree=$(gc mktree </dev/null)
+gc update-ref refs/heads/w/3 "$(GIT_COMMITTER_DATE="$NOW +0000" gc commit-tree -m new "$tree")"
+gc update-ref refs/heads/w/4 "$(GIT_COMMITTER_DATE="$OLD +0000" gc commit-tree -m old "$tree")"
+sleep 30 &
+LIVE=$!
+PIDS+=("$LIVE")
+live_start=$(awk '{print $22}' "/proc/$LIVE/stat")
+{
+  for i in 1 2 3 4 5 6 7 8 9; do row "$i" assigned "x-w$i" "$OLD"; done
+  row 10 assigned x-w10 "$NOW"
+  row 11 assigned x-w11 soon
+} >"$CREW/board.tsv"
+echo "test red" >"$CREW/items/2/notes.md"
+printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/5/merging"
+printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/6/merging"
+touch -d "@$OLD" "$CREW/items/6/merging"
+echo "status: question" >"$CREW/items/7/report.md"
+touch -d "@$((OLD + 10))" "$CREW/items/7/report.md"
+echo "status: blocked" >"$CREW/items/8/report.md"
+touch -d "@$((OLD + 10))" "$CREW/items/8/report.md"
+echo "status: question" >"$CREW/items/9/report.md"
+touch -d "@$((OLD - 10))" "$CREW/items/9/report.md"
+agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 working' 'x-w5 working' 'x-w6 working' \
+  'x-w7 working' 'x-w8 working' 'x-w9 working' 'x-w10 working' 'x-w11 working'
+sweep 0
+assert "no progress inside the interval is QUIET, after IDLE" 'has "WORKER x-w1 item 1 idle IDLE QUIET"'
+assert "a newer notes.md is progress" 'has "WORKER x-w2 item 2 working"'
+assert "a newer commit on the item branch is progress" 'has "WORKER x-w3 item 3 working"'
+assert "an old commit on the item branch is not progress" 'has "WORKER x-w4 item 4 working QUIET"'
+assert "a fresh live merging file is not QUIET" 'has "WORKER x-w5 item 5 working MERGING"'
+assert "a live merging file older than the interval is MERGING QUIET" 'has "WORKER x-w6 item 6 working MERGING QUIET"'
+assert "a current question report is not QUIET" 'has "WORKER x-w7 item 7 working"'
+assert "a current blocked report is not QUIET" 'has "WORKER x-w8 item 8 working"'
+assert "a question report older than the row update is QUIET again" 'has "WORKER x-w9 item 9 working QUIET"'
+assert "a recent row update is progress" 'has "WORKER x-w10 item 10 working"'
+assert "an unparseable updated counts as 0 for QUIET" 'has "WORKER x-w11 item 11 working QUIET"'
+kill "$LIVE" 2>/dev/null || true
+wait "$LIVE" 2>/dev/null || true
+export CREW_QUIET=1000000
+
+echo "reflect"
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
+rm "$CREW/reflections.md"
+sweep 0
+assert "a missing reflections.md prints REFLECT" 'has REFLECT'
+date >"$CREW/reflections.md"
+sweep 0
+assert "a fresh reflections.md prints no REFLECT" '! has REFLECT'
+touch -d "@$(($(date +%s) - 200))" "$CREW/reflections.md"
+export CREW_REFLECT_EVERY=100
+sweep 0
+assert "a reflections.md older than the interval prints REFLECT" 'has REFLECT'
+unset CREW_REFLECT_EVERY
+sweep 0
+assert "the default interval is longer than 200 seconds" '! has REFLECT'
+date >"$CREW/reflections.md"
+{ row 1 done x-w1; } >"$CREW/board.tsv"
+rm "$CREW/reflections.md"
+sweep 0
+assert "ALL-DONE comes before REFLECT" '[[ $OUT == ALL-DONE ]]'
+date >"$CREW/reflections.md"
+{ row 1 open ''; } >"$CREW/board.tsv"
+
+echo "sweep-check"
+cat >"$CREW/sweep-check" <<'EOF'
+#!/usr/bin/env bash
+seq 1 25
+pwd
+echo "locks=${GIT_OPTIONAL_LOCKS:-unset}"
+EOF
+chmod +x "$CREW/sweep-check"
+RC=0
+OUT=$(cd "$REPO/sub" && "$SWEEP" 0 2>&1) || RC=$?
+assert "sweep-check runs in the main checkout" 'has "CHECK $REPO"'
+assert "sweep-check runs with optional git locks off" 'has "CHECK locks=0"'
+assert "sweep-check output is capped to its last 20 lines" '[[ $(grep -c "^CHECK " <<<"$OUT") -eq 20 ]] && has "CHECK 8" && ! has "CHECK 7"'
+assert "a passing sweep-check prints no failure" '[[ $RC -eq 0 ]] && ! has_re "^CHECK failed"'
+
+printf '#!/usr/bin/env bash\necho bad\nexit 3\n' >"$CREW/sweep-check"
+sweep 0
+assert "a failing sweep-check prints its output and exit status" 'has "CHECK bad" && has "CHECK failed: sweep-check exited 3"'
+assert "a failing sweep-check is not an ERROR and keeps exit 0" '[[ $RC -eq 0 ]] && ! has_re "^ERROR"'
+printf '#!/usr/bin/env bash\nprintf partial\nexit 3\n' >"$CREW/sweep-check"
+sweep 0
+assert "output without a final newline keeps the failure on its own line" 'has "CHECK partial" && has "CHECK failed: sweep-check exited 3"'
+
+printf '#!/usr/bin/env bash\nsleep 10\n' >"$CREW/sweep-check"
+export CREW_SWEEP_CHECK_TIMEOUT=1
+sweep 0
+assert "a sweep-check past its timeout is stopped and named" '[[ $ELAPSED -lt 5000 ]] && has "CHECK failed: sweep-check timed out after 1 s"'
+unset CREW_SWEEP_CHECK_TIMEOUT
+
+printf '#!/usr/bin/env bash\nsleep 10 &\necho started\n' >"$CREW/sweep-check"
+sweep 0
+assert "a background child holding the check output does not stall the sweep" '[[ $ELAPSED -lt 5000 ]] && has "CHECK started"'
+
+chmod -x "$CREW/sweep-check"
+sweep 0
+assert "a sweep-check that is not executable is named" 'has "CHECK failed: sweep-check is not executable"'
+rm "$CREW/sweep-check"
+sweep 0
+assert "no sweep-check prints no CHECK line" '! has_re "^CHECK"'
 
 echo "worker role"
 set_role worker

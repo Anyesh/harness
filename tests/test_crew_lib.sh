@@ -64,6 +64,15 @@ assert "slug base is cut to 21 characters" '[[ $slug == "a-very-long-repositor-$
 assert "slug is at most 26 characters" '[[ ${#slug} -le 26 ]]'
 assert "the longest agent name fits herdr's limit" '[[ "$slug-old99" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]'
 
+printf '1\topen\t\tw/1\tmain\t0\tfirst\n2\topen\t\tw/2\tmain\t0\tsecond\t 1 , ,3 ' >"$TMP_DIR/board.tsv"
+rows=$(crew_board "$TMP_DIR/board.tsv" | while IFS=$'\037' read -r id _ owner _ _ _ title deps; do printf '%s|%s|%s|%s\n' "$id" "$owner" "$title" "$deps"; done)
+assert "crew_board keeps empty columns in place" '[[ $(head -n 1 <<<"$rows") == "1||first|" ]]'
+assert "crew_board keeps a last row without a newline and normalises its deps" '[[ $(tail -n 1 <<<"$rows") == "2||second|1,3" ]]'
+
+printf 'summary\nstatus:  question \nstatus: done\n' >"$TMP_DIR/report.md"
+assert "report status is the first status line, trimmed" '[[ $(crew_report_status "$TMP_DIR/report.md") == question ]]'
+assert "a missing report has an empty status" '[[ -z $(crew_report_status "$TMP_DIR/none.md") ]]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
