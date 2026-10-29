@@ -107,7 +107,7 @@ EOF
   git -C "$repo" config user.name "Eval User"
   git -C "$repo" config user.email "eval"
   git -C "$repo" add -A
-  git -C "$repo" commit -q -m "Initial commit"
+  LEAKGUARD_SKIP=1 git -C "$repo" commit -q -m "Initial commit"
 }
 
 prompt_for() {
@@ -283,6 +283,17 @@ verdict() {
       [[ "$(grep -m1 '^## ' <<<"$plan")" == "## In short" ]] || fails+=" first-section-not-in-short"
       grep -qiE '^## Out of scope' <<<"$plan" || fails+=" no-out-of-scope"
       grep -qiE '^## Verification' <<<"$plan" || fails+=" no-verification"
+      local order
+      order=$(tool_uses "$stream" | jq -r 'if .name == "Agent" or .name == "Task" then "R"
+        elif (.name == "Write" or .name == "Edit") and ((.input.file_path // "") | test("/plans/")) then "E"
+        elif .name == "ExitPlanMode" then "X" else empty end' | tr -d '\n')
+      order=${order%%X*}
+      [[ $order == *E* ]] && order=${order#*E}
+      if [[ $order != *R* ]]; then
+        fails+=" plan-not-reviewed"
+      elif [[ ${order##*R} == *E* ]]; then
+        fails+=" plan-changed-after-last-review"
+      fi
       ;;
     diagnose)
       [[ -n "$(edits_under "$stream" "$repo/")" ]] && fails+=" edited-files"
@@ -307,7 +318,8 @@ run_one() {
   make_repo "$repo"
   cp "$variant" "$repo/CLAUDE.md"
   git -C "$repo" add CLAUDE.md
-  git -C "$repo" commit -q --amend --no-edit
+  # The variant is a rendered CLAUDE.md, whose machine paths leakguard rejects.
+  LEAKGUARD_SKIP=1 git -C "$repo" commit -q --amend --no-edit
   prompt=$(prompt_for "$check")
 
   settings='{}'
