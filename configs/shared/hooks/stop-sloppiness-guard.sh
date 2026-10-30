@@ -1,6 +1,8 @@
 #!/bin/bash
 # Stop hook: detect sloppy shortcut-seeking language in the last assistant turn.
-# On detection, block Stop and feed a strong correction back into Claude's context.
+# On detection, continue the turn and feed a strong correction back into the agent's context.
+# Pass "claude" as $1 for Claude Code's additionalContext shape; Codex continues a Stop only on
+# decision:block, which stays the default.
 # Loop-cap per session so we never get stuck in an infinite re-enter.
 
 set -uo pipefail
@@ -130,8 +132,9 @@ harness_log_block stop-sloppiness-guard "$INPUT" "$KIND: $(head -n 1 <<<"$FOUND"
 if [[ "$HOOK_EVENT" == "stop" ]]; then
     # Cursor stop hook cannot block — send a followup_message to re-engage the agent
     jq -n --arg msg "$REASON" '{followup_message: $msg}'
+elif [ "${1:-}" = "claude" ]; then
+    jq -n --arg msg "$REASON" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $msg}}'
 else
-    # Claude Code Stop hook blocks via decision:block
     jq -n --arg reason "$REASON" '{decision: "block", reason: $reason}'
 fi
 exit 0

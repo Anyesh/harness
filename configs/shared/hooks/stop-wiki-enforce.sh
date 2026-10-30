@@ -1,8 +1,9 @@
 #!/bin/bash
 # Cross-agent stop hook: when the agent tries to end a turn after substantial
-# code work without having written any wiki pages, push back. Claude uses a
-# block decision; Cursor uses a followup_message that auto-submits as the
-# next user prompt.
+# code work without having written any wiki pages, push back. Claude gets
+# additionalContext, which continues the turn as hook feedback rather than an
+# error; Cursor uses a followup_message that auto-submits as the next user
+# prompt.
 set -uo pipefail
 
 [ "${HARNESS_UNATTENDED:-}" = "1" ] && exit 0
@@ -201,6 +202,6 @@ harness_log_block stop-wiki-enforce "$INPUT" "wiki not updated: $WORK_SUMMARY"
 if [ "$AGENT" = "cursor" ]; then
     jq -n --arg msg "$MSG" '{followup_message: $msg}'
 else
-    jq -n --arg msg "$MSG" '{decision: "block", reason: $msg}'
+    jq -n --arg msg "$MSG" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $msg}}'
 fi
 exit 0
