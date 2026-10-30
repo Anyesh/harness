@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import { BaseStore, JsonFile } from "./base.ts";
 import { LocalStore } from "./local.ts";
 import { MemoryRemote } from "./memory_remote.ts";
+import { winnerOf } from "./reconcile.ts";
 import { Blocked, type BlockReason, type PauseWindow, Syncer } from "./sync.ts";
 
 const CONFIG = {
@@ -127,6 +128,30 @@ Deno.test("a change whose watcher event was dropped is pushed by the periodic sc
     await r.syncer.idle();
     await write(r, "wiki/a.md", "v2, unseen by the watcher");
     await until(async () => (await r.remote.text("wiki/a.md")) === "v2, unseen by the watcher");
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("a case-only rename is pushed from the side that made it and followed by the other", async () => {
+  const r = await rig();
+  await write(r, "wiki/cr.md", "same text");
+  await r.start();
+  const remotePath = async () => {
+    const leaves = await r.remote.readLeaves("wiki/cr.md");
+    return leaves.length ? winnerOf(leaves).path : null;
+  };
+  try {
+    await until(async () => (await r.remote.text("wiki/cr.md")) === "same text");
+    await r.syncer.idle();
+    await Deno.rename(`${r.root}/wiki/cr.md`, `${r.root}/wiki/Cr.md`);
+    await until(async () => (await remotePath()) === "wiki/Cr.md");
+    await r.syncer.idle();
+    assertEquals(files(r), ["Cr.md"]);
+    await r.remote.edit("wiki/CR.md", "same text");
+    await until(() => files(r).join() === "CR.md");
+    await r.syncer.idle();
+    assertEquals(await remotePath(), "wiki/CR.md");
   } finally {
     await r.stop();
   }

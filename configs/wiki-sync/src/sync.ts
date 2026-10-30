@@ -9,6 +9,7 @@ import {
 } from "./local.ts";
 import { errText, log } from "./log.ts";
 import {
+  ancestryOf,
   type CopyAction,
   type CopyDest,
   emptyState,
@@ -17,11 +18,12 @@ import {
   type Plan,
   reconcile,
   remember,
+  type RemoteAction,
   type RevContent,
   winnerOf,
   withSuffix,
 } from "./reconcile.ts";
-import type { Change, FeedHandle, RemoteStore, RevBody } from "./remote.ts";
+import type { Change, FeedHandle, RemoteLeaf, RemoteStore, RevBody } from "./remote.ts";
 
 export type BlockReason = "paused" | "locked" | "feed";
 
@@ -481,6 +483,23 @@ export class Syncer {
     return { existing: [...existing], fallback: rec.path || remotePath || hint.path || id };
   }
 
+  // A case-only rename keeps the content hash, so reconcile sees no local change; it is pushed
+  // when the disk is at the synced winner and only the local name moved away from the synced one.
+  private caseRenamePush(
+    rec: PathRecord,
+    next: PathRecord,
+    localPath: string,
+    read: LocalRead,
+    winner: RemoteLeaf | null,
+    plan: Plan,
+  ): RemoteAction | undefined {
+    if (plan.local || read.kind !== "file" || !winner || winner.hardDeleted || winner.softDeleted) return;
+    if (!rec.path || localPath === rec.path || winner.path !== rec.path) return;
+    if (next.synced?.rev !== winner.rev || next.synced.hash !== read.hash) return;
+    next.pending = { parentRev: winner.rev, hash: read.hash };
+    return { kind: "put", parentRev: winner.rev, parentAncestry: ancestryOf(winner) };
+  }
+
   private async handle(id: string, hint: Hint): Promise<Outcome> {
     if ((await this.d.local.rootInode()) === null) throw new RootMissing(this.d.local.wikiDir);
     if (this.paused) throw new Blocked("paused");
@@ -531,12 +550,13 @@ export class Syncer {
         );
       }
 
-      if (plan.remote) {
+      const remote = plan.remote ?? this.caseRenamePush(rec, next, localPath, read, winner, plan);
+      if (remote) {
         await this.guard();
         await this.save(next);
-        const r = plan.remote.kind === "put" && read.kind === "file"
-          ? await this.d.remote.casPut(localPath, await read.bytes(), read.stat, plan.remote.parentRev)
-          : await this.d.remote.casDelete(localPath, plan.remote.parentRev!);
+        const r = remote.kind === "put" && read.kind === "file"
+          ? await this.d.remote.casPut(localPath, await read.bytes(), read.stat, remote.parentRev)
+          : await this.d.remote.casDelete(localPath, remote.parentRev!);
         if (r === "conflict") {
           if (++conflicts > this.cfg.maxConflicts) throw new Error("kept conflicting with concurrent writes");
           rec = { ...next, pending: undefined };
@@ -545,7 +565,7 @@ export class Syncer {
         const hash = read.kind === "file" ? read.hash : null;
         next.synced = {
           rev: r.rev,
-          ancestry: [r.rev, ...plan.remote.parentAncestry].slice(0, HISTORY_LIMIT),
+          ancestry: [r.rev, ...remote.parentAncestry].slice(0, HISTORY_LIMIT),
           hash,
           mtime: r.mtime,
         };
@@ -553,7 +573,7 @@ export class Syncer {
         next.path = localPath;
         next.stat = read.kind === "file" ? this.statWithHash(read) : undefined;
         remember(next, next.synced);
-        log.info(`${plan.remote.kind === "put" ? "pushed" : "deleted"} ${localPath} (${r.rev.slice(0, 12)})`);
+        log.info(`${remote.kind === "put" ? "pushed" : "deleted"} ${localPath} (${r.rev.slice(0, 12)})`);
         await this.save(next);
         rec = next;
         continue;
