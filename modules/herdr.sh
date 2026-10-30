@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+source "$REPO_ROOT/lib/verified_download.sh"
+
 HERDR_VERSION="0.9.5"
 HERDR_GO_VERSION="1.27.2"
 HERDR_RUST_VERSION="1.96.1"
@@ -106,29 +108,6 @@ herdr_rust_sha256() {
   esac
 }
 
-herdr_sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | cut -d' ' -f1
-  else
-    shasum -a 256 "$1" | cut -d' ' -f1
-  fi
-}
-
-herdr_fetch_verified() {
-  local url="$1" expected="$2" out="$3" actual
-  if ! curl -fsSL --retry 3 -o "$out" "$url"; then
-    rm -f "$out"
-    log_warn "download failed: $url"
-    return 1
-  fi
-  actual=$(herdr_sha256 "$out")
-  if [[ "$actual" != "$expected" ]]; then
-    rm -f "$out"
-    log_warn "sha256 mismatch for $url (expected $expected, got $actual)"
-    return 1
-  fi
-}
-
 herdr_bin() {
   if [[ -x "$HOME/.local/bin/herdr" ]]; then
     printf '%s\n' "$HOME/.local/bin/herdr"
@@ -169,7 +148,7 @@ herdr_ensure_binary() {
   [[ -e "$dest" ]] && existed=true
   mkdir -p "$HOME/.local/bin"
   tmp=$(mktemp "$HOME/.local/bin/.herdr.XXXXXX")
-  if ! herdr_fetch_verified "https://github.com/herdrdev/herdr/releases/download/v$HERDR_VERSION/herdr-$platform" \
+  if ! fetch_verified "https://github.com/herdrdev/herdr/releases/download/v$HERDR_VERSION/herdr-$platform" \
     "$(herdr_asset_sha256 "$platform")" "$tmp"; then
     rm -f "$tmp"
     log_error "herdr $HERDR_VERSION was not installed"
@@ -236,7 +215,7 @@ herdr_ensure_go() {
   local stage
   mkdir -p "$(dirname "$root")"
   stage=$(mktemp -d "$(dirname "$root")/.go.XXXXXX")
-  if ! herdr_fetch_verified "https://go.dev/dl/go$HERDR_GO_VERSION.$platform.tar.gz" \
+  if ! fetch_verified "https://go.dev/dl/go$HERDR_GO_VERSION.$platform.tar.gz" \
     "$(herdr_go_sha256 "$platform")" "$stage/go.tar.gz" || ! tar -xzf "$stage/go.tar.gz" -C "$stage"; then
     rm -rf "$stage"
     log_error "$label was not installed"
@@ -301,7 +280,7 @@ herdr_install_rust_components() {
   local stage="$1" target="$2" component name out
   for component in rustc cargo rust-std; do
     name="$component-$HERDR_RUST_VERSION-$target"
-    herdr_fetch_verified "https://static.rust-lang.org/dist/$name.tar.xz" \
+    fetch_verified "https://static.rust-lang.org/dist/$name.tar.xz" \
       "$(herdr_rust_sha256 "$component" "$target")" "$stage/$name.tar.xz" || return 1
     tar -xJf "$stage/$name.tar.xz" -C "$stage" || return 1
     rm -f "$stage/$name.tar.xz"
@@ -522,9 +501,9 @@ herdr_deploy_config() {
     log_error "herdr config.toml not deployed, herdr config check failed: $check"
     return 1
   fi
-  [[ -f "$dest" ]] && before=$(herdr_sha256 "$dest")
+  [[ -f "$dest" ]] && before=$(sha256_file "$dest")
   deploy_file "$src" "$dest" "configs/herdr/config.toml" "false" "herdr config.toml" || return 1
-  [[ "$DRY_RUN" == "true" || -z "$bin" || "$(herdr_sha256 "$dest")" == "$before" ]] && return 0
+  [[ "$DRY_RUN" == "true" || -z "$bin" || "$(sha256_file "$dest")" == "$before" ]] && return 0
 
   if [[ -n "$(herdr_server_version "$bin")" ]]; then
     "$bin" server reload-config >/dev/null 2>&1 && log_info "reloaded the running herdr server's config" ||

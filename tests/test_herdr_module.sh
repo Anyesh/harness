@@ -232,12 +232,12 @@ GOOD_SHA=$(printf 'payload' | sha256sum | cut -d' ' -f1)
 BAD_SHA=$(printf '0%.0s' {1..64})
 
 rc=0
-herdr_fetch_verified https://example.invalid/x "$BAD_SHA" "$TMP/bad" 2>/dev/null || rc=$?
+fetch_verified https://example.invalid/x "$BAD_SHA" "$TMP/bad" 2>/dev/null || rc=$?
 assert "digest mismatch fails" '[[ $rc -ne 0 ]]'
 assert "digest mismatch leaves no file" '[[ ! -e "$TMP/bad" ]]'
 
 rc=0
-herdr_fetch_verified https://example.invalid/x "$GOOD_SHA" "$TMP/good" 2>/dev/null || rc=$?
+fetch_verified https://example.invalid/x "$GOOD_SHA" "$TMP/good" 2>/dev/null || rc=$?
 assert "matching digest succeeds" '[[ $rc -eq 0 && -s "$TMP/good" ]]'
 
 rc=0
@@ -337,7 +337,7 @@ export FIXTURES
 BAD_COMPONENT=""
 herdr_rust_sha256() {
   [[ "$1" == "$BAD_COMPONENT" ]] && { echo "$BAD_SHA"; return; }
-  herdr_sha256 "$FIXTURES/$1-$HERDR_RUST_VERSION-$2.tar.xz"
+  sha256_file "$FIXTURES/$1-$HERDR_RUST_VERSION-$2.tar.xz"
 }
 RUST_ROOT=$(herdr_rust_root)
 no_stage() { ! compgen -G "$(dirname "$RUST_ROOT")/.rust.*" >/dev/null; }
