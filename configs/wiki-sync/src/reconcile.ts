@@ -384,17 +384,14 @@ function decide(input: ReconcileInput): Plan {
     }
   } else if (
     baseLeaf && baseLeaf !== winner && synced!.hash !== null && synced!.hash !== winnerV &&
-    st.decisions[baseLeaf.rev]?.state !== "copied"
+    !st.decisions[baseLeaf.rev]
   ) {
-    const fromDisk = localHash === synced!.hash;
-    const dest = destFor(path, baseLeaf.mtime, synced!.hash);
-    copies.push({
-      source: fromDisk ? { kind: "local" } : { kind: "rev", rev: baseLeaf.rev },
-      dest,
-      keep: fromDisk,
-      rev: baseLeaf.rev,
-    });
-    st.decisions[baseLeaf.rev] = { state: "copied", dest };
+    st.decisions[baseLeaf.rev] = {
+      state: "pending",
+      firstSeen: now,
+      dest: destFor(path, baseLeaf.mtime, synced!.hash),
+      wasBase: true,
+    };
   }
 
   if (winnerV === null) {

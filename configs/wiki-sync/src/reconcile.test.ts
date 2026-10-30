@@ -481,17 +481,20 @@ Deno.test("a revert descending from the base that loses is still copied", () => 
   assertObjectMatch(p.state.decisions["3-v"], { state: "pending" });
 });
 
-Deno.test("the base leaf losing to a deeper sibling is copied at once, before the overwrite", () => {
-  const p = run({
+Deno.test("the base leaf losing to a deeper sibling is copied like any loser once it stays losing", () => {
+  const input = {
     state: state({ synced: synced("2-a", "A", ["1-r"]) }),
     local: file("A"),
     leaves: [leaf("2-a", ["1-r"]), leaf("6-o", ["5-o", "4-o", "3-o", "2-o", "1-r"])],
     content: content({ "2-a": "A", "6-o": "O" }),
-  });
+  };
+  const p = run(input);
   assertEquals(p.local, { kind: "write", rev: "6-o" });
-  assertEquals(p.copies.length, 1);
-  assertObjectMatch(p.copies[0], { source: { kind: "local" }, keep: true, rev: "2-a" });
-  assertObjectMatch(p.state.decisions["2-a"], { state: "copied" });
+  assertEquals(p.copies.length, 0);
+  assertEquals(p.deferred.length, 0);
+  assertObjectMatch(p.state.decisions["2-a"], { state: "pending", wasBase: true });
+  const later = run({ ...input, state: p.state, local: file("O"), now: NOW + 31_000 });
+  assertEquals(later.deferred.map((d) => d.rev), ["2-a"]);
 });
 
 Deno.test("generated losers, deletion losers and same-content losers get no copy", () => {
