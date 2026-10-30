@@ -30,13 +30,13 @@ First run clones the repo to `~/.harness`, detects installed tools, and deploys 
 
 ### Lite install (no memory)
 
-For a machine that should get the hooks, skills, commands and rules but neither second-brain nor the wiki (an interview laptop, say), pass `--no-memory`. Through the curl bootstrap the flag goes after `bash -s` and the double-hyphen separator:
+For a machine that should get the hooks, skills, commands and rules but neither second-brain nor the wiki nor wiki-sync (an interview laptop, say), pass `--no-memory`. Through the curl bootstrap the flag goes after `bash -s` and the double-hyphen separator:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash -s -- --no-memory
 ```
 
-`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain and wiki modules (no cargo build, daemon, sync timer or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands and the `WIKI_VAULT` env entry. `--only second-brain` and `--only wiki` cannot be combined with it.
+`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain, wiki and wiki-sync modules (no cargo build, daemon, sync timer, wiki sync service or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands and the `WIKI_VAULT` env entry. `--only second-brain`, `--only wiki` and `--only wiki-sync` cannot be combined with it.
 
 Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain systemd unit and sync timer, the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
 
@@ -199,6 +199,13 @@ herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               instead of a pinned commit, so each install updates it.
 second-brain  second-brain daemon + MCP server registration
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
+wiki-sync     Headless Self-hosted LiveSync for the agent wiki folder: a
+              Deno daemon on commonlib (Deno sha256-pinned, into
+              ~/.local/share/harness/wiki-sync) run as a systemd user
+              service or launch agent with a watchdog. Reads the CouchDB
+              login and E2EE passphrase from the vault's LiveSync plugin
+              settings and pauses while Obsidian has the vault open.
+              Skipped under WSL and when the vault has no LiveSync plugin.
 watch         File watcher for auto-ingest
 leakguard     gitleaks + global pre-commit scan for personal info/secrets;
               pairs with the publish-leak-guard Claude hook that scans built
@@ -238,6 +245,20 @@ $WIKI_VAULT/
 └── WIKI_SCHEMA.md          ← conventions
 ```
 
+## Wiki sync (headless LiveSync)
+
+`wiki-sync` keeps `<vault>/wiki` (or `Work/agent-wiki/wiki` on a work machine) in sync with the LiveSync CouchDB while Obsidian is closed, so agent writes reach other devices without opening Obsidian. Everything lives in `~/.local/share/harness/wiki-sync/`: `run.sh` (the service entry point), `watchdog.sh`, `reset.sh`, `state/` (sync bases, feed checkpoint, `health.json`), `recovered/` and `snapshots/`.
+
+- **Install or update**: `./install.sh --only wiki-sync`. The first install snapshots the wiki into `snapshots/first-start-<time>.tar.gz` before the first start; a reinstall with nothing changed does nothing.
+- **Start, stop, restart**: Linux `systemctl --user start|stop|restart wiki-sync`; macOS `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.harness.wiki-sync.plist`, `launchctl bootout gui/$(id -u)/com.harness.wiki-sync`, `launchctl kickstart -k gui/$(id -u)/com.harness.wiki-sync` (stop with `bootout`: the agent is `KeepAlive`, so a killed one comes straight back).
+- **Logs**: `journalctl --user -u wiki-sync` on Linux, `~/Library/Logs/wiki-sync.log` on macOS. A new agent session prints a `WIKI-SYNC:` line when the service is down, unhealthy, holding paths, or has kept conflicting versions.
+- **Obsidian open**: the service pauses while Obsidian has this vault open and lets the plugin sync; it resumes when Obsidian closes. `paused` in `health.json` is not an error.
+- **Conflicts**: when two machines edit one note, every machine ends with the version Obsidian shows and the other is kept beside it as `<name>.conflict-<time>-<hash>.<ext>`. Merge what you need into the note and delete the copy; to pick the copy instead, `mv` it over the note. Versions kept on a first start or reset, where there was nothing to compare against, go to `recovered/` outside the vault.
+- **Held deletions**: deleting more than 10% of the synced files at once (and at least 20) is held, not pushed. Check the deletions were meant, then run `~/.local/share/harness/wiki-sync/run.sh --release-deletions`.
+- **Undecodable notes**: a note whose CouchDB version cannot be decrypted or decoded is held and retried every few minutes; the log names it. Saving the note again from a device that has a good copy clears it.
+- **Reset**: `~/.local/share/harness/wiki-sync/reset.sh` stops the service, snapshots the wiki, clears the sync state and starts again as a first start. Run it on every machine after restoring or rebuilding the CouchDB database (health shows `locked`, or paths held as `regressed`), and after pointing the plugin at a different server, database or wiki folder.
+- **Credentials**: nothing is stored twice. The watchdog restarts the service when the plugin's login or passphrase changes; a rejected login is reported, not retried in a loop.
+
 ## Template Variables
 
 Set in `~/.harness.env`:
@@ -257,7 +278,7 @@ HOME_DIR=/home/youruser
 ./install.sh --only claude      # Single module
 ./install.sh --force            # Redeploy even if unchanged
 ./install.sh --dry-run          # Preview without changes
-./install.sh --no-memory        # Skip second-brain and the wiki
+./install.sh --no-memory        # Skip second-brain, the wiki and wiki-sync
 ./install.sh --override-settings  # Replace ~/.claude/settings.json instead of merging into it
 ./install.sh status             # Show managed file state
 ./install.sh uninstall          # Restore all backups
@@ -316,6 +337,7 @@ claude mcp list    # Should show 5 servers connected
 - bash 4+
 - git
 - jq
+- curl, unzip and tar (wiki-sync's Deno download and snapshots)
 - perl (template rendering)
 - `claude` CLI (for plugin/MCP registration; configs deploy without it)
 - Node.js (for web-strip)
