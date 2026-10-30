@@ -52,6 +52,7 @@ export interface SyncConfig {
   quietMs: number;
   retryMs: number;
   guardMs: number;
+  guardWindowMs: number;
   scanMs: number;
   checkpointMs: number;
   feedRestartMs: number;
@@ -63,6 +64,7 @@ export const DEFAULT_CONFIG: SyncConfig = {
   quietMs: 2_000,
   retryMs: 60_000,
   guardMs: 10_000,
+  guardWindowMs: 300_000,
   scanMs: 300_000,
   checkpointMs: 10_000,
   feedRestartMs: 10_000,
@@ -166,6 +168,9 @@ export class Syncer {
   private readonly revCache = new Map<string, RevBody>();
   private guardBatch = new Map<string, Hint>();
   private guardTimer: Timer | null = null;
+  private pushedDeletions: number[] = [];
+  private skippedGen = -1;
+  private pass: FeedHandle | null = null;
   private heldDeletions = new Map<string, Hint>();
   private intervals: ReturnType<typeof setInterval>[] = [];
   private feed: FeedHandle | null = null;
@@ -353,17 +358,26 @@ export class Syncer {
       await this.restartFeed();
       await this.scan();
     }
-    if (this.heldDeletions.size > 0) {
-      try {
-        await Deno.stat(this.d.releaseMarker);
+    if (await this.releaseRequested()) {
+      await Deno.remove(this.d.releaseMarker);
+      if (this.heldDeletions.size === 0) {
+        log.notice("ignoring a deletion release with no deletions held");
+      } else {
         const batch = [...this.heldDeletions];
         this.heldDeletions.clear();
         log.notice(`releasing ${batch.length} held deletions`);
-        await Promise.all(batch.map(([id, hint]) => this.enqueue(id, { ...hint, released: true })));
-        await Deno.remove(this.d.releaseMarker).catch(() => undefined);
-      } catch (e) {
-        if (!(e instanceof Deno.errors.NotFound)) throw e;
+        for (const [id, hint] of batch) void this.enqueue(id, { ...hint, released: true });
       }
+    }
+  }
+
+  private async releaseRequested(): Promise<boolean> {
+    try {
+      await Deno.stat(this.d.releaseMarker);
+      return true;
+    } catch (e) {
+      if (e instanceof Deno.errors.NotFound) return false;
+      throw e;
     }
   }
 
@@ -526,6 +540,7 @@ export class Syncer {
     if (this.paused) throw new Blocked("paused");
     let rec: PathRecord = this.d.bases.get(id) ?? { ...emptyState(), id, path: hint.path ?? "" };
     let conflicts = 0;
+    const kept = new Map<string, CopyDest>();
     for (let pass = 0; pass < 10; pass++) {
       const leaves = await this.d.remote.readLeaves(id);
       const liveLeaves = leaves.filter((l) => !l.hardDeleted);
@@ -561,13 +576,14 @@ export class Syncer {
       this.heldDeletions.delete(id);
       const next: PathRecord = { ...rec, ...plan.state, held: undefined, path: rec.path || localPath };
 
-      for (const c of plan.copies) await this.writeCopy(id, c, read, next);
+      for (const c of plan.copies) await this.writeCopy(id, c, read, next, kept);
       for (const dfr of plan.deferred) {
         await this.writeCopy(
           id,
           { source: { kind: "rev", rev: dfr.rev }, dest: dfr.dest, keep: false, rev: dfr.rev },
           read,
           next,
+          kept,
         );
       }
 
@@ -628,7 +644,9 @@ export class Syncer {
           await this.save({ ...rec, incoming: next.synced ?? undefined });
           const stat = await this.d.local.write(target, bytes, mtime);
           if (target !== localPath && (await this.d.local.exists(localPath))) {
-            await this.d.local.remove(localPath);
+            // A case-insensitive volume can keep the old name on the file just written.
+            const old = await this.d.local.stat(localPath);
+            if (old && old.ino !== stat.ino) await this.d.local.remove(localPath);
           }
           const hash = body ? body.content.hash : (read as FileRead).hash;
           const generated = body ? body.content.generated : (read as FileRead).generated;
@@ -662,7 +680,15 @@ export class Syncer {
     else await this.d.bases.put(rec);
   }
 
-  private async writeCopy(id: string, c: CopyAction, read: LocalRead, next: PathRecord): Promise<void> {
+  // `kept` maps content hashes to the copies this handler run already wrote, so a pass repeated after a
+  // conflict or a changed stat does not write the same version under a second name.
+  private async writeCopy(
+    id: string,
+    c: CopyAction,
+    read: LocalRead,
+    next: PathRecord,
+    kept: Map<string, CopyDest>,
+  ): Promise<void> {
     await this.guard();
     let bytes: Uint8Array;
     let mtime: number;
@@ -678,8 +704,14 @@ export class Syncer {
     }
     const hash = await sha256Hex(bytes);
     const record = (dest: CopyDest) => {
+      kept.set(hash, dest);
       if (c.rev) next.decisions[c.rev] = { state: "copied", dest };
     };
+    const already = kept.get(hash);
+    if (already) {
+      record(already);
+      return;
+    }
     if (c.dest.where === "recovered") {
       const target = `${this.d.recoveredDir}/${c.dest.path}`;
       try {
@@ -746,21 +778,31 @@ export class Syncer {
       this.guardTimer = null;
       const batch = this.guardBatch;
       this.guardBatch = new Map();
-      const withContent = this.d.bases.withContent();
-      if (batch.size >= 20 && batch.size > withContent * 0.1) {
+      const now = Date.now();
+      this.pushedDeletions = this.pushedDeletions.filter((t) => now - t < this.cfg.guardWindowMs);
+      const recent = this.pushedDeletions.length;
+      const total = batch.size + recent;
+      const synced = this.d.bases.withContent() + recent;
+      if (total >= 20 && total > synced * 0.1) {
         for (const [k, v] of batch) this.heldDeletions.set(k, v);
         log.warn(
-          `held ${batch.size} local deletions (of ${withContent} synced files); run run.sh --release-deletions to push them`,
+          `held ${batch.size} local deletions (${total} of ${synced} synced files deleted recently); ` +
+            "run run.sh --release-deletions to push them",
         );
         return;
       }
-      for (const [k, v] of batch) void this.enqueue(k, { ...v, released: true });
+      for (const [k, v] of batch) {
+        this.pushedDeletions.push(now);
+        void this.enqueue(k, { ...v, released: true });
+      }
     }, this.cfg.guardMs);
   }
 
   private onChange(c: Change, gen: number): void {
+    if (gen !== this.feedGen) return;
     this.liveSeq = c.seq;
     if (this.paused) {
+      this.skippedGen = gen;
       void this.lock.run(c.id, () => this.observe(c.id)).catch((e) =>
         log.debug(`observe ${c.id}: ${errText(e)}`)
       );
@@ -810,10 +852,13 @@ export class Syncer {
     const gen = ++this.feedGen;
     this.feed?.cancel();
     this.feed = null;
+    this.pass?.cancel();
     this.tracked = [];
     const since = this.handledSeq;
     const pass = this.d.remote.changes({ since, live: false, onChange: (c) => this.onChange(c, gen) });
+    this.pass = pass;
     const res = await pass.done;
+    if (this.pass === pass) this.pass = null;
     if (gen !== this.feedGen) return;
     if (res.error) {
       this.remoteError = errText(res.error);
@@ -822,9 +867,12 @@ export class Syncer {
       setTimeout(() => this.recoverFeed(gen), this.cfg.feedRestartMs);
       return;
     }
-    const sentinel: Tracked = { seq: res.lastSeq, done: true, sentinel: true };
-    this.tracked.push(sentinel);
-    this.advance();
+    // Changes only observed while paused were not handled, so the pass must not count as caught up.
+    if (!this.paused && this.skippedGen !== gen) {
+      const sentinel: Tracked = { seq: res.lastSeq, done: true, sentinel: true };
+      this.tracked.push(sentinel);
+      this.advance();
+    }
     this.followLive(gen, res.lastSeq);
   }
 

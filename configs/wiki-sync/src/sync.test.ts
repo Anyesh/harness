@@ -9,6 +9,7 @@ const CONFIG = {
   quietMs: 30,
   retryMs: 200,
   guardMs: 80,
+  guardWindowMs: 5_000,
   scanMs: 60_000,
   checkpointMs: 40,
   feedRestartMs: 50,
@@ -351,6 +352,57 @@ Deno.test("a bulk local deletion is held until released; a small one is pushed",
     await until(async () => (await r.remote.text("wiki/n24.md")) === null);
     await until(() => r.syncer.health().heldDeletions === 0);
     await until(async () => !(await Deno.stat(`${r.state}/release-deletions`).then(() => true, () => false)));
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("a remote change seen while starting paused is applied after resume", async () => {
+  const r = await rig();
+  await r.remote.edit("wiki/b.md", "remote b");
+  await r.syncer.start(true);
+  try {
+    await new Promise((res) => setTimeout(res, 200));
+    await r.syncer.saveCheckpoint();
+    await r.syncer.resume();
+    await until(async () => (await read(r, "wiki/b.md")) === "remote b");
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("a release marker left with nothing held does not release a later bulk deletion", async () => {
+  const r = await rig();
+  for (let i = 0; i < 100; i++) await write(r, `wiki/n${i}.md`, `note ${i}`);
+  await r.start();
+  try {
+    await until(async () => (await r.remote.text("wiki/n99.md")) === "note 99");
+    await r.syncer.idle();
+    await Deno.writeTextFile(`${r.state}/release-deletions`, "");
+    await new Promise((res) => setTimeout(res, 150));
+    for (let i = 0; i < 25; i++) await Deno.remove(`${r.root}/wiki/n${i}.md`);
+    await until(() => r.syncer.health().heldDeletions === 25);
+    await new Promise((res) => setTimeout(res, 300));
+    assertEquals(r.syncer.health().heldDeletions, 25);
+    assertEquals(await r.remote.text("wiki/n10.md"), "note 10");
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("deletions split across guard batches are counted together", async () => {
+  const r = await rig();
+  for (let i = 0; i < 100; i++) await write(r, `wiki/n${i}.md`, `note ${i}`);
+  await r.start();
+  try {
+    await until(async () => (await r.remote.text("wiki/n99.md")) === "note 99");
+    await r.syncer.idle();
+    for (let i = 0; i < 15; i++) await Deno.remove(`${r.root}/wiki/n${i}.md`);
+    await until(async () => (await r.remote.text("wiki/n14.md")) === null);
+    await r.syncer.idle();
+    for (let i = 15; i < 30; i++) await Deno.remove(`${r.root}/wiki/n${i}.md`);
+    await until(() => r.syncer.health().heldDeletions === 15);
+    assertEquals(await r.remote.text("wiki/n20.md"), "note 20");
   } finally {
     await r.stop();
   }
