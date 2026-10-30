@@ -210,9 +210,11 @@ watch         File watcher for auto-ingest
 leakguard     gitleaks + global pre-commit scan for personal info/secrets;
               pairs with the publish-leak-guard Claude hook that scans built
               artifacts (sdists/wheels) before uv publish/twine upload.
+              The scan is the global config hook hook.leakguard, so it also
+              runs in repos that set their own core.hooksPath. The repo's
+              ruleset is generic (private IPs, local paths); your machine,
+              account and domain names come from LEAKGUARD_PERSONAL.
               Escape hatches: '#gitleaks:allow' inline, LEAKGUARD_SKIP=1.
-              Caveat: repos that set their own core.hooksPath (like this
-              one) bypass the global scan; they must scan themselves.
 lib           Shared functions (logging, template rendering, manifest)
 ```
 
@@ -269,7 +271,11 @@ GITHUB_USER=yourhandle
 DATA_ROOT=/path/to/data
 MCP_COGNITIVE_CACHE_PATH=cognitive-cache-mcp
 HOME_DIR=/home/youruser
+LEAKGUARD_PERSONAL=myhost,otherhost,mydomain.net,@myemployer.com
+CROW_COMFYUI_URL=http://gpu-box:8188
 ```
+
+`LEAKGUARD_PERSONAL` is a comma-separated list of names that must never be committed (hostnames, usernames, domains, `@domain` for email addresses); each machine re-renders its ruleset from it on install. `CROW_COMFYUI_URL` points the crow-illustrations skill at a ComfyUI server; nothing in the repo defaults to one.
 
 ## Commands
 
