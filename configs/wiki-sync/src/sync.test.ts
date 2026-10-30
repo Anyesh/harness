@@ -1,8 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
-import { BaseStore, JsonFile } from "./base.ts";
+import { BaseStore, JsonFile, sha256Hex } from "./base.ts";
 import { LocalStore } from "./local.ts";
 import { MemoryRemote } from "./memory_remote.ts";
-import { winnerOf } from "./reconcile.ts";
+import { copyName, winnerOf } from "./reconcile.ts";
 import { Blocked, type BlockReason, type PauseWindow, Syncer } from "./sync.ts";
 
 const CONFIG = {
@@ -172,6 +172,33 @@ Deno.test("an undecodable revision holds its path without stalling the checkpoin
     await until(async () => (await read(r, "wiki/bad.md")) === "repaired");
     await r.syncer.idle();
     assertEquals(r.syncer.health().unreadable, 0);
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("a winner this machine overwrites is kept even when a live copy of it is about to be deleted", async () => {
+  const r = await rig();
+  await write(r, "wiki/p.md", "base");
+  await r.start();
+  try {
+    await until(async () => (await r.remote.text("wiki/p.md")) === "base");
+    await r.syncer.idle();
+    await r.stop();
+    const old = Date.now() - 3_600_000;
+    const copy = copyName("wiki/p.md", old, await sha256Hex(new TextEncoder().encode("picked")));
+    await r.remote.edit(copy, "picked", old);
+    await r.remote.edit("wiki/p.md", "picked", old);
+    await write(r, "wiki/p.md", "newer local");
+    await r.restart();
+    await until(async () => (await r.remote.text("wiki/p.md")) === "newer local");
+    await r.syncer.idle();
+    await r.remote.softDelete(copy);
+    await until(async () => (await read(r, copy)) === null);
+    await r.syncer.idle();
+    const kept = [];
+    for (const name of files(r)) if ((await read(r, `wiki/${name}`)) === "picked") kept.push(name);
+    assertEquals(kept.length, 1);
   } finally {
     await r.stop();
   }

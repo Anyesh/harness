@@ -707,7 +707,9 @@ export class Syncer {
           }
           continue;
         }
-        const body = await this.readRev(copyId, w.rev);
+        // A version this machine overwrites gets its own copy: a live copy with the same content can be
+        // one somebody is deleting because they just picked it, which is the version being overwritten.
+        const body = c.keep ? null : await this.readRev(copyId, w.rev);
         if (body && body.content.hash === hash) {
           record({ where: "vault", path });
           return;
