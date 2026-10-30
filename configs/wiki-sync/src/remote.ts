@@ -36,4 +36,5 @@ export interface RemoteStore {
   casDelete(path: string, parentRev: string): Promise<CasResult>;
   changes(opts: { since: string; live: boolean; onChange: (c: Change) => void }): FeedHandle;
   feedTs(): number;
+  currentSeq(): Promise<string>;
 }

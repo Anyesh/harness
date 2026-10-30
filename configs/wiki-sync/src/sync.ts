@@ -205,6 +205,7 @@ export class Syncer {
       setInterval(() => this.scan().catch((e) => log.warn(`scan: ${errText(e)}`)), this.cfg.scanMs),
       setInterval(() => this.poll().catch((e) => log.warn(`poll: ${errText(e)}`)), this.cfg.pollMs),
     );
+    if (await this.rewound().catch(() => false)) await this.resetCheckpoint();
     await this.restartFeed();
     if (!paused) await this.scan();
   }
@@ -858,6 +859,20 @@ export class Syncer {
     const wasBlocked = this.feedBlocked;
     this.feedBlocked = false;
     this.remoteError = null;
+    let rewound: boolean;
+    try {
+      rewound = await this.rewound();
+    } catch (e) {
+      this.remoteError = errText(e);
+      this.feedBlocked = wasBlocked;
+      setTimeout(() => this.recoverFeed(gen), this.cfg.feedRestartMs);
+      return;
+    }
+    if (rewound) {
+      await this.replayFromStart();
+      if (wasBlocked) this.unpark();
+      return;
+    }
     if (this.tracked.some((t) => t.sentinel) || this.caughtUp) {
       this.followLive(gen, this.liveSeq || this.handledSeq);
     } else {
@@ -866,14 +881,31 @@ export class Syncer {
     if (wasBlocked) this.unpark();
   }
 
+  // The numeric prefix of a CouchDB seq is the sum of its shards' update counts; a database restored
+  // in place reports fewer updates than the checkpoint has seen, so the saved seq points past its end.
+  private async rewound(): Promise<boolean> {
+    const seen = parseInt(this.handledSeq, 10);
+    if (!(seen > 0)) return false;
+    const now = parseInt(await this.d.remote.currentSeq(), 10);
+    if (!(now < seen)) return false;
+    log.notice(
+      `the remote database is behind the checkpoint (${now} < ${seen}), as after a restore: replaying it`,
+    );
+    return true;
+  }
+
   // A recreated database numbers its changes afresh, so the saved seq can skip everything in it.
   async replayFromStart(): Promise<void> {
+    await this.resetCheckpoint();
+    await this.restartFeed();
+  }
+
+  private async resetCheckpoint(): Promise<void> {
     this.handledSeq = "";
     this.liveSeq = "";
     this.caughtUp = false;
     await this.d.checkpoint.write({ since: "" });
     this.savedSeq = "";
-    await this.restartFeed();
   }
 
   async restartFromCheckpoint(): Promise<void> {

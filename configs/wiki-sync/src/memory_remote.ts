@@ -238,6 +238,11 @@ export class MemoryRemote implements RemoteStore {
     return this.lastFeed;
   }
 
+  currentSeq(): Promise<string> {
+    this.check();
+    return Promise.resolve(`${this.seq}-x`);
+  }
+
   changes(opts: { since: string; live: boolean; onChange: (c: Change) => void }): FeedHandle {
     let cancelled = false;
     let wake: (() => void) | null = null;
