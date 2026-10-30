@@ -33,6 +33,12 @@ export class Blocked extends Error {
   }
 }
 
+class UnreadableRevision extends Error {
+  constructor(readonly path: string, rev: string) {
+    super(`revision ${rev.slice(0, 12)} cannot be decoded`);
+  }
+}
+
 export interface Gate {
   check(): Promise<void>;
 }
@@ -84,6 +90,7 @@ export interface SyncHealth {
   collisions: number;
   noRemote: number;
   regressed: number;
+  unreadable: number;
   oldestHandlerMs: number;
   caughtUp: boolean;
   root: "ok" | "missing";
@@ -255,6 +262,7 @@ export class Syncer {
       collisions: records.filter((r) => r.held === "collision").length,
       noRemote: records.filter((r) => r.held === "noRemote").length,
       regressed: records.filter((r) => r.held === "regressed").length,
+      unreadable: records.filter((r) => r.held === "unreadable").length,
       oldestHandlerMs: Math.max(0, ...[...this.running.values()].map((t) => now - t)),
       caughtUp: this.caughtUp,
       root: this.rootIno === null ? "missing" : "ok",
@@ -501,6 +509,18 @@ export class Syncer {
   }
 
   private async handle(id: string, hint: Hint): Promise<Outcome> {
+    try {
+      return await this.settle(id, hint);
+    } catch (e) {
+      if (!(e instanceof UnreadableRevision)) throw e;
+      const rec: PathRecord = this.d.bases.get(id) ?? { ...emptyState(), id, path: e.path };
+      if (rec.held !== "unreadable") log.warn(`${e.path}: held (${e.message})`);
+      await this.save({ ...rec, path: rec.path || e.path, held: "unreadable" });
+      return "held";
+    }
+  }
+
+  private async settle(id: string, hint: Hint): Promise<Outcome> {
     if ((await this.d.local.rootInode()) === null) throw new RootMissing(this.d.local.wikiDir);
     if (this.paused) throw new Blocked("paused");
     let rec: PathRecord = this.d.bases.get(id) ?? { ...emptyState(), id, path: hint.path ?? "" };
@@ -526,7 +546,7 @@ export class Syncer {
         for (const rev of res.revs) content.set(rev, (await this.readRev(id, rev))?.content ?? null);
         res = reconcile({ path: localPath, state: rec, local, leaves, content, now: Date.now() });
       }
-      if (res.kind === "fail") throw new Error(res.reason);
+      if (res.kind === "unreadable") throw new UnreadableRevision(localPath, res.rev);
       const plan: Plan = res;
       if (plan.hold) {
         if (rec.held !== plan.hold) log.warn(`${localPath}: held (${plan.hold})`);
@@ -599,7 +619,7 @@ export class Syncer {
         } else {
           const body = plan.local?.kind === "write" ? await this.readRev(id, plan.local.rev) : null;
           if (plan.local?.kind === "write" && !body) {
-            throw new Error(`revision ${plan.local.rev} could not be read`);
+            throw new UnreadableRevision(localPath, plan.local.rev);
           }
           const bytes = body ? body.bytes : await (read as FileRead).bytes();
           const mtime = body ? body.content.mtime : (read as FileRead).stat.mtime;
@@ -650,7 +670,7 @@ export class Syncer {
       mtime = read.stat.mtime;
     } else {
       const body = await this.readRev(id, c.source.rev);
-      if (!body) throw new Error(`revision ${c.source.rev} could not be read for a copy`);
+      if (!body) throw new UnreadableRevision(next.path, c.source.rev);
       bytes = body.bytes;
       mtime = body.content.mtime;
     }

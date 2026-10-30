@@ -30,6 +30,7 @@ export class MemoryRemote implements RemoteStore {
   writes = 0;
   failPutsFor = new Set<string>();
   failReadsFor = new Set<string>();
+  undecodable = new Set<string>();
   longpollMs = 50;
   private seq = 0;
   private lastFeed = 0;
@@ -82,7 +83,7 @@ export class MemoryRemote implements RemoteStore {
   async readRev(id: string, rev: string): Promise<RevBody | null> {
     this.check();
     const n = this.docs.get(id)?.revs.get(rev);
-    if (!n || n.hard) return null;
+    if (!n || n.hard || this.undecodable.has(rev)) return null;
     return {
       content: {
         hash: await sha256Hex(n.bytes),

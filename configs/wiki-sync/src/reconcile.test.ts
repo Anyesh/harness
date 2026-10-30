@@ -551,7 +551,7 @@ Deno.test("a stale rewrite made while paused is not pushed", () => {
   assertEquals(p.copies, []);
 });
 
-Deno.test("an unreadable live leaf fails the handler rather than guessing", () => {
+Deno.test("an unreadable live leaf is reported rather than guessed at", () => {
   const res = reconcile({
     path: PATH,
     state: state({ synced: synced("1-a", "A") }),
@@ -560,7 +560,7 @@ Deno.test("an unreadable live leaf fails the handler rather than guessing", () =
     content: content({ "2-b": null }),
     now: NOW,
   });
-  assertEquals(res.kind, "fail");
+  assertEquals(res, { kind: "unreadable", rev: "2-b" });
 });
 
 Deno.test("each synced version is remembered, at most 100", () => {

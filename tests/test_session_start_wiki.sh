@@ -105,7 +105,7 @@ WS="$HOME/.local/share/harness/wiki-sync"
 NOW_MS=$(($(date +%s) * 1000))
 ws_health() {
   mkdir -p "$WS/state"
-  printf '{"ts":%d,"remote":"ok","feedTs":%d,"root":"ok","locked":false,"paused":false,"failing":[],"failedCount":0,"heldDeletions":0,"collisions":0,"noRemote":0,"regressed":0,"caughtUp":true}' \
+  printf '{"ts":%d,"remote":"ok","feedTs":%d,"root":"ok","locked":false,"paused":false,"failing":[],"failedCount":0,"heldDeletions":0,"collisions":0,"noRemote":0,"regressed":0,"unreadable":0,"caughtUp":true}' \
     "$NOW_MS" "$NOW_MS" | jq -c "$1" >"$WS/state/health.json"
 }
 OUT=$(run_hook)
@@ -130,9 +130,9 @@ assert "locked names reset.sh" 'grep -q "run reset.sh" <<<"$OUT"'
 ws_health '.root = "missing"'
 OUT=$(run_hook)
 assert "missing root is reported" 'grep -q "wiki folder is missing" <<<"$OUT"'
-ws_health ".heldDeletions = 23 | .collisions = 1 | .noRemote = 2 | .regressed = 3"
+ws_health ".heldDeletions = 23 | .collisions = 1 | .noRemote = 2 | .regressed = 3 | .unreadable = 4"
 OUT=$(run_hook)
-assert "held counts are reported" 'grep -q "23 local deletions held" <<<"$OUT" && grep -q "1 case collisions held" <<<"$OUT" && grep -q "2 paths held with no remote doc" <<<"$OUT" && grep -q "3 paths held because the remote went backwards" <<<"$OUT"'
+assert "held counts are reported" 'grep -q "23 local deletions held" <<<"$OUT" && grep -q "1 case collisions held" <<<"$OUT" && grep -q "2 paths held with no remote doc" <<<"$OUT" && grep -q "3 paths held because the remote went backwards" <<<"$OUT" && grep -q "4 paths held because CouchDB has a version that cannot be decoded" <<<"$OUT"'
 ws_health "[.failing = ([range(6)] | map({path: \"wiki/f\\(.).md\", since: ($NOW_MS - 120000)}))][0] | .failedCount = 7"
 OUT=$(run_hook)
 assert "paths failing past one retry are named, five at most" 'grep -q "failing: wiki/f0.md, wiki/f1.md, wiki/f2.md, wiki/f3.md, wiki/f4.md (+2 more)" <<<"$OUT"'

@@ -48,6 +48,7 @@ if h:
         ("collisions", "case collisions held"),
         ("noRemote", "paths held with no remote doc"),
         ("regressed", "paths held because the remote went backwards"),
+        ("unreadable", "paths held because CouchDB has a version that cannot be decoded"),
     ):
         if h.get(key):
             problems.append(f"{h[key]} {label}")

@@ -68,7 +68,7 @@ export interface Plan {
   recheckAt?: number;
 }
 
-export type ReconcileResult = Plan | { kind: "need"; revs: Rev[] } | { kind: "fail"; reason: string };
+export type ReconcileResult = Plan | { kind: "need"; revs: Rev[] } | { kind: "unreadable"; rev: Rev };
 
 export interface ReconcileInput {
   path: string;
@@ -172,7 +172,7 @@ export function reconcile(input: ReconcileInput): ReconcileResult {
     return decide(input);
   } catch (e) {
     if (e instanceof Need) return { kind: "need", revs: e.revs };
-    if (e instanceof Unreadable) return { kind: "fail", reason: `revision ${e.rev} could not be read` };
+    if (e instanceof Unreadable) return { kind: "unreadable", rev: e.rev };
     throw e;
   }
 }

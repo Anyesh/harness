@@ -157,6 +157,26 @@ Deno.test("a case-only rename is pushed from the side that made it and followed 
   }
 });
 
+Deno.test("an undecodable revision holds its path without stalling the checkpoint", async () => {
+  const r = await rig();
+  const bad = await r.remote.edit("wiki/bad.md", "garbled");
+  r.remote.undecodable.add(bad);
+  await r.remote.edit("wiki/good.md", "fine");
+  await r.start();
+  try {
+    await until(async () => (await read(r, "wiki/good.md")) === "fine" && r.syncer.health().unreadable === 1);
+    await until(() => r.syncer.health().caughtUp);
+    assertEquals(r.syncer.health().failedCount, 0);
+    assertEquals(await read(r, "wiki/bad.md"), null);
+    await r.remote.edit("wiki/bad.md", "repaired");
+    await until(async () => (await read(r, "wiki/bad.md")) === "repaired");
+    await r.syncer.idle();
+    assertEquals(r.syncer.health().unreadable, 0);
+  } finally {
+    await r.stop();
+  }
+});
+
 Deno.test("overlapping triggers for one path produce one push", async () => {
   const r = await rig();
   await r.start();

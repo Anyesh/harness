@@ -8,7 +8,7 @@ export interface LocalStat {
   ino: number | null;
 }
 
-export type HoldReason = "collision" | "noRemote" | "regressed";
+export type HoldReason = "collision" | "noRemote" | "regressed" | "unreadable";
 
 export interface PathRecord extends PathState {
   id: string;
