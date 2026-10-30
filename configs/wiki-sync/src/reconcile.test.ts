@@ -205,7 +205,7 @@ Deno.test("changed local with the base leaf live beside an outranking sibling st
   assertObjectMatch(p, { remote: { kind: "put", parentRev: "2-a" } });
 });
 
-Deno.test("changed local, remote moved on, local newer: push onto winner and copy the old winner", () => {
+Deno.test("changed local, remote moved on, local newer: push onto winner and copy the old winner, which no leaf keeps any more", () => {
   const p = run({
     state: state({ synced: synced("1-a", "A") }),
     local: file("L", NOW - 1000),
@@ -214,7 +214,11 @@ Deno.test("changed local, remote moved on, local newer: push onto winner and cop
   });
   assertObjectMatch(p, { remote: { kind: "put", parentRev: "2-b" } });
   assertEquals(p.copies.length, 1);
-  assertObjectMatch(p.copies[0], { source: { kind: "rev", rev: "2-b" }, dest: { where: "vault" } });
+  assertObjectMatch(p.copies[0], {
+    source: { kind: "rev", rev: "2-b" },
+    dest: { where: "vault" },
+    keep: true,
+  });
 });
 
 Deno.test("changed local, remote moved on, local older: winner written and local copied beside it", () => {

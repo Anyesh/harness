@@ -372,7 +372,7 @@ function decide(input: ReconcileInput): Plan {
         winnerV !== localHash
       ) {
         const dest = destFor(path, winner.mtime, winnerV);
-        copies.push({ source: { kind: "rev", rev: winner.rev }, dest, keep: false, rev: winner.rev });
+        copies.push({ source: { kind: "rev", rev: winner.rev }, dest, keep: true, rev: winner.rev });
         st.decisions[winner.rev] = { state: "copied", dest };
       }
       st.synced = synced;
