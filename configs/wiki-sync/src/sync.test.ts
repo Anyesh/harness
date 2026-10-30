@@ -26,7 +26,17 @@ interface Rig {
   stop(): Promise<void>;
 }
 
-async function rig(remote = new MemoryRemote(), dirs?: { root: string; state: string }): Promise<Rig> {
+class DeafLocalStore extends LocalStore {
+  override watch(): Promise<{ close(): Promise<void> }> {
+    return Promise.resolve({ close: () => Promise.resolve() });
+  }
+}
+
+async function rig(
+  remote = new MemoryRemote(),
+  dirs?: { root: string; state: string },
+  opts: { deaf?: boolean; config?: Partial<typeof CONFIG> } = {},
+): Promise<Rig> {
   const root = dirs?.root ?? await Deno.makeTempDir();
   const state = dirs?.state ?? await Deno.makeTempDir();
   await Deno.mkdir(`${root}/wiki`, { recursive: true });
@@ -41,7 +51,7 @@ async function rig(remote = new MemoryRemote(), dirs?: { root: string; state: st
     const bases = await BaseStore.open(`${state}/base`);
     const syncer = new Syncer({
       remote,
-      local: new LocalStore(root, "wiki/"),
+      local: opts.deaf ? new DeafLocalStore(root, "wiki/") : new LocalStore(root, "wiki/"),
       bases,
       checkpoint: new JsonFile<{ since: string }>(`${state}/checkpoint.json`),
       pauses: new JsonFile<PauseWindow[]>(`${state}/pauses.json`),
@@ -49,7 +59,7 @@ async function rig(remote = new MemoryRemote(), dirs?: { root: string; state: st
       identity: () => Promise.resolve(true),
       recoveredDir: `${state}/recovered`,
       releaseMarker: `${state}/release-deletions`,
-      config: CONFIG,
+      config: { ...CONFIG, ...opts.config },
     });
     return { bases, syncer };
   };
@@ -103,6 +113,20 @@ Deno.test("pushes new files, applies remote edits and pushes nothing for unchang
     await new Promise((res) => setTimeout(res, 200));
     await r.syncer.idle();
     assertEquals(r.remote.writes, writes);
+  } finally {
+    await r.stop();
+  }
+});
+
+Deno.test("a change whose watcher event was dropped is pushed by the periodic scan", async () => {
+  const r = await rig(new MemoryRemote(), undefined, { deaf: true, config: { scanMs: 300 } });
+  await write(r, "wiki/a.md", "v1");
+  await r.start();
+  try {
+    await until(async () => (await r.remote.text("wiki/a.md")) === "v1");
+    await r.syncer.idle();
+    await write(r, "wiki/a.md", "v2, unseen by the watcher");
+    await until(async () => (await r.remote.text("wiki/a.md")) === "v2, unseen by the watcher");
   } finally {
     await r.stop();
   }
