@@ -87,7 +87,7 @@ mkdir -p "$REPO"
 (cd "$REPO_ROOT" && git ls-files -z --cached --others --exclude-standard | xargs -0 cp --parents -t "$REPO")
 commit() {
     git -C "$REPO" add -A
-    git -C "$REPO" -c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null commit -qm "$1"
+    LEAKGUARD_SKIP=1 git -C "$REPO" -c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null commit -qm "$1"
 }
 git -C "$REPO" init -q
 commit snapshot

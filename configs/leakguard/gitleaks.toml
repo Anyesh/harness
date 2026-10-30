@@ -17,5 +17,7 @@ keywords = ["10.", "172.", "192.168.", "100."]
 
 [allowlist]
 description = "Use inline '#gitleaks:allow' for one-off intentional mentions"
+# herdr key bindings (key = "prefix+...") read as generic API keys.
+regexes = ['''^prefix\+[a-z0-9+-]+$''']
 # The ruleset and its tests necessarily contain the guarded patterns.
 paths = ['''configs/leakguard/gitleaks\.toml''', '''tests/test_leakguard\.sh''']

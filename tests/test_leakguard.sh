@@ -123,6 +123,7 @@ assert "blocks a 172.16/12 address" "! try_commit '$REPO' 'host 172.20.1.1'"
 assert "blocks a 192.168 address" "! try_commit '$REPO' 'host 192.168.1.9'"
 assert "blocks a tailnet address" "! try_commit '$REPO' 'peer 100.101.5.6'"
 assert "blocks a machine-local path" "! try_commit '$REPO' 'cd /mnt/data/projects'"
+assert "passes a herdr prefix key binding" "try_commit '$REPO' 'key = \"prefix+shift+alt+g\"'"
 assert "passes a version number and a public address" \
   "try_commit '$REPO' 'node 10.0.0, python 3.12.1, dns 1.1.1.1, 172.15.0.1'"
 
