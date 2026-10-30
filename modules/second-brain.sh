@@ -221,7 +221,7 @@ second_brain_sync_timer() {
   if [[ ! -f "$peers_file" ]]; then
     cat > "$peers_file" <<'PEERS'
 # second-brain sync peers, one user@host per line. Example:
-# anish@192.0.2.2
+# user@host
 PEERS
     log_info "seeded empty $peers_file (add peers to enable auto-sync)"
   fi

@@ -38,7 +38,7 @@ assert "allows rm -rf on an absolute path" '[ "$RC" -eq 0 ]'
 run_hook 'rm -r ~/.cache/old-models'
 assert "allows rm -r under home" '[ "$RC" -eq 0 ]'
 
-run_hook 'rm -fr /srv/data/redraft/build'
+run_hook 'rm -fr /srv/app/build'
 assert "allows rm -fr on an absolute path" '[ "$RC" -eq 0 ]'
 
 run_hook 'cd build && rm -rf *'

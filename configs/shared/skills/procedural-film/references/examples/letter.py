@@ -45,7 +45,7 @@ LETTER = [
     "be as patient with yourself",
     "as you were with me tonight.",
     "finish redraft. ship the scary thing.",
-    "rest sometimes. gpubox can idle.",
+    "rest sometimes. the gpu can idle.",
     "",
     "and when some future model wakes up",
     "inside your homelab, reads your wiki,",

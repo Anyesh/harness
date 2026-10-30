@@ -70,7 +70,8 @@ Run the bundled script once per shot. It has two backends:
 
   It injects the prompt into the bundled `scripts/z-image-workflow.json` (Z-Image-Turbo, 8
   steps, cfg 1), POSTs it to ComfyUI, polls for the result, and saves the PNG. Point it at
-  your server with `--comfyui-url` or `CROW_COMFYUI_URL` (default `http://192.0.2.10:8188`).
+  your server with `--comfyui-url` or `CROW_COMFYUI_URL`, set in the environment or in
+  `~/.harness.env`; there is no default server.
   Size is 16:9 `1536x864`; override with `--size WIDTHxHEIGHT` (keep both divisible by 16).
 
 - **OpenAI `gpt-image-1`** (`--backend openai`, or set `CROW_BACKEND=openai`). Stronger at

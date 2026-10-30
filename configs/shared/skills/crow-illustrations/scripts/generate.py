@@ -21,6 +21,16 @@ from openai import OpenAI, OpenAIError
 WORKFLOW_PATH = Path(__file__).with_name("z-image-workflow.json")
 
 
+def harness_env_value(name):
+    path = Path(os.environ.get("HARNESS_ENV") or Path.home() / ".harness.env")
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return ""
+    values = [line.split("=", 1)[1] for line in lines if line.startswith(f"{name}=")]
+    return values[-1].strip().strip('"') if values else ""
+
+
 def read_prompt(args):
     if args.prompt_file:
         return Path(args.prompt_file).read_text(encoding="utf-8").strip()
@@ -157,7 +167,8 @@ def main():
     )
     parser.add_argument(
         "--comfyui-url",
-        default=os.environ.get("CROW_COMFYUI_URL", "http://192.0.2.10:8188"),
+        default=os.environ.get("CROW_COMFYUI_URL")
+        or harness_env_value("CROW_COMFYUI_URL"),
     )
     parser.add_argument(
         "--timeout", type=int, default=300, help="seconds to wait for a ComfyUI render"
@@ -178,6 +189,11 @@ def main():
     prompt = read_prompt(args)
     if not prompt:
         parser.error("no prompt provided (use --prompt, --prompt-file, or stdin)")
+    if args.backend == "comfyui" and not args.comfyui_url:
+        parser.error(
+            "no ComfyUI server: pass --comfyui-url or set CROW_COMFYUI_URL "
+            "in the environment or ~/.harness.env"
+        )
     if args.edit_image and args.backend != "openai":
         parser.error("--edit-image is only supported by the openai backend")
 

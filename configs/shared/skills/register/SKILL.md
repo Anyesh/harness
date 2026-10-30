@@ -15,7 +15,7 @@ The corpus of the user's own rejected and accepted phrasings lives in the harnes
 
 ```
 REG="${HARNESS_ROOT:-$(grep -E '^DATA_ROOT=' ~/.harness.env 2>/dev/null | cut -d= -f2)/harness}/configs/shared/register"
-[ -d "$REG" ] || REG=/srv/data/harness/configs/shared/register
+[ -d "$REG" ] || echo "register corpus not found: set HARNESS_ROOT, or DATA_ROOT in ~/.harness.env" >&2
 ```
 
 `$REG` holds `corpus.md`, `extract.py` and `corpus.py`.
