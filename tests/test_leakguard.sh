@@ -29,37 +29,92 @@ export LEAKGUARD_CONFIG="$REPO_ROOT/configs/leakguard/gitleaks.toml"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-HOOKS_DIR="$TMP/hooks"
-mkdir -p "$HOOKS_DIR"
-cp "$REPO_ROOT/configs/leakguard/pre-commit" "$HOOKS_DIR/pre-commit"
-chmod +x "$HOOKS_DIR/pre-commit"
+REAL_GITLEAKS="$(command -v gitleaks)"
+H="$TMP/home"
+mkdir -p "$H/bin"
+printf '#!/bin/sh\necho x >>"%s/gitleaks.calls"\nexec "%s" "$@"\n' "$H" "$REAL_GITLEAKS" >"$H/bin/gitleaks"
+chmod +x "$H/bin/gitleaks"
+printf 'LEAKGUARD_PERSONAL=zorblax,@example.com\n' >"$H/.harness.env"
+
+install_leakguard() {
+  local home="$1"
+  env -u LEAKGUARD_CONFIG -u LEAKGUARD_PERSONAL HOME="$home" HARNESS_ENV="$home/.harness.env" \
+    XDG_CONFIG_HOME="$home/.config" PATH="$H/bin:$PATH" REPO_ROOT="$REPO_ROOT" DRY_RUN=false bash -c '
+      source "$REPO_ROOT/lib/common.sh"
+      source "$REPO_ROOT/lib/profile.sh"
+      source "$REPO_ROOT/modules/leakguard.sh"
+      leakguard_install' 2>&1
+}
+
+g() {
+  env -u LEAKGUARD_CONFIG HOME="$H" XDG_CONFIG_HOME="$H/.config" GIT_CONFIG_NOSYSTEM=1 \
+    PATH="$H/bin:$PATH" git "$@"
+}
+
+new_repo() {
+  g init -q "$1"
+  g -C "$1" config user.email t@t
+  g -C "$1" config user.name t
+}
+
+# Stages one file and reports whether the commit was accepted.
+try_commit() {
+  local repo="$1" text="$2"
+  rm -f "$repo/staged.txt"
+  g -C "$repo" reset -q 2>/dev/null || true
+  echo "$text" >"$repo/staged.txt"
+  g -C "$repo" add staged.txt
+  g -C "$repo" commit -q -m x >/dev/null 2>&1
+}
+
+install_leakguard "$H" >/dev/null
+assert "installed config carries the personal terms from the env file" \
+  "grep -q zorblax '$H/.config/leakguard/gitleaks.toml'"
+assert "repo ruleset names no personal term" \
+  "! grep -qi zorblax '$REPO_ROOT/configs/leakguard/gitleaks.toml'"
+
+install_leakguard "$H" >/dev/null
+assert "reinstall registers the scan hook once" \
+  "[ \"\$(g config --global --get-all hook.leakguard.command | wc -l)\" -eq 1 ]"
+
+UNSET="$TMP/unset-home"
+mkdir -p "$UNSET"
+: >"$UNSET/.harness.env"
+UNSET_OUT="$(install_leakguard "$UNSET")"
+assert "install without personal terms warns" "[[ \"\$UNSET_OUT\" == *LEAKGUARD_PERSONAL* ]]"
 
 REPO="$TMP/repo"
-mkdir -p "$REPO"
-git -C "$REPO" init -q
-git -C "$REPO" config user.email t@t
-git -C "$REPO" config user.name t
-git -C "$REPO" config core.hooksPath "$HOOKS_DIR"
+new_repo "$REPO"
+assert "blocks a personal term" "! try_commit '$REPO' 'the box is Zorblax'"
+assert "blocks a personal email" "! try_commit '$REPO' 'mail a.b@example.com'"
+assert "blocks a 10.x address" "! try_commit '$REPO' 'url http://10.1.2.3:8080'"
+assert "blocks a 172.16/12 address" "! try_commit '$REPO' 'host 172.20.1.1'"
+assert "blocks a 192.168 address" "! try_commit '$REPO' 'host 192.168.1.9'"
+assert "blocks a tailnet address" "! try_commit '$REPO' 'peer 100.101.5.6'"
+assert "blocks a machine-local path" "! try_commit '$REPO' 'cd /mnt/data/projects'"
+assert "passes a version number and a public address" \
+  "try_commit '$REPO' 'node 10.0.0, python 3.12.1, dns 1.1.1.1, 172.15.0.1'"
 
-echo "creds for workstation at 192.168.1.9" > "$REPO/leak.txt"
-git -C "$REPO" add leak.txt
-assert "pre-commit blocks staged leak" "! git -C '$REPO' commit -q -m x 2>/dev/null"
+: >"$H/gitleaks.calls"
+try_commit "$REPO" "hello"
+assert "a commit is scanned exactly once" "[ \"\$(wc -l <'$H/gitleaks.calls')\" -eq 1 ]"
 
-git -C "$REPO" rm -q --cached leak.txt
-echo "hello" > "$REPO/clean.txt"
-git -C "$REPO" add clean.txt
-assert "pre-commit passes clean change" "git -C '$REPO' commit -q -m clean 2>/dev/null"
+assert "LEAKGUARD_SKIP bypasses" "LEAKGUARD_SKIP=1 try_commit '$REPO' 'the box is zorblax'"
 
-echo "note: box is workstation" > "$REPO/leak2.txt"
-git -C "$REPO" add leak2.txt
-assert "LEAKGUARD_SKIP bypasses" "LEAKGUARD_SKIP=1 git -C '$REPO' commit -q -m skip 2>/dev/null"
-
-printf '#!/bin/sh\ntouch "%s/local_ran"\nexit 0\n' "$TMP" > "$REPO/.git/hooks/pre-commit"
+printf '#!/bin/sh\ntouch "%s/local_ran"\nexit 0\n' "$TMP" >"$REPO/.git/hooks/pre-commit"
 chmod +x "$REPO/.git/hooks/pre-commit"
-echo "more" >> "$REPO/clean.txt"
-git -C "$REPO" add clean.txt
-git -C "$REPO" commit -q -m chain 2>/dev/null
+try_commit "$REPO" "more"
 assert "dispatcher chains repo-local hook" "[ -f '$TMP/local_ran' ]"
+
+OWN="$TMP/own-hookspath"
+new_repo "$OWN"
+mkdir -p "$OWN/.myhooks"
+printf '#!/bin/sh\ntouch "%s/own_ran"\nexit 0\n' "$TMP" >"$OWN/.myhooks/pre-commit"
+chmod +x "$OWN/.myhooks/pre-commit"
+g -C "$OWN" config core.hooksPath .myhooks
+assert "blocks a leak in a repo with its own hooksPath" "! try_commit '$OWN' 'the box is zorblax'"
+assert "passes a clean change in a repo with its own hooksPath" "try_commit '$OWN' 'hello'"
+assert "the repo's own hook still runs" "[ -f '$TMP/own_ran' ]"
 
 PUB="$TMP/pub"
 mkdir -p "$PUB/dist" "$PUB/pkg"

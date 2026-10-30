@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Registered as the global config hook hook.leakguard (event pre-commit), which
+# git runs alongside whatever hook a repo's own core.hooksPath provides.
+set -uo pipefail
+
+[[ "${LEAKGUARD_SKIP:-}" == "1" ]] && exit 0
+command -v gitleaks >/dev/null 2>&1 || exit 0
+
+# Repos that legitimately hold personal info (homelab docs) point
+# leakguard.config at a repo-scoped ruleset so that secret scanning
+# stays on while the personal-info rules are relaxed there.
+cfg="${LEAKGUARD_CONFIG:-$(git config --get leakguard.config || true)}"
+cfg="${cfg:-$HOME/.config/leakguard/gitleaks.toml}"
+if ! gitleaks git --staged --no-banner --redact -v --log-level warn -c "$cfg"; then
+  {
+    echo ""
+    echo "leakguard: staged changes contain personal info or a secret (see findings above)."
+    echo "Fix the content before committing. For a genuine false positive, append"
+    echo "'#gitleaks:allow' to the flagged line, or bypass this one commit with:"
+    echo "  LEAKGUARD_SKIP=1 git commit ..."
+  } >&2
+  exit 1
+fi
+exit 0
