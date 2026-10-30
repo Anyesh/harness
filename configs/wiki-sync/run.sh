@@ -9,6 +9,7 @@ source "$INSTALL/env"
 export DENO_DIR="$STATE/deno" WIKI_SYNC_STATE="$STATE" WIKI_SYNC_VAULT WIKI_SYNC_DIR DENO_NO_UPDATE_CHECK=1
 DATA_JSON="$WIKI_SYNC_VAULT/.obsidian/plugins/obsidian-livesync/data.json"
 mkdir -p "$STATE"
+chmod 700 "$INSTALL"
 
 if [[ "${1:-}" == --release-deletions ]]; then
   : >"$STATE/release-deletions"
@@ -32,9 +33,10 @@ vault_keys() {
   for f in "${OBSIDIAN_JSON[@]}"; do
     [[ -r "$f" ]] || continue
     while IFS=$'\t' read -r key path; do
-      [[ -n "$path" && "$(file_id "$path")" == "$want" ]] && printf '%s\n' "$key"
+      if [[ -n "$path" && "$(file_id "$path")" == "$want" ]]; then printf '%s\n' "$key"; fi
     done < <(jq -r '.vaults // {} | to_entries[] | "\(.key)\t\(.value.path // "")"' "$f" 2>/dev/null || true)
   done
+  return 0
 }
 
 READ="$WIKI_SYNC_DIR,$INSTALL,$DATA_JSON,$(IFS=,; echo "${OBSIDIAN_JSON[*]}")"
@@ -62,4 +64,4 @@ WIKI_SYNC_OBSIDIAN_KEYS=$(vault_keys)
 export WIKI_SYNC_OBSIDIAN_JSON WIKI_SYNC_OBSIDIAN_KEYS
 
 exec "$DENO" run --cached-only --frozen --no-prompt --ignore-env --allow-env="$ENVS" --allow-read="$READ" \
-  --allow-write="$WIKI_SYNC_DIR,$INSTALL" --allow-net="$host" --allow-run=ps "$INSTALL/src/main.ts"
+  --allow-write="$WIKI_SYNC_DIR,$STATE,$INSTALL/recovered" --allow-net="$host" --allow-run=ps "$INSTALL/src/main.ts"
