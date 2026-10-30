@@ -48,17 +48,20 @@ leakguard_ensure_binary() {
 # Prints the repo's generic ruleset plus one rule for the comma-separated
 # personal terms, which stay out of the public repo in ~/.harness.env.
 leakguard_render_config() {
-  local base="$1" terms="$2" term esc alts="" kws="" list=()
+  local base="$1" terms="$2" term esc kw alts="" kws="" list=()
   cat "$base"
   IFS=',' read -ra list <<<"$terms"
-  for term in "${list[@]}"; do
-    term="$(printf '%s' "$term" | tr -d '[:space:]')"
+  # The guarded expansion keeps macOS bash 3.2 from failing on an empty array under set -u.
+  for term in ${list[@]+"${list[@]}"}; do
+    term="${term#"${term%%[![:space:]]*}"}"
+    term="${term%"${term##*[![:space:]]}"}"
     [[ -n "$term" ]] || continue
     esc="$(printf '%s' "$term" | sed 's/[][\.*^$()+?{}|]/\\&/g')"
     [[ "$term" =~ ^[[:alnum:]_] ]] && esc="\\b$esc"
     [[ "$term" =~ [[:alnum:]_]$ ]] && esc="$esc\\b"
     alts+="${alts:+|}$esc"
-    kws+="${kws:+, }\"$(printf '%s' "$term" | tr '[:upper:]' '[:lower:]')\""
+    kw="$(printf '%s' "$term" | tr '[:upper:]' '[:lower:]' | sed 's/[\"]/\\&/g')"
+    kws+="${kws:+, }\"$kw\""
   done
   [[ -n "$alts" ]] || return 0
   printf '\n[[rules]]\nid = "personal-term"\n'
@@ -86,12 +89,29 @@ leakguard_deploy_config() {
   log_info "deployed ~/.config/leakguard/gitleaks.toml"
 }
 
+leakguard_config_hooks_supported() {
+  local dir supported=1
+  dir="$(mktemp -d)" || return 1
+  if git init -q "$dir/r" 2>/dev/null; then
+    git -C "$dir/r" -c core.hooksPath=/dev/null -c hook.probe.event=pre-commit \
+      -c "hook.probe.command=touch '$dir/ran'" -c user.name=probe -c user.email=probe@example.com \
+      -c commit.gpgsign=false commit -q --allow-empty -m probe >/dev/null 2>&1 || true
+    [[ -f "$dir/ran" ]] && supported=0
+  fi
+  rm -rf "$dir"
+  return "$supported"
+}
+
 # A config hook runs alongside a repo's own core.hooksPath hook, which would
 # otherwise replace the global core.hooksPath and skip the scan.
 leakguard_deploy_scan_hook() {
   if [[ "$DRY_RUN" == "true" ]]; then
     log_info "[dry-run] would deploy the scan and register hook.leakguard for pre-commit"
     return
+  fi
+  if ! leakguard_config_hooks_supported; then
+    log_error "$(git --version) does not run config hooks (hook.<name>.event), so the leak scan would never run; install a newer git"
+    return 1
   fi
   cp "$REPO_ROOT/configs/leakguard/scan" "$HOME/.config/leakguard/scan"
   chmod +x "$HOME/.config/leakguard/scan"

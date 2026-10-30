@@ -80,6 +80,34 @@ assert "the installed ruleset is private to the user" \
 assert "reinstall registers the scan hook once" \
   "[ \"\$(g config --global --get-all hook.leakguard.command | wc -l)\" -eq 1 ]"
 
+env -u LEAKGUARD_PERSONAL REPO_ROOT="$REPO_ROOT" bash -c '
+  source "$REPO_ROOT/lib/common.sh"
+  source "$REPO_ROOT/modules/leakguard.sh"
+  leakguard_render_config "$REPO_ROOT/configs/leakguard/gitleaks.toml" " my box ,a\"b\\c"' >"$TMP/full.toml"
+assert "a term keeps its inner space" "grep -q 'my box' '$TMP/full.toml'"
+assert "terms with quotes and backslashes render a valid ruleset" \
+  "echo 'the a\"b\\c host' | gitleaks stdin --no-banner -c '$TMP/full.toml' -f json -r '$TMP/terms.json' >/dev/null 2>&1; [ \"\$(jq length '$TMP/terms.json' 2>/dev/null)\" = 1 ]"
+
+OLDGIT="$TMP/oldgit"
+mkdir -p "$OLDGIT/bin"
+cat >"$OLDGIT/bin/git" <<EOF
+#!/usr/bin/env bash
+args=()
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -c) case "\$2" in hook.*) shift 2; continue ;; esac ;;
+    config) case " \$* " in *" hook."*) exit 0 ;; esac ;;
+  esac
+  args+=("\$1"); shift
+done
+exec "$(command -v git)" "\${args[@]}"
+EOF
+chmod +x "$OLDGIT/bin/git"
+: >"$OLDGIT/.harness.env"
+OLD_RC=0
+OLD_OUT="$(PATH="$OLDGIT/bin:$PATH" install_leakguard "$OLDGIT")" || OLD_RC=$?
+assert "install fails on a git without config hooks" "[ $OLD_RC -ne 0 ] && [[ \"\$OLD_OUT\" == *'config hooks'* ]]"
+
 UNSET="$TMP/unset-home"
 mkdir -p "$UNSET"
 : >"$UNSET/.harness.env"
