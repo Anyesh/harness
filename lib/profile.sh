@@ -3,7 +3,7 @@
 # The single definition of "memory" (second-brain and the wiki/vault). Every
 # installer path reads these lists, so a lite install skips the same set
 # everywhere and adding a memory piece means editing this file only.
-MEMORY_MODULES=(second-brain wiki)
+MEMORY_MODULES=(second-brain wiki wiki-sync)
 MEMORY_HOOKS=(session-start-wiki.sh wiki-nudge.sh stop-wiki-enforce.sh session-end-ingest.sh wiki-index-build.sh)
 MEMORY_RULES=(second-brain.mdc wiki-maintenance.mdc)
 MEMORY_SKILLS=(wiki)

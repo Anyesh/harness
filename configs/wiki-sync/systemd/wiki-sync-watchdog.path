@@ -1,0 +1,9 @@
+[Unit]
+Description=Check wiki-sync when the LiveSync plugin settings change
+
+[Path]
+PathChanged=@DATA_JSON@
+Unit=wiki-sync-watchdog.service
+
+[Install]
+WantedBy=default.target

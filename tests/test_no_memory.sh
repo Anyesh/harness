@@ -207,7 +207,7 @@ val_rc=0
 harness "$LH" validate --no-memory > /dev/null || val_rc=$?
 assert "validate: succeeds with --no-memory" '[[ $val_rc -eq 0 ]]'
 
-for mod in second-brain wiki; do
+for mod in second-brain wiki wiki-sync; do
     misuse_rc=0
     misuse=$(harness "$LH" --only "$mod" --no-memory) || misuse_rc=$?
     assert "misuse: --only $mod --no-memory dies with a message" '[[ $misuse_rc -ne 0 ]] && grep -qi "no-memory" <<<"$misuse"'

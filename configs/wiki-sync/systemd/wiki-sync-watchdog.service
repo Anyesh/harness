@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart wiki-sync when its health goes stale or its login changes
+
+[Service]
+Type=oneshot
+ExecStart=@INSTALL@/watchdog.sh

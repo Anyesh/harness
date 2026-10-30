@@ -1,0 +1,14 @@
+[Unit]
+Description=Headless LiveSync for the agent wiki
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@INSTALL@/run.sh
+Restart=always
+RestartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

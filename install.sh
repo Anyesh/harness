@@ -91,7 +91,7 @@ if [[ -n "$SET_WORK" && "$COMMAND" != "install" ]]; then
   die "--work and --personal only work with install, not $COMMAND"
 fi
 
-MODULE_ORDER=(second-brain verdant claude cursor codex opencode herdr wiki leakguard)
+MODULE_ORDER=(second-brain verdant claude cursor codex opencode herdr wiki wiki-sync leakguard)
 
 HOOK_SKIP_FILES=()
 profile_no_memory && HOOK_SKIP_FILES=("${MEMORY_HOOKS[@]}")
@@ -457,7 +457,7 @@ else
   log_info "no $HARNESS_ENV found, using defaults (HOME_DIR=$HOME)"
 fi
 
-profile_no_memory && log_info "profile: no-memory (second-brain and wiki are not installed)"
+profile_no_memory && log_info "profile: no-memory (second-brain, wiki and wiki-sync are not installed)"
 if profile_work; then
   log_info "work mode: on (./install.sh --personal switches back)"
 else

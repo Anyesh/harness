@@ -1,6 +1,7 @@
 node_modules/
 *.env
 !.env.example
+!configs/wiki-sync/pins.env
 /tmp/
 docs/
 tools/web-strip/node_modules/
