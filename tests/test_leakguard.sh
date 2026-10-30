@@ -73,7 +73,10 @@ assert "installed config carries the personal terms from the env file" \
 assert "repo ruleset names no personal term" \
   "! grep -qi zorblax '$REPO_ROOT/configs/leakguard/gitleaks.toml'"
 
+chmod 644 "$H/.config/leakguard/gitleaks.toml"
 install_leakguard "$H" >/dev/null
+assert "the installed ruleset is private to the user" \
+  "[ \"\$(stat -c %a '$H/.config/leakguard/gitleaks.toml' 2>/dev/null || stat -f %Lp '$H/.config/leakguard/gitleaks.toml')\" = 600 ]"
 assert "reinstall registers the scan hook once" \
   "[ \"\$(g config --global --get-all hook.leakguard.command | wc -l)\" -eq 1 ]"
 

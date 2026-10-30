@@ -77,10 +77,11 @@ leakguard_deploy_config() {
     return
   fi
   mkdir -p "$HOME/.config/leakguard"
+  local out="$HOME/.config/leakguard/gitleaks.toml"
+  rm -f "$out"
   (
     umask 077
-    leakguard_render_config "$REPO_ROOT/configs/leakguard/gitleaks.toml" "${LEAKGUARD_PERSONAL:-}" \
-      >"$HOME/.config/leakguard/gitleaks.toml"
+    leakguard_render_config "$REPO_ROOT/configs/leakguard/gitleaks.toml" "${LEAKGUARD_PERSONAL:-}" >"$out"
   )
   log_info "deployed ~/.config/leakguard/gitleaks.toml"
 }
