@@ -204,6 +204,27 @@ Deno.test("a winner this machine overwrites is kept even when a live copy of it 
   }
 });
 
+Deno.test("replaying from the start after a restore finds the paths the restore took back", async () => {
+  const r = await rig();
+  await write(r, "wiki/a.md", "v1");
+  await r.start();
+  try {
+    await until(async () => (await r.remote.text("wiki/a.md")) === "v1");
+    await r.syncer.idle();
+    const snap = r.remote.snapshot();
+    await write(r, "wiki/a.md", "v2");
+    await until(async () => (await r.remote.text("wiki/a.md")) === "v2");
+    await r.syncer.idle();
+    r.remote.restore(snap);
+    await r.syncer.replayFromStart();
+    await until(() => r.syncer.health().regressed === 1);
+    assertEquals(await r.remote.text("wiki/a.md"), "v1");
+    assertEquals(await read(r, "wiki/a.md"), "v2");
+  } finally {
+    await r.stop();
+  }
+});
+
 Deno.test("overlapping triggers for one path produce one push", async () => {
   const r = await rig();
   await r.start();

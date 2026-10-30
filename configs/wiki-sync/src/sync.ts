@@ -866,6 +866,16 @@ export class Syncer {
     if (wasBlocked) this.unpark();
   }
 
+  // A recreated database numbers its changes afresh, so the saved seq can skip everything in it.
+  async replayFromStart(): Promise<void> {
+    this.handledSeq = "";
+    this.liveSeq = "";
+    this.caughtUp = false;
+    await this.d.checkpoint.write({ since: "" });
+    this.savedSeq = "";
+    await this.restartFeed();
+  }
+
   async restartFromCheckpoint(): Promise<void> {
     await this.restartFeed();
     await this.scan();

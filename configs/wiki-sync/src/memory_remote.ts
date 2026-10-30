@@ -100,6 +100,17 @@ export class MemoryRemote implements RemoteStore {
     return `${parent ? gen(parent) + 1 : 1}-${crypto.randomUUID().replaceAll("-", "")}`;
   }
 
+  snapshot(): { docs: Map<string, Doc>; log: Change[]; seq: number } {
+    const docs = new Map([...this.docs].map(([id, d]) => [id, { revs: new Map(d.revs) }]));
+    return { docs, log: [...this.log], seq: this.seq };
+  }
+
+  restore(s: { docs: Map<string, Doc>; log: Change[]; seq: number }): void {
+    this.docs = new Map([...s.docs].map(([id, d]) => [id, { revs: new Map(d.revs) }]));
+    this.log = [...s.log];
+    this.seq = s.seq;
+  }
+
   private commit(id: string, node: RevNode): string {
     let doc = this.docs.get(id);
     if (!doc) this.docs.set(id, doc = { revs: new Map() });
