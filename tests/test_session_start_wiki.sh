@@ -24,6 +24,8 @@ assert() {
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 export HARNESS_ENV="$TMP_DIR/harness.env" XDG_STATE_HOME="$TMP_DIR/xdg"
+export HOME="$TMP_DIR/home"
+mkdir -p "$HOME"
 : >"$HARNESS_ENV"
 
 PROJECT="$TMP_DIR/myproj"
@@ -96,6 +98,61 @@ assert "a work machine lists only work projects" 'grep -q "myproj" <<<"$OUT" && 
 OUT=$(WIKI_VAULT="$TMP_DIR/missing" CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<'{"hook_event_name":"SessionStart"}')
 assert "a missing vault gives empty context" '[ "$OUT" = "{}" ]'
 assert "a missing vault is not created" '[ ! -e "$TMP_DIR/missing" ]'
+
+echo ""
+echo "=== wiki-sync status line ==="
+WS="$HOME/.local/share/harness/wiki-sync"
+NOW_MS=$(($(date +%s) * 1000))
+ws_health() {
+  mkdir -p "$WS/state"
+  printf '{"ts":%d,"remote":"ok","feedTs":%d,"root":"ok","locked":false,"paused":false,"failing":[],"failedCount":0,"heldDeletions":0,"collisions":0,"noRemote":0,"regressed":0,"caughtUp":true}' \
+    "$NOW_MS" "$NOW_MS" | jq -c "$1" >"$WS/state/health.json"
+}
+OUT=$(run_hook)
+assert "no wiki-sync install: no status line" '! grep -q "WIKI-SYNC" <<<"$OUT"'
+mkdir -p "$WS/state" "$TMP_DIR/syncwiki"
+touch "$WS/stamp"
+printf 'WIKI_SYNC_VAULT=%q\nWIKI_SYNC_DIR=%q\n' "$TMP_DIR" "$TMP_DIR/syncwiki" >"$WS/env"
+OUT=$(run_hook)
+assert "installed without health.json: not running" 'grep -q "WIKI-SYNC: not running (no health.json)" <<<"$OUT" && grep -q "journalctl --user -u wiki-sync" <<<"$OUT"'
+ws_health .
+OUT=$(run_hook)
+assert "healthy service: no status line" '! grep -q "WIKI-SYNC" <<<"$OUT"'
+ws_health ".ts -= 600000"
+OUT=$(run_hook)
+assert "stale health: not running" 'grep -q "not running (health is 10 min old)" <<<"$OUT"'
+ws_health '.remote = "auth"'
+OUT=$(run_hook)
+assert "remote state is named" 'grep -q "CouchDB is auth" <<<"$OUT"'
+ws_health ".locked = true"
+OUT=$(run_hook)
+assert "locked names reset.sh" 'grep -q "run reset.sh" <<<"$OUT"'
+ws_health '.root = "missing"'
+OUT=$(run_hook)
+assert "missing root is reported" 'grep -q "wiki folder is missing" <<<"$OUT"'
+ws_health ".heldDeletions = 23 | .collisions = 1 | .noRemote = 2 | .regressed = 3"
+OUT=$(run_hook)
+assert "held counts are reported" 'grep -q "23 local deletions held" <<<"$OUT" && grep -q "1 case collisions held" <<<"$OUT" && grep -q "2 paths held with no remote doc" <<<"$OUT" && grep -q "3 paths held because the remote went backwards" <<<"$OUT"'
+ws_health "[.failing = ([range(6)] | map({path: \"wiki/f\\(.).md\", since: ($NOW_MS - 120000)}))][0] | .failedCount = 7"
+OUT=$(run_hook)
+assert "paths failing past one retry are named, five at most" 'grep -q "failing: wiki/f0.md, wiki/f1.md, wiki/f2.md, wiki/f3.md, wiki/f4.md (+2 more)" <<<"$OUT"'
+ws_health ".failing = [{path: \"wiki/new.md\", since: $NOW_MS}] | .failedCount = 1"
+OUT=$(run_hook)
+assert "a path that just failed is not named yet" '! grep -q "WIKI-SYNC" <<<"$OUT"'
+ws_health .
+touch "$TMP_DIR/syncwiki/n.conflict-20261030T000000-abcdef01.md"
+mkdir -p "$WS/recovered/wiki"
+touch "$WS/recovered/wiki/a.md" "$WS/recovered/wiki/b.md"
+OUT=$(run_hook)
+assert "conflict copies and kept versions are counted" 'grep -q "1 \*.conflict-\* copies in $TMP_DIR/syncwiki" <<<"$OUT" && grep -q "2 kept versions in $WS/recovered" <<<"$OUT"'
+assert "the status line comes before the wiki context" '[[ "$(head -1 <<<"$OUT")" == WIKI-SYNC:* ]] && grep -q "WIKI: project=myproj" <<<"$OUT"'
+CUR=$(WIKI_VAULT="$VAULT" CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<'{"hook_event_name":"sessionStart","cursor_version":"1.0"}' | jq -r '.additional_context // empty')
+assert "cursor shape carries the status line" 'grep -q "WIKI-SYNC" <<<"$CUR"'
+EARLY=$(WIKI_VAULT="$TMP_DIR/missing" CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<'{"hook_event_name":"SessionStart"}')
+assert "an early exit still carries the status line (claude shape)" 'jq -e ".hookSpecificOutput.additionalContext | startswith(\"WIKI-SYNC\")" <<<"$EARLY" >/dev/null'
+EARLY=$(WIKI_VAULT="" CLAUDE_PROJECT_DIR="$PROJECT" bash "$HOOK" <<<'{"hook_event_name":"sessionStart","cursor_version":"1.0"}')
+assert "an early exit still carries the status line (cursor shape)" 'jq -e ".additional_context | startswith(\"WIKI-SYNC\")" <<<"$EARLY" >/dev/null'
+rm -rf "$WS"
 
 echo ""
 echo "session-start-wiki: $PASS passed, $FAIL failed"

@@ -13,8 +13,86 @@ load_wiki_vault
 INPUT=$(cat 2>/dev/null || true)
 AGENT=$("$HOOK_DIR/detect-agent.sh" <<< "$INPUT")
 
+# One line about the headless wiki-sync service when it is installed and needs
+# attention, or when it has kept conflicting versions that still need a look.
+wiki_sync_status() {
+    python3 - <<'PY'
+import json, os, shlex, sys, time
+
+home = os.environ.get("WIKI_SYNC_HOME") or os.path.expanduser("~/.local/share/harness/wiki-sync")
+if not os.path.isfile(os.path.join(home, "stamp")):
+    sys.exit(0)
+now = time.time() * 1000
+problems = []
+try:
+    with open(os.path.join(home, "state", "health.json")) as f:
+        h = json.load(f)
+except FileNotFoundError:
+    h = None
+    problems.append("not running (no health.json)")
+except (OSError, ValueError):
+    h = None
+    problems.append("health.json is unreadable")
+if h:
+    age = now - h.get("ts", 0)
+    if age > 300_000:
+        problems.append(f"not running (health is {int(age // 60_000)} min old)")
+    if h.get("remote") != "ok":
+        problems.append(f"CouchDB is {h.get('remote')}")
+    if h.get("locked"):
+        problems.append("locked because the remote database was rebuilt or restored; run reset.sh")
+    if h.get("root") == "missing":
+        problems.append("the wiki folder is missing")
+    for key, label in (
+        ("heldDeletions", "local deletions held (run.sh --release-deletions pushes them)"),
+        ("collisions", "case collisions held"),
+        ("noRemote", "paths held with no remote doc"),
+        ("regressed", "paths held because the remote went backwards"),
+    ):
+        if h.get(key):
+            problems.append(f"{h[key]} {label}")
+    failing = [f for f in h.get("failing", []) if now - f.get("since", now) > 60_000]
+    if failing:
+        names = ", ".join(f.get("path", "?") for f in failing[:5])
+        more = h.get("failedCount", len(failing)) - len(failing[:5])
+        problems.append(f"failing: {names}" + (f" (+{more} more)" if more > 0 else ""))
+notes = []
+wiki_dir = None
+try:
+    with open(os.path.join(home, "env")) as f:
+        for line in f:
+            if line.startswith("WIKI_SYNC_DIR="):
+                wiki_dir = shlex.split(line.split("=", 1)[1])[0]
+except (OSError, ValueError, IndexError):
+    wiki_dir = None
+if wiki_dir and os.path.isdir(wiki_dir):
+    copies = sum(
+        1 for _, _, files in os.walk(wiki_dir) for name in files if ".conflict-" in name and not name.startswith(".")
+    )
+    if copies:
+        notes.append(f"{copies} *.conflict-* copies in {wiki_dir}")
+recovered = os.path.join(home, "recovered")
+kept = sum(len(files) for _, _, files in os.walk(recovered)) if os.path.isdir(recovered) else 0
+if kept:
+    notes.append(f"{kept} kept versions in {recovered}")
+if not problems and not notes:
+    sys.exit(0)
+logs = "~/Library/Logs/wiki-sync.log" if sys.platform == "darwin" else "journalctl --user -u wiki-sync"
+print("WIKI-SYNC: " + "; ".join(problems + notes) + f". Logs: {logs}")
+PY
+}
+
+SYNC_STATUS=$(wiki_sync_status 2>/dev/null || true)
+export SYNC_STATUS
+
 emit_empty() {
-    echo '{}'
+    if [[ -z "$SYNC_STATUS" ]]; then
+        echo '{}'
+    elif [[ "$AGENT" == cursor ]]; then
+        jq -nc --arg m "$SYNC_STATUS" '{additional_context: $m}'
+    else
+        jq -nc --arg m "$SYNC_STATUS" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $m}}'
+    fi
 }
 
 if [[ -z "$WIKI_VAULT" ]]; then
@@ -149,6 +227,8 @@ header = (
 )
 
 msg = header + devlog_ctx + index_ctx
+if os.environ.get("SYNC_STATUS"):
+    msg = os.environ["SYNC_STATUS"] + "\n\n" + msg
 
 if agent == "cursor":
     print(json.dumps({"additional_context": msg}))
