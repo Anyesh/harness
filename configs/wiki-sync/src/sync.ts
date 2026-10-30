@@ -589,6 +589,7 @@ export class Syncer {
           ancestry: [r.rev, ...remote.parentAncestry].slice(0, HISTORY_LIMIT),
           hash,
           mtime: r.mtime,
+          pushed: true,
         };
         next.pending = undefined;
         next.path = localPath;

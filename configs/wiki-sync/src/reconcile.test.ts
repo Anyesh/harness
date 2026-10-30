@@ -577,3 +577,48 @@ Deno.test("each synced version is remembered, at most 100", () => {
   assertEquals(p.state.recent.length, 100);
   assertEquals(p.state.recent.at(-1), { rev: "2-b", hash: "B" });
 });
+
+Deno.test("an edit this machine pushed that loses is copied at once, before the winner overwrites it", () => {
+  const p = run({
+    state: state({ synced: { ...synced("2-a", "A", ["1-r"]), pushed: true } }),
+    local: file("A"),
+    leaves: [leaf("2-a", ["1-r"]), leaf("6-o", ["5-o", "4-o", "3-o", "2-o", "1-r"])],
+    content: content({ "2-a": "A", "6-o": "O" }),
+  });
+  assertEquals(p.local, { kind: "write", rev: "6-o" });
+  assertEquals(p.copies.length, 1);
+  assertObjectMatch(p.copies[0], { source: { kind: "local" }, keep: true, rev: "2-a" });
+});
+
+Deno.test("with no base, losers of an existing conflict are kept in recovered even when the disk matches the winner", () => {
+  const p = run({
+    local: file("W"),
+    leaves: [leaf("3-w", ["2-w", "1-r"]), leaf("2-l", ["1-r"])],
+    content: content({ "3-w": "W", "2-l": "L" }),
+  });
+  assertObjectMatch(p.state.decisions["2-l"], { state: "pending", dest: { where: "recovered" } });
+});
+
+Deno.test("an old winner already copied on an earlier pass is not copied again", () => {
+  const dest = { where: "vault" as const, path: "wiki/projects/a/note.conflict-x.md" };
+  const p = run({
+    state: state({ synced: synced("1-a", "A"), decisions: { "2-b": { state: "copied", dest } } }),
+    local: file("L", NOW - 1000),
+    leaves: [leaf("2-b", ["1-a"])],
+    content: content({ "2-b": "B" }),
+  });
+  assertObjectMatch(p, { remote: { kind: "put", parentRev: "2-b" } });
+  assertEquals(p.copies.length, 0);
+});
+
+Deno.test("an old winner known only by hash whose body cannot be decoded is reported, not dereferenced", () => {
+  const res = reconcile({
+    path: PATH,
+    state: state({ synced: synced("1-a", "A"), recent: [{ rev: "2-b", hash: "B" }] }),
+    local: file("L", NOW - 1000),
+    leaves: [leaf("2-b", ["1-a"])],
+    content: content({ "2-b": null }),
+    now: NOW,
+  });
+  assertEquals(res, { kind: "unreadable", rev: "2-b" });
+});

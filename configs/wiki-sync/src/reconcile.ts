@@ -20,6 +20,7 @@ export interface Synced {
   ancestry: Rev[];
   hash: string | null;
   mtime: number;
+  pushed?: boolean;
 }
 
 export interface CopyDest {
@@ -340,7 +341,7 @@ function decide(input: ReconcileInput): Plan {
 
   const baseLeaf = synced ? live.find((l) => l.rev === synced!.rev) : undefined;
   const destFor = (p: string, mtime: number, hash: string): CopyDest =>
-    synced
+    base
       ? { where: "vault", path: copyName(p, mtime, hash) }
       : { where: "recovered", path: recoveredName(p, mtime, hash) };
 
@@ -368,12 +369,16 @@ function decide(input: ReconcileInput): Plan {
         ? { kind: "put", parentRev, parentAncestry: parentRev ? anc.get(winner.rev)! : [] }
         : { kind: "delete", parentRev: winner.rev, parentAncestry: anc.get(winner.rev)! };
       if (
-        winnerV !== null && !contentOf(winner.rev)!.generated && winnerV !== synced?.hash &&
-        winnerV !== localHash
+        winnerV !== null && winnerV !== synced?.hash && winnerV !== localHash &&
+        st.decisions[winner.rev]?.state !== "copied"
       ) {
-        const dest = destFor(path, winner.mtime, winnerV);
-        copies.push({ source: { kind: "rev", rev: winner.rev }, dest, keep: true, rev: winner.rev });
-        st.decisions[winner.rev] = { state: "copied", dest };
+        const wc = contentOf(winner.rev);
+        if (wc === null) throw new Unreadable(winner.rev);
+        if (!wc.generated) {
+          const dest = destFor(path, winner.mtime, winnerV);
+          copies.push({ source: { kind: "rev", rev: winner.rev }, dest, keep: true, rev: winner.rev });
+          st.decisions[winner.rev] = { state: "copied", dest };
+        }
       }
       st.synced = synced;
       st.pending = { parentRev: remote.parentRev, hash: localHash };
@@ -386,12 +391,21 @@ function decide(input: ReconcileInput): Plan {
     baseLeaf && baseLeaf !== winner && synced!.hash !== null && synced!.hash !== winnerV &&
     !st.decisions[baseLeaf.rev]
   ) {
-    st.decisions[baseLeaf.rev] = {
-      state: "pending",
-      firstSeen: now,
-      dest: destFor(path, baseLeaf.mtime, synced!.hash),
-      wasBase: true,
-    };
+    const dest = destFor(path, baseLeaf.mtime, synced!.hash);
+    if (synced!.pushed) {
+      // This machine's own edit: copy it before the winner overwrites it, since an Obsidian device
+      // resolving the conflict could retire the leaf within the stability wait.
+      const fromDisk = localHash === synced!.hash;
+      copies.push({
+        source: fromDisk ? { kind: "local" } : { kind: "rev", rev: baseLeaf.rev },
+        dest,
+        keep: fromDisk,
+        rev: baseLeaf.rev,
+      });
+      st.decisions[baseLeaf.rev] = { state: "copied", dest };
+    } else {
+      st.decisions[baseLeaf.rev] = { state: "pending", firstSeen: now, dest, wasBase: true };
+    }
   }
 
   if (winnerV === null) {
