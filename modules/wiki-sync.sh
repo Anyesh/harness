@@ -186,10 +186,20 @@ wiki_sync_activate_linux() {
   if command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "$(whoami)" 2>/dev/null || true
   fi
-  systemctl --user daemon-reload
+  systemctl --user daemon-reload || return 1
   systemctl --user enable wiki-sync.service wiki-sync-watchdog.timer wiki-sync-watchdog.path >/dev/null 2>&1 || true
-  systemctl --user restart wiki-sync.service
-  systemctl --user restart wiki-sync-watchdog.timer wiki-sync-watchdog.path
+  systemctl --user restart wiki-sync.service || return 1
+  systemctl --user restart wiki-sync-watchdog.timer wiki-sync-watchdog.path || return 1
+}
+
+# launchd can refuse a bootstrap for a moment after bootout of the same label (error 5).
+wiki_sync_bootstrap() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    launchctl bootstrap "$1" "$2" 2>/dev/null && return 0
+    sleep 1
+  done
+  launchctl bootstrap "$1" "$2"
 }
 
 wiki_sync_activate_darwin() {
@@ -199,7 +209,7 @@ wiki_sync_activate_darwin() {
   for f in "${WIKI_SYNC_AGENTS[@]}"; do
     launchctl bootout "$domain/$f" 2>/dev/null || true
     install -m 644 "$rendered/$f.plist" "$dir/$f.plist"
-    launchctl bootstrap "$domain" "$dir/$f.plist"
+    wiki_sync_bootstrap "$domain" "$dir/$f.plist" || return 1
   done
 }
 
@@ -239,12 +249,18 @@ wiki_sync_install() {
     rm -rf "$rendered"
     return 1
   fi
+  chmod 700 "$home"
+  local activated=0
   if [[ "$(uname -s)" == Darwin ]]; then
-    wiki_sync_activate_darwin "$rendered"
+    wiki_sync_activate_darwin "$rendered" || activated=1
   else
-    wiki_sync_activate_linux "$rendered"
+    wiki_sync_activate_linux "$rendered" || activated=1
   fi
   rm -rf "$rendered"
+  if ((activated != 0)); then
+    log_error "wiki-sync: the service did not start; see the service log"
+    return 1
+  fi
   printf '%s\n' "$stamp" >"$home/stamp"
   log_success "wiki-sync: syncing $WS_WIKI_DIR"
 }

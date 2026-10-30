@@ -45,6 +45,8 @@ echo "$tool \$*" >> "$home/calls.log"
 case "\$*" in
   *is-active*) [ -e "$home/active" ] ;;
   print*) [ -e "$home/active" ] ;;
+  *"restart wiki-sync.service"*) [ ! -e "$home/fail-restart" ] ;;
+  bootstrap*) if [ -e "$home/fail-bootstrap-once" ]; then rm -f "$home/fail-bootstrap-once"; exit 5; fi ;;
   *) exit 0 ;;
 esac
 EOF
@@ -173,6 +175,16 @@ module "$H" wiki_sync_install >/dev/null 2>&1 || true
 assert "first start: a running service is stopped before the snapshot" \
   'grep -n "stop wiki-sync.service" "$H/calls.log" | head -1 | grep -q stop && [[ $(grep -n "stop wiki-sync.service" "$H/calls.log" | cut -d: -f1 | head -1) -lt $(grep -n "restart wiki-sync.service" "$H/calls.log" | cut -d: -f1 | head -1) ]]'
 
+H="$TMP/failing"
+new_home "$H"
+touch "$H/fail-restart"
+rc=0
+module "$H" eval 'wiki_sync_install || exit 1' >/dev/null 2>&1 || rc=$?
+assert "linux: a failed service start fails the install and writes no stamp" \
+  '[[ $rc -ne 0 && ! -e $H/.local/share/harness/wiki-sync/stamp ]]'
+assert "the install dir is private to the user" \
+  '[[ $(stat -c %a "$H/.local/share/harness/wiki-sync") == 700 ]]'
+
 echo ""
 echo "=== macOS install ==="
 
@@ -185,6 +197,14 @@ assert "mac: both launch agents installed with paths filled in" \
 assert "mac: agents booted out then bootstrapped" \
   'grep -q "launchctl bootout gui/.*/com.harness.wiki-sync$" "$H/calls.log" && grep -q "launchctl bootstrap gui/[0-9]* $AGENTS/com.harness.wiki-sync.plist" "$H/calls.log" && grep -q "launchctl bootstrap gui/[0-9]* $AGENTS/com.harness.wiki-sync-watchdog.plist" "$H/calls.log"'
 assert "mac: no systemctl calls" '! grep -q systemctl "$H/calls.log"'
+
+H="$TMP/mac-retry"
+new_home "$H"
+touch "$H/fail-bootstrap-once"
+rc=0
+FAKE_OS=Darwin module "$H" wiki_sync_install >/dev/null 2>&1 || rc=$?
+assert "mac: a bootstrap refused right after bootout is retried" \
+  '[[ $rc -eq 0 && -e $H/.local/share/harness/wiki-sync/stamp && $(grep -c "bootstrap gui/[0-9]* .*com.harness.wiki-sync.plist" "$H/calls.log") -eq 2 ]]'
 
 echo ""
 echo "=== Deno download ==="
