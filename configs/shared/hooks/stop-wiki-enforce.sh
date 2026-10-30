@@ -106,8 +106,14 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     # Must filter on type=="tool_use", not just grep "name":"X" over the raw
     # file: a prompt_snapshot attachment embeds the full tool schema list, so
     # a bare text match counts every tool definition's name as an invocation
-    # even when it was never called.
-    CODE_EDITS=$(jq -r '.. | objects | select(.type? == "tool_use") | .name // empty' "$TRANSCRIPT" 2>/dev/null | grep -cE "$WRITE_TOOL" 2>/dev/null || true)
+    # even when it was never called. Counted by distinct id because
+    # api-request-blob lines repeat each assistant message's tool_use blocks.
+    CODE_EDITS=$(jq -r --arg re "$WRITE_TOOL" '
+        .. | objects
+        | select(.type? == "tool_use")
+        | select((.name? // "") | test($re))
+        | .id // "-"
+    ' "$TRANSCRIPT" 2>/dev/null | awk '$0 == "-" || !seen[$0]++ { n++ } END { print n + 0 }' || true)
     [[ "$CODE_EDITS" =~ ^[0-9]+$ ]] || CODE_EDITS=0
     if [ "$CODE_EDITS" -lt 3 ]; then
         exit 0

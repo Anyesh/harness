@@ -106,6 +106,37 @@ OUT=$(HARNESS_UNATTENDED=0 run_hook "$(payload "s-attended" "$T_EDITS")")
 assert "HARNESS_UNATTENDED other than 1 still fires" \
   'printf "%s" "$OUT" | jq -e "(.hookSpecificOutput.hookEventName == \"Stop\") and (has(\"decision\") | not)" >/dev/null'
 
+# Claude Code logs an api-request-blob line that repeats each assistant
+# message's tool_use blocks under the same ids.
+id_use() {
+  jq -cn --arg id "$1" --arg p "$2" \
+    '{type:"assistant",message:{content:[{type:"tool_use",id:$id,name:"Write",input:{file_path:$p}}]}}'
+}
+replay() {
+  jq -cn '{type:"api-request-blob",message:{role:"assistant",content:[$ARGS.positional[]
+    | {type:"tool_use",id:.,name:"Write",input:{file_path:"/tmp/x"}}]}}' --args "$@"
+}
+
+T_REPLAY2="$TMP_DIR/replay2.jsonl"
+{
+  id_use toolu_a /tmp/a
+  id_use toolu_b /tmp/b
+  replay toolu_a toolu_b
+} > "$T_REPLAY2"
+OUT=$(run_hook "$(payload "s-replay2" "$T_REPLAY2")")
+assert "2 edits replayed in an api-request-blob stay below the threshold" '[ -z "$OUT" ]'
+
+T_REPLAY3="$TMP_DIR/replay3.jsonl"
+{
+  id_use toolu_a /tmp/a
+  id_use toolu_b /tmp/b
+  id_use toolu_c /tmp/c
+  replay toolu_a toolu_b toolu_c
+} > "$T_REPLAY3"
+OUT=$(run_hook "$(payload "s-replay3" "$T_REPLAY3")")
+assert "replayed edits are counted once" \
+  'printf "%s" "$OUT" | jq -r ".hookSpecificOutput.additionalContext" | grep -q "made 3 file edits"'
+
 T_VERDANT="$TMP_DIR/verdant.jsonl"
 {
   tool_use "mcp__verdant__write" "/tmp/a"
