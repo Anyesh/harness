@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 source "$REPO_ROOT/lib/verified_download.sh"
+source "$REPO_ROOT/lib/launchd.sh"
 
 WIKI_SYNC_SRC="${WIKI_SYNC_SRC:-$REPO_ROOT/configs/wiki-sync}"
 WIKI_SYNC_UNITS=(wiki-sync.service wiki-sync-watchdog.service wiki-sync-watchdog.timer wiki-sync-watchdog.path)
@@ -192,30 +193,16 @@ wiki_sync_activate_linux() {
   systemctl --user restart wiki-sync-watchdog.timer wiki-sync-watchdog.path || return 1
 }
 
-# launchd can refuse a bootstrap for a moment after bootout of the same label (error 5).
-wiki_sync_bootstrap() {
-  local attempt
-  for attempt in 1 2 3 4 5; do
-    launchctl bootstrap "$1" "$2" 2>/dev/null && return 0
-    sleep 1
-  done
-  launchctl bootstrap "$1" "$2"
-}
-
 wiki_sync_activate_darwin() {
-  local rendered="$1" dir="$HOME/Library/LaunchAgents" f domain
-  domain="gui/$(id -u)"
-  mkdir -p "$dir" "$HOME/Library/Logs"
+  local rendered="$1" f
   for f in "${WIKI_SYNC_AGENTS[@]}"; do
-    launchctl bootout "$domain/$f" 2>/dev/null || true
-    install -m 644 "$rendered/$f.plist" "$dir/$f.plist"
-    wiki_sync_bootstrap "$domain" "$dir/$f.plist" || return 1
+    launchd_reload_agent "$rendered/$f.plist" "$f" || return 1
   done
 }
 
 wiki_sync_stop_service() {
   if [[ "$(uname -s)" == Darwin ]]; then
-    launchctl bootout "gui/$(id -u)/com.harness.wiki-sync" 2>/dev/null || true
+    launchctl bootout "$(launchd_domain)/com.harness.wiki-sync" 2>/dev/null || true
   elif systemctl --user is-active --quiet wiki-sync.service 2>/dev/null; then
     systemctl --user stop wiki-sync.service
   fi
