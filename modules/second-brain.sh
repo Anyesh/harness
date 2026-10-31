@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+source "$REPO_ROOT/lib/launchd.sh"
+
 second_brain_check() {
     if ! command -v sb &>/dev/null; then
         log_info "second-brain binaries not found (will attempt install)"
@@ -130,8 +132,6 @@ second_brain_mcp() {
 
 second_brain_daemon() {
   local sb_api="${1:-}"
-  local service_dir="$HOME/.config/systemd/user"
-  local service_file="$service_dir/second-brain.service"
 
   if [[ -z "$sb_api" ]]; then
     log_warn "second-brain-api binary not found, skipping daemon setup"
@@ -142,6 +142,39 @@ second_brain_daemon() {
     log_info "[dry-run] would install second-brain daemon service"
     return
   fi
+
+  if [[ "$(uname -s)" == Darwin ]]; then
+    second_brain_daemon_darwin "$sb_api"
+  else
+    second_brain_daemon_linux "$sb_api"
+  fi
+}
+
+second_brain_started_marker() {
+  printf '%s\n' "$HOME/.local/share/harness/second-brain/daemon-started"
+}
+
+# WHY: cargo install --force replaces the binary on disk but the running
+# process keeps its old copy open until restarted, so a newer release
+# would otherwise silently keep serving the previous version with no
+# error anywhere.
+second_brain_binary_newer() {
+  local marker
+  marker=$(second_brain_started_marker)
+  [[ ! -e "$marker" || "$1" -nt "$marker" ]]
+}
+
+second_brain_mark_started() {
+  local marker
+  marker=$(second_brain_started_marker)
+  mkdir -p "$(dirname "$marker")"
+  touch "$marker"
+}
+
+second_brain_daemon_linux() {
+  local sb_api="$1"
+  local service_dir="$HOME/.config/systemd/user"
+  local service_file="$service_dir/second-brain.service"
 
   mkdir -p "$service_dir"
 
@@ -175,21 +208,16 @@ UNIT
     systemctl --user daemon-reload
     systemctl --user enable second-brain.service 2>/dev/null || true
     if systemctl --user is-active --quiet second-brain.service 2>/dev/null; then
-      # WHY: cargo install --force replaces the binary on disk but the running
-      # process keeps its old copy open until restarted, so a newer release
-      # would otherwise silently keep serving the previous version with no
-      # error anywhere.
-      local bin_mtime svc_start_epoch
-      bin_mtime=$(stat -c %Y "$sb_api" 2>/dev/null || echo 0)
-      svc_start_epoch=$(date -d "$(systemctl --user show second-brain.service -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0)
-      if [[ "$bin_mtime" -gt "$svc_start_epoch" ]]; then
+      if second_brain_binary_newer "$sb_api"; then
         systemctl --user restart second-brain.service 2>/dev/null || true
+        second_brain_mark_started
         log_success "daemon: second-brain service restarted (binary updated since last start)"
       else
         log_skip "daemon: second-brain service" "already running the current binary"
       fi
     else
       systemctl --user start second-brain.service 2>/dev/null || true
+      second_brain_mark_started
       log_success "daemon: second-brain service installed and started"
     fi
   else
@@ -197,11 +225,48 @@ UNIT
   fi
 }
 
+# Args: label, destination, second-brain-api path (daemon agent only).
+second_brain_render_agent() {
+  local label="$1" dest="$2" sb_api="${3:-}"
+  sed -e "s|@HOME@|$HOME|g" -e "s|@SB_API@|$sb_api|g" \
+    "$REPO_ROOT/configs/second-brain/launchd/$label.plist" >"$dest"
+}
+
+# Succeeds when the agent is loaded from a plist identical to the rendered one.
+second_brain_agent_current() {
+  local label="$1" rendered="$2"
+  launchctl print "$(launchd_domain)/$label" >/dev/null 2>&1 &&
+    cmp -s "$rendered" "$(launchd_agents_dir)/$label.plist"
+}
+
+second_brain_daemon_darwin() {
+  local sb_api="$1" label=com.harness.second-brain rendered
+  rendered=$(mktemp)
+  second_brain_render_agent "$label" "$rendered" "$sb_api"
+  if second_brain_agent_current "$label" "$rendered"; then
+    rm -f "$rendered"
+    if ! second_brain_binary_newer "$sb_api"; then
+      log_skip "daemon: second-brain agent" "already running the current binary"
+    elif launchctl kickstart -k "$(launchd_domain)/$label"; then
+      second_brain_mark_started
+      log_success "daemon: second-brain agent restarted (binary updated since last start)"
+    else
+      log_warn "daemon: launchctl could not restart $label"
+    fi
+    return
+  fi
+  if launchd_reload_agent "$rendered" "$label"; then
+    second_brain_mark_started
+    log_success "daemon: second-brain agent installed and started"
+  else
+    log_warn "daemon: launchctl could not load $label"
+  fi
+  rm -f "$rendered"
+}
 
 second_brain_sync_timer() {
   local sb_sync_src="$REPO_ROOT/configs/second-brain/sb-sync.sh"
   local bin_dir="$HOME/.local/bin"
-  local service_dir="$HOME/.config/systemd/user"
   local peers_file="$HOME/.second-brain/sync-peers"
 
   if [[ ! -f "$sb_sync_src" ]]; then
@@ -213,7 +278,7 @@ second_brain_sync_timer() {
     return
   fi
 
-  mkdir -p "$bin_dir" "$service_dir" "$HOME/.second-brain"
+  mkdir -p "$bin_dir" "$HOME/.second-brain"
   install -m755 "$sb_sync_src" "$bin_dir/sb-sync.sh"
 
   # Peers are per-machine; never overwrite an existing list. Seed an empty,
@@ -225,6 +290,18 @@ second_brain_sync_timer() {
 PEERS
     log_info "seeded empty $peers_file (add peers to enable auto-sync)"
   fi
+
+  if [[ "$(uname -s)" == Darwin ]]; then
+    second_brain_sync_agent_darwin
+  else
+    second_brain_sync_timer_linux
+  fi
+}
+
+second_brain_sync_timer_linux() {
+  local service_dir="$HOME/.config/systemd/user"
+
+  mkdir -p "$service_dir"
 
   cat > "$service_dir/sb-sync.service" <<'UNIT'
 [Unit]
@@ -256,6 +333,20 @@ UNIT
   else
     log_warn "systemctl not found, sync timer written but not activated"
   fi
+}
+
+second_brain_sync_agent_darwin() {
+  local label=com.harness.sb-sync rendered
+  rendered=$(mktemp)
+  second_brain_render_agent "$label" "$rendered"
+  if second_brain_agent_current "$label" "$rendered"; then
+    log_skip "sync agent: $label" "already loaded"
+  elif launchd_reload_agent "$rendered" "$label"; then
+    log_success "sync agent: $label installed, runs every 30 minutes"
+  else
+    log_warn "sync agent: launchctl could not load $label"
+  fi
+  rm -f "$rendered"
 }
 
 second_brain_install() {
