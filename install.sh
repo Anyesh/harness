@@ -26,6 +26,9 @@ harness_ensure_modern_bash "${BASH_VERSINFO[0]}" "$REPO_ROOT/install.sh" ${1+"$@
 # otherwise be invisible to `command -v` even though they're really there.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
+source "$REPO_ROOT/lib/gnu_tools.sh"
+harness_require_gnu_tools "$(uname -s)"
+
 source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/profile.sh"
 source "$REPO_ROOT/lib/template.sh"
