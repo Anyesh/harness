@@ -31,11 +31,9 @@ into=${into%%$'\n'*}
 [[ -n $branch && -n $into ]] || die "board row for $id lacks a branch or into"
 
 tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
-# The process name in /proc/<pid>/stat may contain spaces, so count from the last ") ".
-stat=$(<"/proc/$$/stat")
-read -ra stat_fields <<<"${stat##*) }"
+start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
 mkdir -p "$item"
-printf 'pid %s\nstart %s\ntip %s\n' "$$" "${stat_fields[19]}" "$tip" >"$item/merging"
+printf 'pid %s\nstart %s\ntip %s\n' "$$" "$start" "$tip" >"$item/merging"
 
 exec {lock}>"$common/crew-merge.lock"
 flock -w 1800 "$lock" || die "merge queue busy"

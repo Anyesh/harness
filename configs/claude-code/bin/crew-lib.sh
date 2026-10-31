@@ -32,6 +32,16 @@ crew_report_status() {
   sed -n 's/^status:[[:space:]]*//p' "$1" | head -n 1 | tr -d '[:space:]'
 }
 
+# Epoch second a live process started, read through ps because macOS has no
+# /proc. lstart carries no zone, so both ps and date run in UTC; local time
+# would make a DST fall-back hour ambiguous. Needs GNU date for -d.
+crew_pid_start() {
+  local lstart
+  lstart=$(LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null) || return 1
+  [[ -n $lstart ]] || return 1
+  TZ=UTC0 date -d "$lstart" +%s
+}
+
 crew_dir() {
   local main
   main=$(crew_main "${1:-.}") || return 1

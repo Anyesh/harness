@@ -7,6 +7,8 @@ while read -r v; do unset "$v"; done < <(compgen -e | grep '^GIT_CONFIG_' || tru
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SWEEP="$REPO_ROOT/configs/claude-code/bin/crew-sweep"
+# shellcheck source=../configs/claude-code/bin/crew-lib.sh
+. "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"
 
 PASS=0
 FAIL=0
@@ -268,12 +270,12 @@ echo "status: done" >"$CREW/items/11/report.md"
 touch -d "@$((NOW - 60))" "$CREW/items/11/report.md"
 
 # The merging file crew-merge writes: one `key value` per line, `pid`, `start`
-# (token 20 after the last ") " of /proc/<pid>/stat) and `tip` at step 0, then
+# (crew_pid_start of that pid) and `tip` at step 0, then
 # `merged <sha>` appended at step 5; the last line for a key wins.
 sleep 30 &
 LIVE=$!
 PIDS+=("$LIVE")
-live_start=$(awk '{print $22}' "/proc/$LIVE/stat")
+live_start=$(crew_pid_start "$LIVE")
 printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/8/merging"
 printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$((live_start + 1))" 0 >"$CREW/items/9/merging"
 
@@ -318,19 +320,11 @@ assert "an empty column keeps updated in place" 'has "WORKER x-w8 item 8 idle ID
 rm "$CREW/items/8/report.md"
 { row 8 assigned x-w8 "$NOW"; } >"$CREW/board.tsv"
 
-cp "$(command -v sleep)" "$TMP_DIR/my sleep"
-"$TMP_DIR/my sleep" 30 &
-SPACED=$!
-PIDS+=("$SPACED")
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  [[ $(cat "/proc/$SPACED/comm" 2>/dev/null) == "my sleep" ]] && break
-  sleep 0.05
-done
-spaced_start=$(awk '{print $23}' "/proc/$SPACED/stat")
-printf 'pid %s\nstart %s\ntip %040d\n' "$SPACED" "$spaced_start" 0 >"$CREW/items/8/merging"
-sweep 1
-assert "the start time is read past a process name holding a space" 'has "WORKER x-w8 item 8 idle MERGING"'
-printf 'pid %s\nstart %s\ntip %040d\nmerged %040d\n' "$SPACED" "$spaced_start" 0 1 >"$CREW/items/8/merging"
+sleep 30 &
+LIVE=$!
+PIDS+=("$LIVE")
+live_start=$(crew_pid_start "$LIVE")
+printf 'pid %s\nstart %s\ntip %040d\nmerged %040d\n' "$LIVE" "$live_start" 0 1 >"$CREW/items/8/merging"
 sweep 1
 assert "a merging file with a merged line is still read" 'has "WORKER x-w8 item 8 idle MERGING"'
 printf 'garbage\n' >"$CREW/items/8/merging"
@@ -447,7 +441,7 @@ gc update-ref refs/heads/w/4 "$(GIT_COMMITTER_DATE="$OLD +0000" gc commit-tree -
 sleep 30 &
 LIVE=$!
 PIDS+=("$LIVE")
-live_start=$(awk '{print $22}' "/proc/$LIVE/stat")
+live_start=$(crew_pid_start "$LIVE")
 {
   for i in 1 2 3 4 5 6 7 8 9; do row "$i" assigned "x-w$i" "$OLD"; done
   row 10 assigned x-w10 "$NOW"

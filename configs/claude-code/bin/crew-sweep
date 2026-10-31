@@ -126,22 +126,13 @@ agent_list() {
   exit 1
 }
 
-# Field 22 of /proc/<pid>/stat, counted after the last ") " because the
-# process name may itself hold spaces or parentheses.
-pid_start() {
-  local stat rest
-  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
-  rest=${stat##*) }
-  awk '{print $20}' <<<"$rest"
-}
-
 merging_live() {
   local file=$1 pid start
   [[ -f $file ]] || return 1
   pid=$(awk '$1 == "pid" {v = $2} END {print v}' "$file")
   start=$(awk '$1 == "start" {v = $2} END {print v}' "$file")
   [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ ]] || return 1
-  [[ $(pid_start "$pid") == "$start" ]]
+  [[ $(crew_pid_start "$pid") == "$start" ]]
 }
 
 report_since() {

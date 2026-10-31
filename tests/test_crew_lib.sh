@@ -73,6 +73,17 @@ printf 'summary\nstatus:  question \nstatus: done\n' >"$TMP_DIR/report.md"
 assert "report status is the first status line, trimmed" '[[ $(crew_report_status "$TMP_DIR/report.md") == question ]]'
 assert "a missing report has an empty status" '[[ -z $(crew_report_status "$TMP_DIR/none.md") ]]'
 
+before=$EPOCHSECONDS
+sleep 30 &
+live=$!
+started=$(crew_pid_start "$live")
+assert "pid start is the epoch second the process started" '[[ $started =~ ^[0-9]+$ ]] && ((started >= before - 1 && started <= EPOCHSECONDS))'
+assert "pid start is the same on every read" '[[ $(crew_pid_start "$live") == "$started" ]]'
+assert "pid start is unaffected by TZ" '[[ $(TZ=America/New_York crew_pid_start "$live") == "$started" ]]'
+kill "$live"
+wait "$live" 2>/dev/null || true
+assert "pid start fails with no output for a dead pid" '! out=$(crew_pid_start "$live") && [[ -z $out ]]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

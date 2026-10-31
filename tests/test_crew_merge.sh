@@ -190,20 +190,20 @@ before=$(git -C "$MAIN" rev-parse main)
 set_check "m='$CREW/items/11/merging'
 pid=\$(sed -n 's/^pid //p' \"\$m\" | tail -n 1)
 cp \"\$m\" '$TMP_DIR/merging.snap'
-cp /proc/\$pid/stat '$TMP_DIR/stat.snap'
+. '$REPO_ROOT/configs/claude-code/bin/crew-lib.sh'
+crew_pid_start \$pid >'$TMP_DIR/start.snap'
 env >'$TMP_DIR/env.snap'"
 rc=0
 (cd "$(wt_of 11)" && exec env HARNESS_UNATTENDED=1 HARNESS_NOTIFY=0 "${PB[@]}" "$CM" 11) >"$TMP_DIR/out" 2>&1 &
 cm_pid=$!
 wait "$cm_pid" || rc=$?
 landed=$(git -C "$MAIN" rev-parse main)
-stat=$(cat "$TMP_DIR/stat.snap")
-read -ra stat_f <<<"${stat##*) }"
+start=$(cat "$TMP_DIR/start.snap")
 assert "lands with the push block, crew variables and merge.autostash=true set" '[[ $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out") == "$landed" ]]'
 assert "lands the merge commit by fast-forward" '[[ $(git -C "$MAIN" rev-parse "main^1") == "$before" && $(git -C "$MAIN" rev-parse "main^2") == "$tip" ]]'
 assert "leaves no MERGE_AUTOSTASH in the target" '! git -C "$MAIN" rev-parse -q --verify MERGE_AUTOSTASH >/dev/null'
 assert "merging carries the pid of crew-merge" 'grep -qx "pid $cm_pid" "$TMP_DIR/merging.snap"'
-assert "merging carries the pid start time" 'grep -qx "start ${stat_f[19]}" "$TMP_DIR/merging.snap"'
+assert "merging carries the start time crew_pid_start reads for that pid" '[[ -n $start ]] && grep -qx "start $start" "$TMP_DIR/merging.snap"'
 assert "merging carries the tip" 'grep -qx "tip $tip" "$TMP_DIR/merging.snap"'
 assert "merging becomes merged" '[[ ! -e "$CREW/items/11/merging" && -f "$CREW/items/11/merged" ]]'
 assert "merged records branch, tip, merged sha and into" 'grep -qx "branch w/11" "$CREW/items/11/merged" && grep -qx "tip $tip" "$CREW/items/11/merged" && grep -qx "merged $landed" "$CREW/items/11/merged" && grep -qx "into main" "$CREW/items/11/merged"'
