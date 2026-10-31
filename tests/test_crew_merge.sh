@@ -25,7 +25,7 @@ assert() {
   fi
 }
 
-TMP_DIR=$(mktemp -d)
+TMP_DIR=$(cd "$(mktemp -d)" && pwd -P)
 BG_PID_FILE="$TMP_DIR/bg.pid"
 cleanup() {
   if [[ -s $BG_PID_FILE ]]; then kill "$(cat "$BG_PID_FILE")" 2>/dev/null || true; fi
