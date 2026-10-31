@@ -8,13 +8,13 @@ SB="$HOME/.cargo/bin/sb"
 PEERS_FILE="$HOME/.second-brain/sync-peers"
 KNOWN_HOSTS="$HOME/.second-brain/known_hosts"
 
-[ -x "$SB" ] || { echo "$(date -Is) sb binary missing at $SB"; exit 1; }
-[ -f "$PEERS_FILE" ] || { echo "$(date -Is) no peers file ($PEERS_FILE); nothing to sync"; exit 0; }
+[ -x "$SB" ] || { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) sb binary missing at $SB"; exit 1; }
+[ -f "$PEERS_FILE" ] || { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) no peers file ($PEERS_FILE); nothing to sync"; exit 0; }
 
 # Local daemon must be up for sb to proxy. Not treated as a failure here because
 # second-brain.service reports its own health; this unit only owns the sync.
 curl -sf --max-time 5 http://127.0.0.1:7200/health >/dev/null 2>&1 || {
-  echo "$(date -Is) local daemon down; pausing (timer retries next schedule)"; exit 0; }
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) local daemon down; pausing (timer retries next schedule)"; exit 0; }
 
 rc=0
 out="$(mktemp)"
@@ -29,14 +29,14 @@ while IFS= read -r peer; do
     continue
   fi
 
-  echo "$(date -Is) syncing with $peer"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) syncing with $peer"
   "$SB" sync "$peer" >"$out" 2>&1
   status=$?
 
   if [ "$status" -eq 0 ]; then
     grep -iE "created|updated|deleted|pushed through|warning" "$out" | sed 's/^/  /'
   else
-    echo "$(date -Is) sync with $peer FAILED (exit $status)"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) sync with $peer FAILED (exit $status)"
     tail -n 20 "$out" | sed 's/^/  /'
     rc=1
   fi
