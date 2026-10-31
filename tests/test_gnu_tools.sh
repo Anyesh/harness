@@ -35,6 +35,10 @@ done
 fake_tool "$TMP/mixed" sed "sed: illegal option -- -"
 fake_tool "$TMP/mixed" grep "grep (BSD grep, GNU compatible) 2.6.0-FreeBSD"
 fake_tool "$TMP/mixed" date "date (GNU coreutils) 9.5"
+fake_tool "$TMP/gnu" flock "flock 0.4.0"
+for t in sed grep date; do
+  fake_tool "$TMP/noflock" "$t" "$t (GNU coreutils) 9.5"
+done
 
 # Args: PATH for the call, OS name.
 require() {
@@ -52,6 +56,8 @@ assert "Darwin with GNU tools first on PATH returns" '[[ $(require "$TMP/gnu" Da
 assert "Darwin with BSD sed and grep exits 1" '! require "$TMP/mixed" Darwin >/dev/null'
 assert "names the BSD tools" 'grep -q "sed grep" "$TMP/err"'
 assert "names the gnubin fix" 'grep -q "gnubin" "$TMP/err"'
+assert "Darwin without flock exits 1" '! require "$TMP/noflock" Darwin >/dev/null'
+assert "names the flock install" 'grep -q "brew install flock" "$TMP/err" && ! grep -q "gnubin" "$TMP/err"'
 assert "Linux is not checked" '[[ $(require "$TMP/mixed" Linux) == returned ]]'
 
 echo ""
