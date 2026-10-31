@@ -17,6 +17,9 @@ fi
 
 REPO_ROOT="$SCRIPT_DIR"
 
+source "$REPO_ROOT/lib/modern_bash.sh"
+harness_ensure_modern_bash "${BASH_VERSINFO[0]}" "$REPO_ROOT/install.sh" ${1+"$@"}
+
 # WHY: install.sh often runs from a non-interactive shell (ssh "cmd", cron)
 # that never sources .bashrc/.profile, where per-user tool installs like
 # claude (~/.local/bin) or cargo-installed binaries (~/.cargo/bin) would

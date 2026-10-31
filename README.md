@@ -340,7 +340,7 @@ claude mcp list    # Should show 5 servers connected
 
 ## Requirements
 
-- bash 4+
+- bash 4+ (on macOS, `brew install bash`; `install.sh` re-runs itself under it when started by the system bash 3.2)
 - git
 - jq
 - curl, unzip and tar (wiki-sync's Deno download and snapshots)
