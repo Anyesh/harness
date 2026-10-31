@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 op="${1:-}"
 skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

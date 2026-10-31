@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Stop hook: detect sloppy shortcut-seeking language in the last assistant turn.
 # On detection, continue the turn and feed a strong correction back into the agent's context.
 # Pass "claude" as $1 for Claude Code's additionalContext shape; Codex continues a Stop only on

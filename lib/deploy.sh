@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 json_equivalent() {
   local a b

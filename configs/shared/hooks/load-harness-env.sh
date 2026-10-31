@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Fills harness settings from the environment, else from ~/.harness.env.
 
 # The last assignment in the file wins, and surrounding double quotes are stripped.

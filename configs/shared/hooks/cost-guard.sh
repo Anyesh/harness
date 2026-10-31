@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -uo pipefail
 
 # PreToolUse hook: blocks large-output operations on main thread to avoid

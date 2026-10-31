@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 input=$(cat)
 command=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -n "$command" ] || exit 0

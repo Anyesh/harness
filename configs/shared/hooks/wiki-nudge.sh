@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Cross-agent prompt-submit hook: nudge the LLM to write wiki pages when it
 # hasn't, because behavioral instructions get deprioritized when the LLM is
 # deep in a task.

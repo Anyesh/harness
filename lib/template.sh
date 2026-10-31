@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 declare -f profile_skips_rule >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 backup_file() {
   local file="$1"

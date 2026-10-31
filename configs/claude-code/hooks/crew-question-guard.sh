@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Keeps crew panes off blocking dialogs: herdr cannot deliver a prompt to a pane
 # that sits in a question or plan dialog, which stalls the whole crew.
 input=$(cat)

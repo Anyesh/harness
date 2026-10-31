@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 declare -F spec_load >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/claude_profile_spec.sh"
 

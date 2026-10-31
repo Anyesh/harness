@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 input=$(cat)
 plan=$(printf '%s' "$input" | jq -r '.tool_input.plan // empty' 2>/dev/null) || exit 0
 [ -n "$plan" ] || exit 0

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Resolve the open workspace project root and slug for harness hooks.
 # User-level Cursor hooks run with cwd ~/.cursor/, so git rev-parse there
 # yields ~/.cursor and slug "-cursor". Prefer workspace_roots / env vars.

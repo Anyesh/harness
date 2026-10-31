@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Records every guard block as one JSONL line so false positives show up as data
 # (scripts/hook-blocks.sh) instead of waiting for an agent to complain.
 # Sourced by bash guards; executed as `bash log-block.sh HOOK [DETAIL] <payload`

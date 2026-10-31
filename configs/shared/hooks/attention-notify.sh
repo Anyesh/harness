@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Hook entry for the attention push: attention-notify.sh claude|codex|cursor.
 # Maps the harness's hook payload to an arm or cancel call on
 # attention-core.sh. Must print nothing and exit 0, because Cursor reads a

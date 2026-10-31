@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Cross-agent prompt-submit hook: whisper a reminder to clean up scratch
 # artifacts (temp docs like PLAN.md/HANDOVER.md, screenshots, *.tmp, debug
 # dumps) the agent left untracked in the working tree. Relevant knowledge

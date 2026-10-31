@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Reads hook JSON from stdin; prints "cursor" or "claude".
 # cursor_version is present only in Cursor payloads. hook_event_name casing
 # is a secondary signal (Cursor: sessionStart, Claude: SessionStart).

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 file_checksum() {
   sha256sum "$1" | cut -d' ' -f1

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Removes linked git worktrees that agents left behind after their work landed.
 # Usage: worktree-sweep.sh [--dry-run] [--quiet] [--idle-hours N] [--repo PATH]
 #

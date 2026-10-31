@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Pushes "an agent session needs you" to ntfy after a grace delay that any
 # sign of the user acting cancels. Knows nothing about any one harness: the
 # adapters (attention-notify.sh, the opencode harness-attention.js plugin)

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 INPUT=$(cat 2>/dev/null || true)
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"

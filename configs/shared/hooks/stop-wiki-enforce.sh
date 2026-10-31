@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Cross-agent stop hook: when the agent tries to end a turn after substantial
 # code work without having written any wiki pages, push back. Claude gets
 # additionalContext, which continues the turn as hook feedback rather than an

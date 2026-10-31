@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Global PreToolUse hook: Enforces universal code quality rules
 # Blocks: em dashes (any file), curly/smart quotes (any file), double-hyphen-as-dash
 #         (prose files only), emojis, inline imports (Python), unnecessary

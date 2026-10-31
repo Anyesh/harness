@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Cursor-only: block beforeSubmitPrompt when a large context is about to go cold

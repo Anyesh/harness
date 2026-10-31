@@ -43,7 +43,7 @@ mkdir -p "$STUB" "$CALLS" "$PROJECT"
 git -C "$PROJECT" init -q
 
 cat > "$STUB/curl" <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 n=$(ls "$STUB_CALLS" | wc -l)
 dir="$STUB_CALLS/$n"
 mkdir -p "$dir"

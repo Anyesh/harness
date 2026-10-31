@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse guard for publish commands: scans the built artifacts a publish
 # would upload, because build backends pack untracked files that no
 # pre-commit hook ever sees. Blocks (exit 2) when an artifact contains

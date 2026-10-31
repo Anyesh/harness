@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Prompt-submit hook: soft reminder when .scope.md is missing/stale during
 # long conversations that look like feature work. Fires every 10th turn of a
 # session, starting at turn 10.

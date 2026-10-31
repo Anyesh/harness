@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 cmd="${1:-}"
 
 top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""

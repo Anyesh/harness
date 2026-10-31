@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # A claude-profile spec (~/.config/harness/profiles/<name>/) lists only how a
 # profile differs from ~/.claude. This file parses it and answers selection

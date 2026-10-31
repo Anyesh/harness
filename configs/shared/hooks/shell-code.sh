@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # shell_code [keep] < command > code
 #
 # Reduces a shell command line to the text that runs as commands, so guards

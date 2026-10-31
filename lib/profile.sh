@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # The single definition of "memory" (second-brain and the wiki/vault). Every
 # installer path reads these lists, so a lite install skips the same set
