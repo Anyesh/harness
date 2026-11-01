@@ -118,10 +118,10 @@ if number CREW_DISK_MIN_GB "$disk_min"; then
   paths=("$@")
   if main=$(crew_main); then paths+=("$main"); fi
   paths+=("${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}")
-  if [[ -n ${main:-} && -f $main/.claude/crew/watch-paths ]]; then
+  if crew=$(crew_dir) && [[ -f $crew/watch-paths ]]; then
     while IFS= read -r line || [[ -n $line ]]; do
       [[ -z $line ]] || paths+=("$line")
-    done <"$main/.claude/crew/watch-paths"
+    done <"$crew/watch-paths"
   fi
   for p in "${paths[@]}"; do probe_disk "$p"; done
 fi

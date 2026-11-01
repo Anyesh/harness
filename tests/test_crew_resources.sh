@@ -111,11 +111,12 @@ run "${QUIET_ENV[@]}" CREW_MEM_MIN_MB=lots "$CR"
 assert "a threshold that is not a number is a failure naming it" '[[ $RC -eq 1 ]] && grep -q "CREW_MEM_MIN_MB is not a number: lots" <<<"$ERR"'
 
 echo "probed paths"
-printf '%s\n\n%s\n' "$TMP_DIR/watched/not/built/yet" "$TMP_DIR/runs" >"$CREW/watch-paths"
+mkdir -p "$TMP_DIR/watched/built"
+printf '%s\n\n%s\n' "$TMP_DIR/watched/built/not/yet" "$TMP_DIR/watched/built" >"$CREW/watch-paths"
 : >"$DF_LOG"
-run "${QUIET_ENV[@]}" PATH="$FAKE_BIN:$PATH" "$CR" "$TMP_DIR/arg"
-assert "a missing path is probed at its nearest existing ancestor" 'grep -qxF "$TMP_DIR" "$DF_LOG" && [[ $RC -eq 0 ]]'
-assert "the main checkout and an existing watch path are probed" 'grep -qxF "$REPO" "$DF_LOG"'
+run "${QUIET_ENV[@]}" PATH="$FAKE_BIN:$PATH" CREW_RUNS_DIR="$REPO" "$CR"
+assert "a missing watch path is probed at its nearest existing ancestor" '[[ $(grep -cxF "$TMP_DIR/watched/built" "$DF_LOG") -eq 2 && $RC -eq 0 ]]'
+assert "the main checkout is probed" 'grep -qxF "$REPO" "$DF_LOG"'
 assert "blank watch-paths lines are skipped" '! grep -qx "" "$DF_LOG"'
 rm "$CREW/watch-paths"
 : >"$DF_LOG"
