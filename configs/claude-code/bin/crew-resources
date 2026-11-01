@@ -16,7 +16,8 @@
 #
 # Each threshold comes from its non-empty environment variable, else from a
 # KEY=value line in $crew/thresholds (blank and # lines skipped; an unknown key
-# or a line without = is a failure), else from its default.
+# or a line without = is a failure), else from its default. The keys crew-sweep
+# reads must be whole numbers, and any other value for one is a failure here.
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -30,35 +31,17 @@ fail() {
 
 crew=$(crew_dir) || crew=
 
-# Parsed, never sourced, so the file cannot run code.
-declare -A file_threshold
-read_thresholds() {
-  local line key n=0
-  while IFS= read -r line || [[ -n $line ]]; do
-    n=$((n + 1))
-    [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
-    if [[ $line != *=* ]]; then
-      fail "thresholds line $n: not KEY=value: $line"
-      continue
-    fi
-    key=${line%%=*}
-    case $key in
-    CREW_DISK_MIN_GB | CREW_MEM_MIN_MB | CREW_LOAD_PER_CPU | CREW_IO_FULL_PCT) file_threshold[$key]=${line#*=} ;;
-    *) fail "thresholds line $n: unknown key $key" ;;
-    esac
-  done <"$crew/thresholds"
-}
-if [[ -n $crew && -f $crew/thresholds ]]; then read_thresholds; fi
+if [[ -n $crew ]]; then crew_read_thresholds "$crew/thresholds"; fi
+for e in "${crew_threshold_errors[@]}"; do fail "$e"; done
+for key in $crew_threshold_whole; do
+  v=$(crew_threshold_raw "$key")
+  [[ -z $v || $v =~ ^[0-9]+$ ]] || fail "$key is not a whole number: $v"
+done
 
-threshold() {
-  local v=${!1:-}
-  printf '%s\n' "${v:-${file_threshold[$1]:-$2}}"
-}
-
-disk_min=$(threshold CREW_DISK_MIN_GB 20)
-mem_min=$(threshold CREW_MEM_MIN_MB 1024)
-load_per_cpu=$(threshold CREW_LOAD_PER_CPU 2)
-io_full_pct=$(threshold CREW_IO_FULL_PCT 30)
+disk_min=$(crew_threshold CREW_DISK_MIN_GB 20)
+mem_min=$(crew_threshold CREW_MEM_MIN_MB 1024)
+load_per_cpu=$(crew_threshold CREW_LOAD_PER_CPU 2)
+io_full_pct=$(crew_threshold CREW_IO_FULL_PCT 30)
 os=$(uname -s)
 
 number() {

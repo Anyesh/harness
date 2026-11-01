@@ -147,6 +147,13 @@ RUN_DIR=$TMP_DIR
 run -u CREW_MEM_MIN_MB CREW_DISK_MIN_GB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000 "$CR"
 RUN_DIR=$REPO
 assert "outside a repo the thresholds file is not read" '! has_re "^memory " && [[ $RC -eq 0 ]]'
+printf 'CREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=0\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\nCREW_SESSION_SOFT_PCT=60\nCREW_SESSION_HARD_PCT=85\nCREW_WEEK_SOFT_PCT=80\nCREW_WEEK_HARD_PCT=95\nCREW_CONTEXT_K=300\nCREW_WORKERS_PER_PROFILE=4\n' >"$CREW/thresholds"
+run "${FILE_ENV[@]}" "$CR"
+assert "the usage, context and worker-cap keys are accepted" '[[ $RC -eq 0 && -z $ERR && -z $OUT ]]'
+for bad in 80% eighty 80.5; do
+  run "${QUIET_ENV[@]}" CREW_CONTEXT_K="$bad" "$CR"
+  assert "a whole-number key set to $bad fails naming it" '[[ $RC -eq 1 ]] && grep -qF "CREW_CONTEXT_K is not a whole number: $bad" <<<"$ERR"'
+done
 rm "$CREW/thresholds"
 
 echo "probed paths"

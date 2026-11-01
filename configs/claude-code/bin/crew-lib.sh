@@ -153,6 +153,57 @@ crew_profile_usage() {
   fi
 }
 
+crew_threshold_keys=(CREW_DISK_MIN_GB CREW_MEM_MIN_MB CREW_LOAD_PER_CPU CREW_IO_FULL_PCT
+  CREW_SESSION_SOFT_PCT CREW_SESSION_HARD_PCT CREW_WEEK_SOFT_PCT CREW_WEEK_HARD_PCT
+  CREW_CONTEXT_K CREW_WORKERS_PER_PROFILE)
+crew_threshold_whole=" CREW_SESSION_SOFT_PCT CREW_SESSION_HARD_PCT CREW_WEEK_SOFT_PCT CREW_WEEK_HARD_PCT CREW_CONTEXT_K CREW_WORKERS_PER_PROFILE "
+declare -gA crew_threshold_file=()
+crew_threshold_errors=()
+
+# Reads a crew thresholds file into crew_threshold_file, parsed and never
+# sourced, collecting each bad line in crew_threshold_errors for the caller to
+# report or ignore. A missing file clears both.
+crew_read_thresholds() {
+  local line key n=0
+  crew_threshold_file=()
+  crew_threshold_errors=()
+  [[ -f $1 ]] || return 0
+  while IFS= read -r line || [[ -n $line ]]; do
+    n=$((n + 1))
+    [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
+    if [[ $line != *=* ]]; then
+      crew_threshold_errors+=("thresholds line $n: not KEY=value: $line")
+      continue
+    fi
+    key=${line%%=*}
+    if [[ " ${crew_threshold_keys[*]} " == *" $key "* ]]; then
+      crew_threshold_file[$key]=${line#*=}
+    else
+      crew_threshold_errors+=("thresholds line $n: unknown key $key")
+    fi
+  done <"$1"
+}
+
+# The raw value of a known threshold key: a non-empty environment value, else
+# the file's, else empty.
+crew_threshold_raw() {
+  local v=
+  [[ " ${crew_threshold_keys[*]} " == *" $1 "* ]] || return 1
+  eval "v=\${$1:-}"
+  [[ -n $v ]] || v=${crew_threshold_file[$1]:-}
+  printf '%s\n' "$v"
+}
+
+# A threshold's value, or the default given; a whole-number key with any other
+# value also takes the default, since crew-sweep compares it in bash.
+crew_threshold() {
+  local v
+  v=$(crew_threshold_raw "$1") || return 1
+  [[ -n $v ]] || v=$2
+  if [[ $crew_threshold_whole == *" $1 "* && ! $v =~ ^[0-9]+$ ]]; then v=$2; fi
+  printf '%s\n' "$v"
+}
+
 # State of a crew-merge marker, items/<id>/merging: `key value` lines pid,
 # start, tip, `queued <epoch>` until the merge lock is taken and `merged <sha>`
 # once the fast-forward is under way; the last line for a key wins. Prints

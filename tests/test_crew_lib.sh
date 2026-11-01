@@ -133,6 +133,22 @@ assert "non-integer and unparseable files are ignored" '[[ $(crew_profile_usage 
 rm -f "$U"/*.json
 assert "an empty usage dir reads ?" '[[ $(crew_profile_usage ero) == "? ? ? ?" ]]'
 
+echo "thresholds"
+T="$TMP_DIR/thresholds"
+printf '# c\n\nCREW_MEM_MIN_MB=512\nCREW_CONTEXT_K=300\nCREW_WORKERS_PER_PROFILE=80%%\nCREW_BOGUS=1\nnope\n' >"$T"
+crew_read_thresholds "$T"
+assert "a file value applies" '[[ $(crew_threshold CREW_MEM_MIN_MB 1024) == 512 && $(crew_threshold CREW_CONTEXT_K 400) == 300 ]]'
+assert "a missing key takes the default" '[[ $(crew_threshold CREW_SESSION_HARD_PCT 90) == 90 ]]'
+assert "an environment value wins over the file" '[[ $(CREW_CONTEXT_K=350 crew_threshold CREW_CONTEXT_K 400) == 350 ]]'
+assert "an empty environment value falls back to the file" '[[ $(CREW_CONTEXT_K= crew_threshold CREW_CONTEXT_K 400) == 300 ]]'
+assert "a non-integer value for a whole-number key takes the default" '[[ $(crew_threshold CREW_WORKERS_PER_PROFILE 5) == 5 && $(CREW_CONTEXT_K=eighty crew_threshold CREW_CONTEXT_K 400) == 400 && $(CREW_CONTEXT_K=80.5 crew_threshold CREW_CONTEXT_K 400) == 400 ]]'
+assert "bad lines are collected with their line numbers" '[[ ${#crew_threshold_errors[@]} -eq 2 && ${crew_threshold_errors[0]} == "thresholds line 6: unknown key CREW_BOGUS" && ${crew_threshold_errors[1]} == "thresholds line 7: not KEY=value: nope" ]]'
+crew_read_thresholds "$TMP_DIR/none"
+assert "a missing file clears earlier values" '[[ $(crew_threshold CREW_MEM_MIN_MB 1024) == 1024 && ${#crew_threshold_errors[@]} -eq 0 ]]'
+if command -v zsh >/dev/null; then
+  assert "crew-lib still sources in zsh" '[[ $(cd "$MAIN" && zsh -c ". \"$REPO_ROOT/configs/claude-code/bin/crew-lib.sh\" && crew_dir") == "$MAIN/.claude/crew" ]]'
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
