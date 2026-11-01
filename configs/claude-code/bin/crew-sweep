@@ -6,7 +6,8 @@
 #
 # Output lines:
 #   SUPERSEDED                      crew-role answered none; stop acting as lead
-#   ALL-DONE                        every board row is done or blocked
+#   ALL-DONE                        every board row is done or blocked; POOL, SPARE
+#                                   and LEFTOVER lines come first unless herdr fails
 #   ERROR <step>: <message>         a failed crew-role or herdr call, retried
 #   CHANGED <path> / REMOVED <path> item files that differ from the last sweep
 #   TIMEOUT                         nothing changed within the wait and no resource
@@ -19,11 +20,30 @@
 #                                   alert in .sweep-resources from the last
 #                                   CREW_RESOURCE_HOLD seconds (default 600) ends the wait
 #   RESOURCE failed: <message>      crew-resources failed; this never ends the wait
+#   LIMIT <profile> <session|week> <x>% resets in <m> min
+#     a profile with live crew workers ($slug-w<N>), or the lead's own, at or above
+#     CREW_SESSION_HARD_PCT or CREW_WEEK_HARD_PCT; checked when RESOURCE is, it
+#     ends the wait once per profile and window (.sweep-limits)
 #   GONE <owner>                    an assigned owner herdr no longer lists
-#   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ QUIET][ DIALOG]
+#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ QUIET][ DIALOG]
+#     the profile is ? until the session's statusline writes its usage file;
+#     CONTEXT means at least CREW_CONTEXT_K thousand tokens or 80% of the
+#     session's context window, and ends the wait once per session;
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
 #     MERGING means a running or queued crew-merge; QUIET means no progress for
 #     CREW_QUIET seconds (default 3600), or for a running merge a merging file that old
+#   SPARE <name> <herdr status> on <profile>[ holds <id>][ CONTEXT <n>k]
+#                                   a live crew worker owning no assigned row; holds
+#                                   names a blocked row it owns
+#   SPARE <label> no agent          a crew worker's tab with no live agent of that
+#                                   name, unless an assigned row names it (GONE)
+#   POOL <profile> <crew>/<all>/<cap> session <x>% week <y>%[ FULL]
+#     for each claude-profile name and default: live crew workers and all live
+#     Claude agents on it, CREW_WORKERS_PER_PROFILE, and its usage (?% unknown);
+#     FULL at the cap or at CREW_SESSION_SOFT_PCT or CREW_WEEK_SOFT_PCT
+#   LEFTOVER <id> <worktree|branch|build-dir> <path or ref>
+#     a done or blocked row whose merged tip is in its into branch and whose
+#     landing finished, with that left over; once each (.sweep-leftovers)
 #   STALE-MERGE <id>                an item whose merging file a dead crew-merge left
 #   READY <id>                      an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
@@ -35,6 +55,9 @@
 #                                   the main checkout
 #   CHECK failed: <message>         sweep-check exited non-zero, timed out or is not
 #                                   executable
+#
+# The usage and context thresholds come from the environment or $crew/thresholds,
+# whose bad lines only crew-resources reports.
 set -uo pipefail
 
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -64,6 +87,19 @@ main=$(crew_main)
 board="$crew/board.tsv"
 seen="$crew/.sweep-seen"
 alerts="$crew/.sweep-resources"
+limits="$crew/.sweep-limits"
+leftovers="$crew/.sweep-leftovers"
+usage_dir=$(crew_usage_dir)
+slug=$(crew_slug)
+crew_re="^$slug-w[0-9]+\$"
+
+crew_read_thresholds "$crew/thresholds"
+session_soft=$((10#$(crew_threshold CREW_SESSION_SOFT_PCT 70)))
+session_hard=$((10#$(crew_threshold CREW_SESSION_HARD_PCT 90)))
+week_soft=$((10#$(crew_threshold CREW_WEEK_SOFT_PCT 85)))
+week_hard=$((10#$(crew_threshold CREW_WEEK_HARD_PCT 95)))
+context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 400)))
+profile_cap=$((10#$(crew_threshold CREW_WORKERS_PER_PROFILE 5)))
 
 role_once() {
   local out err rc
@@ -123,21 +159,150 @@ snapshot() {
   stat --printf '%n\t%.9Y\t%s\n' "${files[@]}" 2>/dev/null | LC_ALL=C sort
 }
 
+# Every agent herdr lists, in any workspace, one line each in agent_rows with
+# fields split by \037: name (empty when unnamed), status, session id, then
+# the session's profile, context tokens and context window, ? when unknown.
+agent_rows=
+load_agents() {
+  local name status sid usage
+  agent_rows=$(
+    jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
+      while IFS=$'\037' read -r name status sid; do
+        usage=$(crew_session_usage "$sid") && [[ -n $usage ]] || usage=$'?\t?\t?'
+        printf '%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}"
+      done
+  )
+}
+
+agents_once() {
+  local out
+  if ! out=$(timeout 10 herdr agent list 2>&1); then
+    REPLY=${out//$'\n'/ }
+    return 1
+  fi
+  if ! jq -e '.result.agents | type == "array"' <<<"$out" >/dev/null 2>&1; then
+    REPLY="unexpected output: ${out:0:200}"
+    REPLY=${REPLY//$'\n'/ }
+    return 1
+  fi
+  load_agents "$out"
+}
+
 agent_list() {
-  local i out
+  local i
   for ((i = 1; i <= retries; i++)); do
-    if out=$(timeout 10 herdr agent list 2>&1); then
-      if jq -e '.result.agents | type == "array"' <<<"$out" >/dev/null 2>&1; then
-        REPLY=$(jq -r '.result.agents[] | select(.name != null) | [.name, .agent_status] | @tsv' <<<"$out")
-        return 0
-      fi
-      out="unexpected output: ${out:0:200}"
-    fi
-    echo "ERROR herdr agent list: ${out//$'\n'/ }"
+    agents_once && return 0
+    echo "ERROR herdr agent list: $REPLY"
     sleep "$retry_wait"
   done
   echo "ERROR herdr agent list: still failing after $retries attempts"
   exit 1
+}
+
+agent_fields() {
+  local fields
+  [[ -n $1 ]] || return 1
+  fields=$(awk -F'\037' -v n="$1" '$1 == n { print $2 "\037" $4 "\037" $5 "\037" $6; f = 1; exit } END { exit !f }' <<<"$agent_rows") ||
+    return 1
+  IFS=$'\037' read -r agent_status agent_profile agent_tokens agent_window <<<"$fields"
+}
+
+context_k() {
+  local tokens=$1 window=$2
+  [[ $tokens =~ ^[0-9]+$ ]] || return 1
+  if ((tokens >= context_k_limit * 1000)) || { [[ $window =~ ^[0-9]+$ ]] && ((window > 0 && tokens * 100 >= window * 80)); }; then
+    echo $((tokens / 1000))
+  else
+    return 1
+  fi
+}
+
+usage_flags() {
+  local k
+  printf ' on %s' "$agent_profile"
+  if k=$(context_k "$agent_tokens" "$agent_window"); then printf ' CONTEXT %sk' "$k"; fi
+}
+
+at_least() {
+  [[ $1 =~ ^[0-9]+$ ]] && (($1 >= $2))
+}
+
+# `profile window pct resets` for each window at or above its hard threshold,
+# on profiles that have live crew workers or the lead.
+limit_crossings() {
+  local p sp sr wp wr
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    read -r sp sr wp wr < <(crew_profile_usage "$p")
+    if at_least "${sp:-}" "$session_hard" && [[ ${sr:-} =~ ^[0-9]+$ ]]; then echo "$p session $sp $sr"; fi
+    if at_least "${wp:-}" "$week_hard" && [[ ${wr:-} =~ ^[0-9]+$ ]]; then echo "$p week $wp $wr"; fi
+  done < <(awk -F'\037' -v re="$crew_re" -v lead="$slug-lead" '
+    ($1 ~ re || $1 == lead) && $4 != "?" && $4 != "" && !seen[$4]++ { print $4 }
+  ' <<<"$agent_rows")
+}
+
+report_limits() {
+  local p w pct resets
+  while read -r p w pct resets; do
+    [[ -n $p ]] || continue
+    echo "LIMIT $p $w $pct% resets in $(((resets - EPOCHSECONDS + 59) / 60)) min"
+  done < <(limit_crossings)
+}
+
+# usage_seen holds `limit <profile> <window>` with the resets alerted and
+# `context <session id>` with when; a crossing whose resets is within 300 s of
+# the alerted one is the same window, since sessions report it seconds apart.
+declare -A usage_seen
+load_usage_seen() {
+  local key v
+  [[ -f $limits ]] || return 0
+  while IFS=$'\t' read -r key v; do
+    if [[ $key == limit\ * || $key == context\ * ]] && [[ $v =~ ^[0-9]+$ ]]; then usage_seen[$key]=$v; fi
+  done <"$limits"
+}
+
+save_usage_seen() {
+  local key v
+  for key in "${!usage_seen[@]}"; do
+    v=${usage_seen[$key]}
+    case $key in
+    limit\ *) ((v > EPOCHSECONDS)) || continue ;;
+    context\ *) [[ -f $usage_dir/${key#context }.json ]] || continue ;;
+    esac
+    printf '%s\t%s\n' "$key" "$v"
+  done >"$limits.tmp"
+  mv -f "$limits.tmp" "$limits"
+}
+
+note_limits() {
+  local p w _pct resets old
+  while read -r p w _pct resets; do
+    [[ -n $p ]] || continue
+    old=${usage_seen["limit $p $w"]:-}
+    if [[ -n $old ]] && ((resets - old <= 300 && old - resets <= 300)); then continue; fi
+    usage_seen["limit $p $w"]=$resets
+    usage_woke=1
+  done < <(limit_crossings)
+}
+
+note_contexts() {
+  local name _status sid _profile tokens window
+  while IFS=$'\037' read -r name _status sid _profile tokens window; do
+    [[ $name =~ $crew_re && -n $sid && -z ${usage_seen["context $sid"]:-} ]] || continue
+    context_k "$tokens" "$window" >/dev/null || continue
+    usage_seen["context $sid"]=$EPOCHSECONDS
+    usage_woke=1
+  done <<<"$agent_rows"
+}
+
+# One herdr attempt; a failure skips this round, since retrying here would
+# hold up the wait and ending the sweep would drop everything else it reports.
+usage_woke=0
+check_usage() {
+  usage_at=$SECONDS
+  agents_once || return 0
+  note_limits
+  note_contexts
 }
 
 report_since() {
@@ -147,10 +312,10 @@ report_since() {
   t=$(stat -c %Y "$report" 2>/dev/null) && ((t > updated))
 }
 
-# A question or blocked report newer than the row's update waits on the lead
-# or the user; answering it bumps updated, which ends the wait.
+# A question, blocked or handoff report newer than the row's update waits on
+# the lead or the user; answering it bumps updated, which ends the wait.
 waits_on_answer() {
-  report_since "$1" "$2" && [[ $(crew_report_status "$1") =~ ^(question|blocked)$ ]]
+  report_since "$1" "$2" && [[ $(crew_report_status "$1") =~ ^(question|blocked|handoff)$ ]]
 }
 
 last_progress() {
@@ -171,7 +336,7 @@ quiet_since() {
 }
 
 worker_line() {
-  local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags="" screen rc
+  local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc
   local item="$crew/items/$id" merge_state
   merge_state=$(crew_merge_state "$item/merging")
   if [[ $merge_state == queued ]]; then
@@ -203,17 +368,133 @@ worker_line() {
 }
 
 report_workers() {
-  local listed found id status owner branch _into updated _rest
-  agent_list
-  listed=$REPLY
+  local id status owner branch _into updated _rest
   while IFS=$'\037' read -r id status owner branch _into updated _rest; do
     [[ $status == assigned && -n $owner ]] || continue
-    found=$(awk -F'\t' -v n="$owner" '$1 == n {print "+" $2; exit}' <<<"$listed")
-    if [[ -z $found ]]; then
-      echo "GONE $owner"
+    if agent_fields "$owner"; then
+      worker_line "$id" "$owner" "$branch" "$updated" "$agent_status" "$(usage_flags)"
     else
-      worker_line "$id" "$owner" "$branch" "$updated" "${found#+}"
+      echo "GONE $owner"
     fi
+  done < <(crew_board "$board")
+}
+
+# The first assigned and first blocked row each owner holds.
+declare -A assigned_to blocked_to
+load_owners() {
+  local id status owner _rest
+  assigned_to=()
+  blocked_to=()
+  while IFS=$'\037' read -r id status owner _rest; do
+    [[ -n $owner ]] || continue
+    case $status in
+    assigned) [[ -n ${assigned_to[$owner]:-} ]] || assigned_to[$owner]=$id ;;
+    blocked) [[ -n ${blocked_to[$owner]:-} ]] || blocked_to[$owner]=$id ;;
+    esac
+  done < <(crew_board "$board")
+}
+
+report_spares() {
+  local name _rest line k
+  while IFS=$'\037' read -r name _rest; do
+    [[ $name =~ $crew_re && -z ${assigned_to[$name]:-} ]] || continue
+    agent_fields "$name" || continue
+    line="SPARE $name $agent_status on $agent_profile"
+    [[ -z ${blocked_to[$name]:-} ]] || line+=" holds ${blocked_to[$name]}"
+    if k=$(context_k "$agent_tokens" "$agent_window"); then line+=" CONTEXT ${k}k"; fi
+    echo "$line"
+  done <<<"$agent_rows"
+  report_empty_tabs
+}
+
+# Tabs come from one herdr attempt; when it fails the lines wait for the next
+# sweep.
+report_empty_tabs() {
+  local out label
+  out=$(timeout 10 herdr tab list 2>/dev/null) || return 0
+  while IFS= read -r label; do
+    [[ $label =~ $crew_re && -z ${assigned_to[$label]:-} ]] || continue
+    agent_fields "$label" || echo "SPARE $label no agent"
+  done < <(jq -r '.result.tabs[]? | .label | strings' <<<"$out" 2>/dev/null | awk '!seen[$0]++')
+}
+
+pool_profiles() {
+  {
+    claude-profile names 2>/dev/null
+    echo default
+  } | awk '/^[A-Za-z0-9_.-]+$/ && !seen[$0]++'
+}
+
+report_pool() {
+  local p counts sp _sr wp _wr full
+  while IFS= read -r p; do
+    counts=$(awk -F'\037' -v p="$p" -v re="$crew_re" '$4 == p { all++; if ($1 ~ re) crew++ } END { print crew + 0 "/" all + 0 }' <<<"$agent_rows")
+    read -r sp _sr wp _wr < <(crew_profile_usage "$p")
+    full=
+    if ((${counts#*/} >= profile_cap)) || at_least "${sp:-}" "$session_soft" || at_least "${wp:-}" "$week_soft"; then full=" FULL"; fi
+    echo "POOL $p $counts/$profile_cap session ${sp:-?}% week ${wp:-?}%$full"
+  done < <(pool_profiles)
+}
+
+merged_field() {
+  awk -v k="$2" '$1 == k { v = $2 } END { print v }' "$1"
+}
+
+landed() {
+  local file="$crew/items/$1/merged" tip into
+  [[ -f $file ]] || return 1
+  tip=$(merged_field "$file" tip)
+  into=$(merged_field "$file" into)
+  [[ $tip =~ ^[0-9a-f]{40,64}$ && -n $into ]] &&
+    GIT_OPTIONAL_LOCKS=0 git -C "$main" merge-base --is-ancestor "$tip" "refs/heads/$into" 2>/dev/null
+}
+
+mtime_ns() {
+  local t
+  t=$(stat -c %.9Y "$1" 2>/dev/null) && t=${t/./} && [[ $t =~ ^[0-9]+$ ]] && echo "$t"
+}
+
+# A worker reports done or blocked after the cleanup that follows its merge;
+# until then its leftovers are its own to remove.
+landing_finished() {
+  local item="$crew/items/$1" owner=$2 r m
+  if [[ $(crew_report_status "$item/report.md") =~ ^(done|blocked)$ ]] &&
+    r=$(mtime_ns "$item/report.md") && m=$(mtime_ns "$item/merged") && ((r > m)); then
+    return 0
+  fi
+  [[ -z $owner || -n ${assigned_to[$owner]:-} ]] || ! agent_fields "$owner"
+}
+
+# `kind path` for each of an item's worktree, w/<id> branch and build dir that
+# still exists.
+item_leftovers() {
+  local id=$1 path raw
+  path=$(GIT_OPTIONAL_LOCKS=0 git -C "$main" worktree list --porcelain 2>/dev/null |
+    awk -v b="branch refs/heads/w/$id" '/^worktree / { w = substr($0, 10) } $0 == b { print w; exit }')
+  [[ -n $path || ! -d $main/.claude/worktrees/w-$id ]] || path=$main/.claude/worktrees/w-$id
+  [[ -z $path ]] || echo "worktree $path"
+  if GIT_OPTIONAL_LOCKS=0 git -C "$main" show-ref --verify -q "refs/heads/w/$id" 2>/dev/null; then echo "branch w/$id"; fi
+  if [[ -f $crew/items/$id/build-dir ]] && IFS= read -r raw <"$crew/items/$id/build-dir" && [[ $raw == /* && -d $raw ]]; then
+    echo "build-dir $raw"
+  fi
+}
+
+report_leftovers() {
+  local id status owner _rest kind path key
+  local -A printed=()
+  if [[ -f $leftovers ]]; then
+    while IFS= read -r key; do printed[$key]=1; done <"$leftovers"
+  fi
+  while IFS=$'\037' read -r id status owner _rest; do
+    [[ ($status == "done" || $status == blocked) && $id =~ ^[A-Za-z0-9_-]+$ ]] || continue
+    if ! landed "$id" || ! landing_finished "$id" "$owner"; then continue; fi
+    while read -r kind path; do
+      key="$id"$'\t'"$kind"
+      [[ -z ${printed[$key]:-} ]] || continue
+      printed[$key]=1
+      echo "LEFTOVER $id $kind $path"
+      printf '%s\n' "$key" >>"$leftovers"
+    done < <(item_leftovers "$id")
   done < <(crew_board "$board")
 }
 
@@ -406,26 +687,37 @@ publish() {
 check_role
 publish
 if all_done; then
+  if agents_once; then
+    load_owners
+    report_pool
+    report_spares
+    report_leftovers
+  fi
   echo ALL-DONE
   exit 0
 fi
 
 load_alerts
+load_usage_seen
 check_resources
+check_usage
 previous=$(cat "$seen" 2>/dev/null)
 current=$(snapshot)
 deadline=$((SECONDS + limit))
-while [[ $current == "$previous" ]] && ((! resource_woke && SECONDS < deadline)); do
+while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && SECONDS < deadline)); do
   sleep 1
   ((SECONDS >= next_publish)) && publish
   ((SECONDS >= resources_at + resource_every)) && check_resources
+  ((SECONDS >= usage_at + resource_every)) && check_usage
   current=$(snapshot)
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
+((usage_woke || SECONDS == usage_at)) || check_usage
 save_alerts
+save_usage_seen
 
 if [[ $current == "$previous" ]]; then
-  ((resource_woke)) || echo TIMEOUT
+  ((resource_woke || usage_woke)) || echo TIMEOUT
 else
   awk -F'\t' '
     NR == FNR { if ($0 != "") old[$1] = $0; next }
@@ -436,7 +728,13 @@ else
 fi
 
 report_resources
+agent_list
+load_owners
+report_limits
 report_workers
+report_spares
+report_pool
+report_leftovers
 report_stale_merges
 report_order
 report_reflect

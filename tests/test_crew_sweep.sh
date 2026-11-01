@@ -40,18 +40,29 @@ export CREW_SWEEP_RETRY_WAIT=0.05
 export CREW_QUIET=1000000
 export CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000
 export FAKE_STATE="$TMP_DIR/state"
+export XDG_STATE_HOME="$TMP_DIR/xdg"
+USAGE="$XDG_STATE_HOME/harness/usage/sessions"
 FAKE_BIN="$TMP_DIR/bin"
-mkdir -p "$FAKE_STATE" "$FAKE_BIN"
+mkdir -p "$FAKE_STATE" "$FAKE_BIN" "$USAGE"
 export PATH="$FAKE_BIN:$PATH"
 
 # Fake herdr: `agent list` prints $FAKE_STATE/agents.json and fails while the
-# count in list_fail is above zero; `agent read` prints screen-<name>, or
-# herdr's agent_not_found error with exit 1 when that file is absent.
+# count in list_fail is above zero, or once the count in list_ok has run out;
+# `agent read` prints screen-<name>, or herdr's agent_not_found error with
+# exit 1 when that file is absent; `tab list` prints tabs.json.
 cat >"$FAKE_BIN/herdr" <<'EOF'
 #!/usr/bin/env bash
 d=$FAKE_STATE
 case "$1 $2" in
 "agent list")
+  if [[ -f $d/list_ok ]]; then
+    n=$(cat "$d/list_ok")
+    if ((n <= 0)); then
+      echo "herdr: cannot reach server socket" >&2
+      exit 1
+    fi
+    echo $((n - 1)) >"$d/list_ok"
+  fi
   n=$(cat "$d/list_fail" 2>/dev/null || echo 0)
   if ((n > 0)); then
     echo $((n - 1)) >"$d/list_fail"
@@ -68,6 +79,7 @@ case "$1 $2" in
     exit 1
   fi
   ;;
+"tab list") cat "$d/tabs.json" ;;
 *)
   echo "fake herdr: unexpected $*" >&2
   exit 2
@@ -100,7 +112,12 @@ if [[ -f $FAKE_STATE/dagr_fail ]]; then
   exit 1
 fi
 EOF
-chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr"
+# Fake claude-profile: `names` prints $FAKE_STATE/profiles.
+cat >"$FAKE_BIN/claude-profile" <<'EOF'
+#!/usr/bin/env bash
+if [[ $1 == names ]]; then cat "$FAKE_STATE/profiles" 2>/dev/null; fi
+EOF
+chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr" "$FAKE_BIN/claude-profile"
 
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
@@ -115,14 +132,30 @@ set_role() {
   rm -f "$FAKE_STATE/role_calls"
 }
 
-# agents 'name status' ...; a name of null makes an unnamed agent.
+# agents 'name status [session]' ...; a name of null makes an unnamed agent,
+# and without a session the agent gets one with no usage file.
 agents() {
-  local a name status pane=0
+  local a name status sid pane=0
   for a in "$@"; do
-    name=${a% *} status=${a##* } pane=$((pane + 1))
-    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" \
-      '{name: (if $n == "null" then null else $n end), pane_id: $p, tab_id: "wB:t1", agent_status: $s, agent_session: {value: "s-\($p)"}}'
+    read -r name status sid <<<"$a"
+    pane=$((pane + 1))
+    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" --arg sid "${sid:-s-p$pane}" \
+      '{name: (if $n == "null" then null else $n end), pane_id: $p, tab_id: "wB:t1", agent_status: $s, agent_session: {value: $sid}}'
   done | jq -s '{result: {agents: .}}' >"$FAKE_STATE/agents.json"
+}
+
+tabs() {
+  jq -n '{result: {tabs: [$ARGS.positional[] | {label: ., tab_id: ("t-" + .)}]}}' --args "$@" >"$FAKE_STATE/tabs.json"
+}
+
+# usage session profile tokens window session_pct session_resets week_pct
+# week_resets writes the statusline's usage file; null stands for a missing figure.
+usage() {
+  jq -n --arg p "$2" --argjson t "$3" --argjson w "$4" --argjson sp "$5" --argjson sr "$6" \
+    --argjson wp "$7" --argjson wr "$8" \
+    '{profile: $p, context_tokens: $t, context_window: $w, session: {pct: $sp, resets: $sr}, week: {pct: $wp, resets: $wr}}' \
+    >"$USAGE/$1.json.tmp"
+  mv "$USAGE/$1.json.tmp" "$USAGE/$1.json"
 }
 
 # row id status owner [updated] [deps]; without deps the row has seven columns.
@@ -147,9 +180,11 @@ sweep() {
 
 has() { grep -qxF -- "$1" <<<"$OUT"; }
 has_re() { grep -qE -- "$1" <<<"$OUT"; }
+without_pool() { grep -vE '^(POOL|SPARE|LEFTOVER) ' <<<"$OUT" || true; }
 
 set_role lead
 agents
+tabs
 : >"$CREW/board.tsv"
 
 echo "role check"
@@ -285,19 +320,19 @@ agents 'x-w1 idle' 'x-w2 working' 'x-w3 blocked' 'x-w5 unknown' 'x-w6 blocked' \
   'x-w7 done' 'x-w8 idle' 'x-w9 idle' 'x-w10 done' 'x-w11 working' 'x-w12 idle' \
   'x-lead idle' 'x-old1 idle' 'null working' 'mine idle'
 sweep 1
-assert "an idle owner with no report since its update is IDLE" 'has "WORKER x-w1 item 1 idle IDLE"'
-assert "a working owner has no flags" 'has "WORKER x-w2 item 2 working"'
-assert "a blocked owner is DIALOG" 'has "WORKER x-w3 item 3 blocked DIALOG"'
+assert "an idle owner with no report since its update is IDLE" 'has "WORKER x-w1 item 1 idle on ? IDLE"'
+assert "a working owner has no flags" 'has "WORKER x-w2 item 2 working on ?"'
+assert "a blocked owner is DIALOG" 'has "WORKER x-w3 item 3 blocked on ? DIALOG"'
 assert "a DIALOG is followed by the screen's last lines, indented" 'has "  Allow this command?" && has "    2. No"'
 assert "an owner missing from the list is only GONE" 'has "GONE x-w4" && ! has_re "x-w4 "'
-assert "an owner with status unknown is not GONE" 'has "WORKER x-w5 item 5 unknown" && ! has "GONE x-w5"'
+assert "an owner with status unknown is not GONE" 'has "WORKER x-w5 item 5 unknown on ?" && ! has "GONE x-w5"'
 assert "agent_not_found between list and read counts as GONE" 'has "GONE x-w6" && ! has_re "WORKER x-w6"'
-assert "a rate-limited owner (done) with a newer report is not IDLE" 'has "WORKER x-w7 item 7 done"'
-assert "a live merging pid with the recorded start shows MERGING instead of IDLE" 'has "WORKER x-w8 item 8 idle MERGING"'
-assert "a reused merging pid is not MERGING" 'has "WORKER x-w9 item 9 idle IDLE"'
+assert "a rate-limited owner (done) with a newer report is not IDLE" 'has "WORKER x-w7 item 7 done on ?"'
+assert "a live merging pid with the recorded start shows MERGING instead of IDLE" 'has "WORKER x-w8 item 8 idle on ? MERGING"'
+assert "a reused merging pid is not MERGING" 'has "WORKER x-w9 item 9 idle on ? IDLE"'
 assert "a dead merging marker is STALE-MERGE and a live one is not" 'has "STALE-MERGE 9" && ! has "STALE-MERGE 8"'
-assert "a done owner with only an older report is IDLE" 'has "WORKER x-w10 item 10 done IDLE"'
-assert "an unparseable updated counts as 0" 'has "WORKER x-w11 item 11 working"'
+assert "a done owner with only an older report is IDLE" 'has "WORKER x-w10 item 10 done on ? IDLE"'
+assert "an unparseable updated counts as 0" 'has "WORKER x-w11 item 11 working on ?"'
 assert "owners of rows that are not assigned are not listed" '! has_re "x-w12"'
 assert "the lead, -old panes, unnamed and unrelated agents are not listed" '! has_re "x-lead|x-old1|null|mine"'
 assert "each assigned row prints exactly one line of its own" '[[ $(grep -cE "^(WORKER|GONE) " <<<"$OUT") -eq 11 ]]'
@@ -307,7 +342,7 @@ agents 'x-w1 done'
 printf 'Usage limit reached\n' >"$FAKE_STATE/screen-x-w1"
 { row 1 assigned x-w1 "$NOW"; } >"$CREW/board.tsv"
 sweep 1
-assert "a rate-limited owner (done, no report) is IDLE" 'has "WORKER x-w1 item 1 done IDLE"'
+assert "a rate-limited owner (done, no report) is IDLE" 'has "WORKER x-w1 item 1 done on ? IDLE"'
 
 kill "$LIVE" 2>/dev/null || true
 wait "$LIVE" 2>/dev/null || true
@@ -316,7 +351,7 @@ agents 'x-w8 idle'
 mkdir -p "$CREW/items/13"
 printf 'pid %s\nstart 1\ntip %040d\nmerged %040d\n' "$LIVE" 0 1 >"$CREW/items/13/merging"
 sweep 1
-assert "a dead merging pid is not MERGING" 'has "WORKER x-w8 item 8 idle IDLE"'
+assert "a dead merging pid is not MERGING" 'has "WORKER x-w8 item 8 idle on ? IDLE"'
 assert "a dead merging pid is STALE-MERGE" 'has "STALE-MERGE 8"'
 assert "a cut marker of an item with no assigned row is STALE-MERGE" 'has "STALE-MERGE 13"'
 rm -r "$CREW/items/13"
@@ -324,7 +359,7 @@ printf '8\tassigned\tx-w8\t\tmain\t%s\tx\n' "$NOW" >"$CREW/board.tsv"
 echo "status: done" >"$CREW/items/8/report.md"
 touch -d "@$((NOW - 60))" "$CREW/items/8/report.md"
 sweep 1
-assert "an empty column keeps updated in place" 'has "WORKER x-w8 item 8 idle IDLE"'
+assert "an empty column keeps updated in place" 'has "WORKER x-w8 item 8 idle on ? IDLE"'
 rm "$CREW/items/8/report.md"
 { row 8 assigned x-w8 "$NOW"; } >"$CREW/board.tsv"
 
@@ -334,20 +369,20 @@ PIDS+=("$LIVE")
 live_start=$(crew_pid_start "$LIVE")
 printf 'pid %s\nstart %s\ntip %040d\nmerged %040d\n' "$LIVE" "$live_start" 0 1 >"$CREW/items/8/merging"
 sweep 1
-assert "a merging file with a merged line is still read" 'has "WORKER x-w8 item 8 idle MERGING" && ! has_re "^STALE-MERGE"'
+assert "a merging file with a merged line is still read" 'has "WORKER x-w8 item 8 idle on ? MERGING" && ! has_re "^STALE-MERGE"'
 printf 'garbage\n' >"$CREW/items/8/merging"
 sweep 1
-assert "an unparseable merging file is not MERGING" 'has "WORKER x-w8 item 8 idle IDLE"'
+assert "an unparseable merging file is not MERGING" 'has "WORKER x-w8 item 8 idle on ? IDLE"'
 assert "an unparseable merging file is STALE-MERGE" 'has "STALE-MERGE 8"'
 rm "$CREW/items/8/merging"
 
 echo "herdr agent list failures"
 { row 1 assigned x-w1 "$NOW"; } >"$CREW/board.tsv"
 agents 'x-w1 working'
-echo 2 >"$FAKE_STATE/list_fail"
+echo 3 >"$FAKE_STATE/list_fail"
 sweep 0
 assert "a failing agent list prints the error" 'has_re "^ERROR herdr agent list: .*cannot reach server socket"'
-assert "a failing agent list is retried" 'has "WORKER x-w1 item 1 working"'
+assert "a failing agent list is retried" 'has "WORKER x-w1 item 1 working on ?"'
 assert "a failing agent list never gives GONE" '! has_re "^GONE"'
 echo 1000 >"$FAKE_STATE/list_fail"
 sweep 0
@@ -383,10 +418,10 @@ assert "the wait publishes on every interval" '[[ $(dagr_calls) -ge 4 ]]'
 touch "$FAKE_STATE/dagr_fail"
 { row 1 open ''; } >"$CREW/board.tsv"
 sweep 0
-assert "a failing crew-dagr changes neither output nor exit status" '[[ $RC -eq 0 && $OUT == $'"'"'TIMEOUT\nREADY 1'"'"' ]]'
+assert "a failing crew-dagr changes neither output nor exit status" '[[ $RC -eq 0 && $(without_pool) == $'"'"'TIMEOUT\nREADY 1'"'"' ]]'
 { row 1 done x-w1; } >"$CREW/board.tsv"
 sweep 0
-assert "a failing crew-dagr does not fail ALL-DONE" '[[ $RC -eq 0 && $OUT == ALL-DONE ]]'
+assert "a failing crew-dagr does not fail ALL-DONE" '[[ $RC -eq 0 && $(without_pool) == ALL-DONE ]]'
 rm "$FAKE_STATE/dagr_fail"
 
 echo "ready and deps"
@@ -435,7 +470,7 @@ sweep 0
 assert "only the head of a chain is READY" 'has "READY 2" && ! has "READY 3" && ! has_re "^DEPS"'
 { row 1 done x-w1 "$NOW"; row 2 done x-w2 "$NOW" 1; } >"$CREW/board.tsv"
 sweep 0
-assert "ALL-DONE comes before READY and DEPS" '[[ $OUT == ALL-DONE ]]'
+assert "ALL-DONE comes before READY and DEPS" '[[ $(without_pool) == ALL-DONE ]]'
 
 echo "quiet"
 export CREW_QUIET=100
@@ -472,18 +507,18 @@ touch -d "@$((OLD - 10))" "$CREW/items/9/report.md"
 agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 working' 'x-w5 working' 'x-w6 working' \
   'x-w7 working' 'x-w8 working' 'x-w9 working' 'x-w10 working' 'x-w11 working' 'x-w12 working'
 sweep 0
-assert "no progress inside the interval is QUIET, after IDLE" 'has "WORKER x-w1 item 1 idle IDLE QUIET"'
-assert "a newer notes.md is progress" 'has "WORKER x-w2 item 2 working"'
-assert "a newer commit on the item branch is progress" 'has "WORKER x-w3 item 3 working"'
-assert "an old commit on the item branch is not progress" 'has "WORKER x-w4 item 4 working QUIET"'
-assert "a fresh live merging file is not QUIET" 'has "WORKER x-w5 item 5 working MERGING"'
-assert "a live merging file older than the interval is MERGING QUIET" 'has "WORKER x-w6 item 6 working MERGING QUIET"'
-assert "a current question report is not QUIET" 'has "WORKER x-w7 item 7 working"'
-assert "a current blocked report is not QUIET" 'has "WORKER x-w8 item 8 working"'
-assert "a question report older than the row update is QUIET again" 'has "WORKER x-w9 item 9 working QUIET"'
-assert "a recent row update is progress" 'has "WORKER x-w10 item 10 working"'
-assert "an unparseable updated counts as 0 for QUIET" 'has "WORKER x-w11 item 11 working QUIET"'
-assert "a merge queued longer than the interval is MERGING, never QUIET" 'has "WORKER x-w12 item 12 working MERGING"'
+assert "no progress inside the interval is QUIET, after IDLE" 'has "WORKER x-w1 item 1 idle on ? IDLE QUIET"'
+assert "a newer notes.md is progress" 'has "WORKER x-w2 item 2 working on ?"'
+assert "a newer commit on the item branch is progress" 'has "WORKER x-w3 item 3 working on ?"'
+assert "an old commit on the item branch is not progress" 'has "WORKER x-w4 item 4 working on ? QUIET"'
+assert "a fresh live merging file is not QUIET" 'has "WORKER x-w5 item 5 working on ? MERGING"'
+assert "a live merging file older than the interval is MERGING QUIET" 'has "WORKER x-w6 item 6 working on ? MERGING QUIET"'
+assert "a current question report is not QUIET" 'has "WORKER x-w7 item 7 working on ?"'
+assert "a current blocked report is not QUIET" 'has "WORKER x-w8 item 8 working on ?"'
+assert "a question report older than the row update is QUIET again" 'has "WORKER x-w9 item 9 working on ? QUIET"'
+assert "a recent row update is progress" 'has "WORKER x-w10 item 10 working on ?"'
+assert "an unparseable updated counts as 0 for QUIET" 'has "WORKER x-w11 item 11 working on ? QUIET"'
+assert "a merge queued longer than the interval is MERGING, never QUIET" 'has "WORKER x-w12 item 12 working on ? MERGING"'
 kill "$LIVE" 2>/dev/null || true
 wait "$LIVE" 2>/dev/null || true
 export CREW_QUIET=1000000
@@ -509,7 +544,7 @@ date >"$CREW/reflections.md"
 { row 1 done x-w1; } >"$CREW/board.tsv"
 rm "$CREW/reflections.md"
 sweep 0
-assert "ALL-DONE comes before REFLECT" '[[ $OUT == ALL-DONE ]]'
+assert "ALL-DONE comes before REFLECT" '[[ $(without_pool) == ALL-DONE ]]'
 date >"$CREW/reflections.md"
 { row 1 open ''; } >"$CREW/board.tsv"
 
@@ -552,6 +587,229 @@ assert "a sweep-check that is not executable is named" 'has "CHECK failed: sweep
 rm "$CREW/sweep-check"
 sweep 0
 assert "no sweep-check prints no CHECK line" '! has_re "^CHECK"'
+
+echo "usage and context"
+S=$(crew_slug "$REPO")
+reset_usage() {
+  NOW=$(date +%s)
+  HOUR=$((NOW + 3600))
+  WEEK=$((NOW + 86400))
+  rm -rf "$CREW/items" "$CREW/.sweep-seen" "$CREW/.sweep-limits" "$CREW/.sweep-leftovers"
+  mkdir -p "$CREW/items"
+  rm -f "$USAGE"/*.json
+  tabs
+}
+reset_usage
+printf 'work\nplay\n' >"$FAKE_STATE/profiles"
+{ for i in 1 2 3 4 5 6 7; do row "$i" assigned "$S-w$i" "$NOW"; done; } >"$CREW/board.tsv"
+usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage u3 work 400000 1000000 10 "$HOUR" 10 "$WEEK"
+usage u4 play 170000 200000 10 "$HOUR" 10 "$WEEK"
+usage u5 play 399000 null 10 "$HOUR" 10 "$WEEK"
+usage u6 play 399000 0 10 "$HOUR" 10 "$WEEK"
+usage u7 work null null null null null null
+agents "$S-w1 working u1" "$S-w2 working u2" "$S-w3 idle u3" "$S-w4 working u4" \
+  "$S-w5 working u5" "$S-w6 working u6" "$S-w7 working u7"
+sweep 30
+assert "a worker shows the profile of its session" 'has "WORKER $S-w1 item 1 working on work"'
+assert "a worker whose session has no usage file is on ?" 'has "WORKER $S-w2 item 2 working on ?"'
+assert "CONTEXT at the token threshold comes before IDLE" 'has "WORKER $S-w3 item 3 idle on work CONTEXT 400k IDLE"'
+assert "CONTEXT at 80% of a 200k window" 'has "WORKER $S-w4 item 4 working on play CONTEXT 170k"'
+assert "a null or 0 context window gives no CONTEXT" 'has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
+assert "null figures give no CONTEXT and no error" 'has "WORKER $S-w7 item 7 working on work" && [[ $RC -eq 0 ]] && ! has_re "^ERROR"'
+assert "a new CONTEXT ends the wait at once without TIMEOUT" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT'
+sweep 1
+assert "a CONTEXT already alerted for its session prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "WORKER $S-w4 item 4 working on play CONTEXT 170k"'
+usage u3b work 420000 1000000 10 "$HOUR" 10 "$WEEK"
+agents "$S-w1 working u1" "$S-w3 working u3b"
+{ row 1 assigned "$S-w1" "$NOW"; row 3 assigned "$S-w3" "$NOW"; } >"$CREW/board.tsv"
+sweep 30
+assert "CONTEXT in a new session of the same worker wakes again" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "WORKER $S-w3 item 3 working on work CONTEXT 420k"'
+usage u5b play 150000 null 10 "$HOUR" 10 "$WEEK"
+usage u6b play 150000 0 10 "$HOUR" 10 "$WEEK"
+agents "$S-w5 working u5b" "$S-w6 working u6b"
+{ row 5 assigned "$S-w5" "$NOW"; row 6 assigned "$S-w6" "$NOW"; row 8 open ''; } >"$CREW/board.tsv"
+sweep 1
+assert "workers with a null or 0 window keep the usual lines and exit 0" '[[ $RC -eq 0 ]] && has TIMEOUT && has "READY 8" && has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
+
+echo "thresholds file"
+reset_usage
+printf 'CREW_WORKERS_PER_PROFILE=1\nCREW_SESSION_HARD_PCT=50\nCREW_BOGUS=1\nno equals here\n' >"$CREW/thresholds"
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+usage u1 work 1000 1000000 50 "$HOUR" 10 "$WEEK"
+agents "$S-w1 working u1"
+sweep 0
+assert "the thresholds file sets the cap and FULL" 'has "POOL work 1/1/1 session 50% week 10% FULL"'
+assert "the thresholds file sets the hard threshold" 'has "LIMIT work session 50% resets in 60 min"'
+assert "only crew-resources names the bad thresholds lines" 'has_re "^RESOURCE failed: .*CREW_BOGUS" && ! grep -E "CREW_BOGUS|no equals" <<<"$OUT" | grep -qv "^RESOURCE failed: "'
+rm "$CREW/thresholds"
+
+echo "limits in the wait"
+reset_usage
+usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
+(sleep 1.5 && usage u1 work 1000 1000000 95 "$HOUR" 10 "$WEEK") &
+CREW_RESOURCE_EVERY=1 sweep 30
+assert "a hard threshold crossed during the wait ends it without TIMEOUT" '[[ $ELAPSED -lt 10000 ]] && ! has TIMEOUT && has "LIMIT work session 95% resets in 60 min"'
+reset_usage
+usage u1 work 1000 1000000 95 "$HOUR" 10 "$WEEK"
+echo 2 >"$FAKE_STATE/list_fail"
+CREW_RESOURCE_EVERY=1 sweep 30
+assert "a failing agent list inside the wait skips that round only" '[[ $RC -eq 0 && $ELAPSED -lt 10000 ]] && ! has TIMEOUT && ! has_re "^ERROR" && has "LIMIT work session 95% resets in 60 min"'
+rm -f "$FAKE_STATE/list_fail"
+
+echo "pool"
+reset_usage
+printf 'work\nplay\nidle\nspare\nweekly\n' >"$FAKE_STATE/profiles"
+{ row 1 assigned "$S-w1" "$NOW"; row 2 assigned "$S-w2" "$NOW"; } >"$CREW/board.tsv"
+usage u1 work 1000 1000000 20 "$HOUR" 30 "$WEEK"
+usage u2 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage uo work 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage ul play 1000 1000000 75 "$HOUR" 10 "$WEEK"
+usage un play 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage um spare 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage uw weekly 1000 1000000 10 "$HOUR" 85 "$WEEK"
+usage ua default 1000 1000000 40 "$((NOW + 600))" 10 "$WEEK"
+usage ub default 1000 1000000 60 "$((NOW + 605))" 10 "$WEEK"
+agents "$S-w1 working u1" "$S-w2 working u2" "other-w1 working uo" "$S-lead idle ul" \
+  "null working un" "mine idle um" "theirs idle"
+CREW_WORKERS_PER_PROFILE=3 sweep 0
+assert "POOL counts crew and all agents and is FULL at the cap, counting outside agents" 'has "POOL work 2/3/3 session 20% week 30% FULL"'
+assert "POOL is FULL at the session soft threshold" 'has "POOL play 0/2/3 session 75% week 10% FULL"'
+assert "POOL is FULL at the week soft threshold" 'has "POOL weekly 0/0/3 session 10% week 85% FULL"'
+assert "POOL below the cap and both soft thresholds is not FULL" 'has "POOL spare 0/1/3 session 10% week 10%"'
+assert "POOL reads ?% for a profile with no session files" 'has "POOL idle 0/0/3 session ?% week ?%"'
+assert "POOL takes the higher of two sessions whose resets differ by seconds" 'has "POOL default 0/0/3 session 60% week 10%"'
+assert "POOL lists each claude-profile name and default once" '[[ $(grep -c "^POOL " <<<"$OUT") -eq 6 ]]'
+
+echo "limits"
+reset_usage
+printf 'work\nplay\n' >"$FAKE_STATE/profiles"
+B=$(((EPOCHSECONDS / 300 + 12) * 300))
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+usage u1 work 1000 1000000 92 "$((B - 1))" 10 "$WEEK"
+usage ul play 1000 1000000 10 "$HOUR" 10 "$WEEK"
+usage uo solo 1000 1000000 99 "$HOUR" 99 "$WEEK"
+agents "$S-w1 working u1" "$S-lead idle ul" "other working uo"
+sweep 30
+assert "a crew profile at the session hard threshold wakes with LIMIT" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work session 92% resets in [0-9]+ min$"'
+assert "a profile with neither crew workers nor the lead gets no LIMIT" '! has_re "^LIMIT solo"'
+LIMIT_REC=$(printf "limit work session\t%s" "$((B - 1))")
+assert ".sweep-limits records the raw resets" 'grep -qxF "$LIMIT_REC" "$CREW/.sweep-limits"'
+sweep 1
+assert "an alerted LIMIT prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^LIMIT work session 92% "'
+usage u1b work 1000 1000000 93 "$((B + 1))" 10 "$WEEK"
+sweep 1
+assert "a second session's resets seconds away across a 300 s boundary does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^LIMIT work session 93% "'
+usage u1 work 1000 1000000 92 "$((B - 1))" 96 "$WEEK"
+sweep 30
+assert "the week window of an alerted profile wakes on its own" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work week 96% "'
+usage u1 work 1000 1000000 95 "$((B + 18000))" 96 "$WEEK"
+sweep 30
+assert "a new session window wakes again" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work session 95% "'
+agents "$S-lead idle ul" "other working uo"
+: >"$CREW/board.tsv"
+usage ul play 1000 1000000 91 "$HOUR" 10 "$WEEK"
+sweep 30
+assert "the lead's profile gets LIMIT with no workers on it" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "LIMIT play session 91% resets in 60 min" && ! has_re "^LIMIT work"'
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+agents "$S-w1 working ul"
+usage ul play 1000 1000000 91 "$HOUR" 97 "$WEEK"
+echo 1 >"$FAKE_STATE/list_ok"
+sweep 30
+rm "$FAKE_STATE/list_ok"
+sweep 1
+assert "a LIMIT is recorded even when the sweep then exits on a herdr failure" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^LIMIT play week 97% "'
+
+echo "spare"
+reset_usage
+printf 'work\n' >"$FAKE_STATE/profiles"
+{ row 1 assigned "$S-w1" "$NOW"; row 2 blocked "$S-w3" "$NOW"; row 3 assigned "$S-w4" "$NOW"; } >"$CREW/board.tsv"
+for u in u1 u2 u3 uo ul; do usage "$u" work 1000 1000000 10 "$HOUR" 10 "$WEEK"; done
+usage u5 work 450000 1000000 10 "$HOUR" 10 "$WEEK"
+agents "$S-w1 working u1" "$S-w2 idle u2" "$S-w3 idle u3" "$S-w5 idle u5" "$S-old1 idle uo" "$S-lead idle ul"
+tabs "$S-w1" "$S-w2" "$S-w3" "$S-w4" "$S-w6" "$S-old1" "$S-lead"
+sweep 0
+assert "an unassigned live worker is SPARE" 'has "SPARE $S-w2 idle on work"'
+assert "a SPARE that owns a blocked row holds it" 'has "SPARE $S-w3 idle on work holds 2"'
+assert "a SPARE over the context threshold has CONTEXT" 'has "SPARE $S-w5 idle on work CONTEXT 450k"'
+assert "a worker tab with no agent is SPARE no agent" 'has "SPARE $S-w6 no agent"'
+assert "no SPARE for an assigned worker, an old lead, the lead or a GONE owner's tab" '! has_re "^SPARE ($S-w1|$S-old1|$S-lead|$S-w4) " && has "GONE $S-w4"'
+
+echo "leftovers"
+reset_usage
+tree=$(gc mktree </dev/null)
+base=$(gc commit-tree -m base "$tree")
+for i in 21 22 24 25 26 27 28 30; do
+  gc update-ref "refs/heads/w/$i" "$(gc commit-tree -p "$base" -m "item $i" "$tree")"
+done
+gc update-ref refs/heads/trunk "$(gc commit-tree -p "$base" -p w/21 -p w/22 -p w/24 -p w/27 -p w/28 -p w/30 -m land "$tree")"
+merged() {
+  mkdir -p "$CREW/items/$1"
+  printf 'branch w/%s\ntip %s\nmerged %s\ninto trunk\n' "$1" "$(gc rev-parse "${2:-w/$1}")" "$(gc rev-parse trunk)" >"$CREW/items/$1/merged"
+}
+for i in 21 22 24 26 27 28 30; do merged "$i"; done
+merged 23 trunk
+gc worktree add -q "$REPO/.claude/worktrees/w-21" w/21
+mkdir -p "$TMP_DIR/build/w-23"
+echo "$TMP_DIR/build/w-23" >"$CREW/items/23/build-dir"
+touch -d "@$((NOW - 100))" "$CREW/items/27/merged" "$CREW/items/30/merged"
+echo "status: done" >"$CREW/items/27/report.md"
+touch -d "@$((NOW - 200))" "$CREW/items/27/report.md"
+echo "status: done" >"$CREW/items/30/report.md"
+mkdir -p "$CREW/items/25"
+leftover_rows() {
+  row 21 done "$S-w1" "$NOW"
+  row 22 done "$S-w2" "$NOW"
+  row 23 done "$S-w2" "$NOW"
+  row 24 blocked "$S-w2" "$NOW"
+  row 25 done "$S-w2" "$NOW"
+  row 26 done "$S-w2" "$NOW"
+  row 27 done "$S-w7" "$NOW"
+  row 28 done "$S-w8" "$NOW"
+  row 29 "$1" "$S-w8" "$NOW"
+  row 30 done "$S-w3" "$NOW"
+}
+leftover_rows assigned >"$CREW/board.tsv"
+agents "$S-w7 idle" "$S-w8 working" "$S-w3 idle"
+sweep 0
+assert "a merged done row's worktree is LEFTOVER" 'has "LEFTOVER 21 worktree $REPO/.claude/worktrees/w-21"'
+assert "a merged done row's branch is LEFTOVER" 'has "LEFTOVER 21 branch w/21" && has "LEFTOVER 22 branch w/22"'
+assert "a merged done row's build dir is LEFTOVER" 'has "LEFTOVER 23 build-dir $TMP_DIR/build/w-23"'
+assert "a blocked row with a merged file gets LEFTOVER" 'has "LEFTOVER 24 branch w/24"'
+assert "a worker given another item has finished landing" 'has "LEFTOVER 28 branch w/28"'
+assert "a done report newer than the merged file finishes landing" 'has "LEFTOVER 30 branch w/30"'
+assert "no LEFTOVER for an unmerged row or a tip outside into" '! has_re "^LEFTOVER (25|26) "'
+assert "no LEFTOVER while a live owner has not reported after the merge" '! has_re "^LEFTOVER 27 "'
+assert "each LEFTOVER line is counted once" '[[ $(grep -c "^LEFTOVER " <<<"$OUT") -eq 7 ]]'
+sweep 0
+assert "a LEFTOVER prints once" '! has_re "^LEFTOVER "'
+rm -f "$CREW/.sweep-leftovers"
+leftover_rows done >"$CREW/board.tsv"
+agents "$S-w7 idle" "$S-w8 idle" "$S-w3 idle"
+sweep 0
+assert "with every row done, SPARE and LEFTOVER print before ALL-DONE" '[[ $RC -eq 0 ]] && has "SPARE $S-w8 idle on ?" && has "LEFTOVER 22 branch w/22" && has "POOL work 0/0/5 session ?% week ?%" && [[ $(tail -n 1 <<<"$OUT") == ALL-DONE ]]'
+echo 1000 >"$FAKE_STATE/list_fail"
+sweep 0
+assert "a failing agent list still gives ALL-DONE with exit 0" '[[ $RC -eq 0 && $OUT == ALL-DONE ]]'
+rm "$FAKE_STATE/list_fail"
+gc worktree remove --force "$REPO/.claude/worktrees/w-21"
+
+echo "handoff"
+reset_usage
+OLD=$(($(date +%s) - 1000))
+{ row 1 assigned "$S-w1" "$OLD"; } >"$CREW/board.tsv"
+mkdir -p "$CREW/items/1"
+echo "status: handoff" >"$CREW/items/1/report.md"
+touch -d "@$((OLD + 10))" "$CREW/items/1/report.md"
+agents "$S-w1 working"
+CREW_QUIET=100 sweep 0
+assert "a handoff report is never QUIET" 'has "WORKER $S-w1 item 1 working on ?"'
+rm -rf "$CREW/items" "$CREW/.sweep-seen" "$CREW/.sweep-limits" "$CREW/.sweep-leftovers"
+mkdir -p "$CREW/items"
+rm -f "$USAGE"/*.json
+: >"$FAKE_STATE/profiles"
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
 
 echo "resources"
 rm -rf "$CREW/items" "$CREW/.sweep-seen" "$CREW/.sweep-resources"
