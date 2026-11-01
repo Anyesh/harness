@@ -126,6 +126,29 @@ assert "load over its threshold prints the 5-minute load and the CPU count" 'has
 run "${QUIET_ENV[@]}" CREW_MEM_MIN_MB=lots "$CR"
 assert "a threshold that is not a number is a failure naming it" '[[ $RC -eq 1 ]] && grep -q "CREW_MEM_MIN_MB is not a number: lots" <<<"$ERR"'
 
+echo "thresholds file"
+FILE_ENV=(-u CREW_DISK_MIN_GB -u CREW_MEM_MIN_MB -u CREW_LOAD_PER_CPU -u CREW_IO_FULL_PCT)
+printf '# low memory on purpose\n\nCREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=999999999\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\n' >"$CREW/thresholds"
+run "${FILE_ENV[@]}" "$CR"
+assert "thresholds in \$crew/thresholds apply, skipping blank and # lines" 'has_re "^memory [0-9]+ MB available$" && [[ $(count_re .) -eq 1 && $RC -eq 0 && -z $ERR ]]'
+run "${FILE_ENV[@]}" CREW_MEM_MIN_MB=0 "$CR"
+assert "an environment value overrides the file" '[[ -z $OUT && $RC -eq 0 ]]'
+run "${FILE_ENV[@]}" CREW_MEM_MIN_MB= "$CR"
+assert "an empty environment value falls back to the file" 'has_re "^memory [0-9]+ MB available$"'
+printf 'CREW_BOGUS=1\nno equals sign\n' >>"$CREW/thresholds"
+run "${FILE_ENV[@]}" "$CR"
+assert "an unknown key and a line without = each fail, naming the line" '[[ $RC -eq 1 ]] && grep -q "thresholds line 7: .*CREW_BOGUS" <<<"$ERR" && grep -q "thresholds line 8: " <<<"$ERR"'
+assert "the other lines still apply after a bad line" 'has_re "^memory [0-9]+ MB available$"'
+printf 'CREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=lots\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\n' >"$CREW/thresholds"
+run "${FILE_ENV[@]}" "$CR"
+assert "a value in the file that is not a number fails naming its key" '[[ $RC -eq 1 ]] && grep -q "CREW_MEM_MIN_MB is not a number: lots" <<<"$ERR"'
+printf 'CREW_MEM_MIN_MB=999999999\n' >"$CREW/thresholds"
+RUN_DIR=$TMP_DIR
+run -u CREW_MEM_MIN_MB CREW_DISK_MIN_GB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000 "$CR"
+RUN_DIR=$REPO
+assert "outside a repo the thresholds file is not read" '! has_re "^memory " && [[ $RC -eq 0 ]]'
+rm "$CREW/thresholds"
+
 echo "probed paths"
 mkdir -p "$TMP_DIR/watched/built"
 printf '%s\n\n%s\n' "$TMP_DIR/watched/built/not/yet" "$TMP_DIR/watched/built" >"$CREW/watch-paths"

@@ -13,22 +13,53 @@
 #   io <x>% full over 60 s (D state: <names>)
 #       Linux only: /proc/pressure/io full avg60 above CREW_IO_FULL_PCT (default
 #       30), with up to five processes waiting on disk; skipped without PSI
+#
+# Each threshold comes from its non-empty environment variable, else from a
+# KEY=value line in $crew/thresholds (blank and # lines skipped; an unknown key
+# or a line without = is a failure), else from its default.
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
 
-disk_min=${CREW_DISK_MIN_GB:-20}
-mem_min=${CREW_MEM_MIN_MB:-1024}
-load_per_cpu=${CREW_LOAD_PER_CPU:-2}
-io_full_pct=${CREW_IO_FULL_PCT:-30}
-os=$(uname -s)
 failed=0
-
 fail() {
   printf 'crew-resources: %s\n' "$*" >&2
   failed=1
 }
+
+crew=$(crew_dir) || crew=
+
+# Parsed, never sourced, so the file cannot run code.
+declare -A file_threshold
+read_thresholds() {
+  local line key n=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    n=$((n + 1))
+    [[ ! $line =~ ^[[:space:]]*(#|$) ]] || continue
+    if [[ $line != *=* ]]; then
+      fail "thresholds line $n: not KEY=value: $line"
+      continue
+    fi
+    key=${line%%=*}
+    case $key in
+    CREW_DISK_MIN_GB | CREW_MEM_MIN_MB | CREW_LOAD_PER_CPU | CREW_IO_FULL_PCT) file_threshold[$key]=${line#*=} ;;
+    *) fail "thresholds line $n: unknown key $key" ;;
+    esac
+  done <"$crew/thresholds"
+}
+if [[ -n $crew && -f $crew/thresholds ]]; then read_thresholds; fi
+
+threshold() {
+  local v=${!1:-}
+  printf '%s\n' "${v:-${file_threshold[$1]:-$2}}"
+}
+
+disk_min=$(threshold CREW_DISK_MIN_GB 20)
+mem_min=$(threshold CREW_MEM_MIN_MB 1024)
+load_per_cpu=$(threshold CREW_LOAD_PER_CPU 2)
+io_full_pct=$(threshold CREW_IO_FULL_PCT 30)
+os=$(uname -s)
 
 number() {
   [[ $2 =~ ^-?[0-9]+([.][0-9]+)?$ ]] || {
@@ -142,7 +173,7 @@ if number CREW_DISK_MIN_GB "$disk_min"; then
   paths=("$@")
   if main=$(crew_main); then paths+=("$main"); fi
   paths+=("${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}")
-  if crew=$(crew_dir) && [[ -f $crew/watch-paths ]]; then
+  if [[ -n $crew && -f $crew/watch-paths ]]; then
     while IFS= read -r line || [[ -n $line ]]; do
       [[ -z $line ]] || paths+=("$line")
     done <"$crew/watch-paths"
