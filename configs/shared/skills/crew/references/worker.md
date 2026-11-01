@@ -26,7 +26,7 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 
 ## Reporting
 
-Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked` or `rate-limited`), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
+Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked` or `rate-limited`, with the reset time Claude showed), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
 
 ## Landing
 
