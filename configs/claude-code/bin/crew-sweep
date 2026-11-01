@@ -421,6 +421,7 @@ while [[ $current == "$previous" ]] && ((! resource_woke && SECONDS < deadline))
   current=$(snapshot)
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
+save_alerts
 
 if [[ $current == "$previous" ]]; then
   ((resource_woke)) || echo TIMEOUT
@@ -446,5 +447,4 @@ else
   : >"$seen.tmp"
 fi
 mv -f "$seen.tmp" "$seen"
-save_alerts
 publish

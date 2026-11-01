@@ -611,6 +611,17 @@ echo "crew-resources: df /x: Stale file handle" >"$FAKE_STATE/resources_err"
 sweep 1
 assert "a failing crew-resources prints RESOURCE failed and never ends the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "RESOURCE failed: df /x: Stale file handle"'
 rm "$FAKE_STATE/resources_err"
+echo "load 99 over 1 CPUs" >"$FAKE_STATE/resources"
+{ row 1 assigned x-w1 "$(date +%s)"; } >"$CREW/board.tsv"
+echo 1000 >"$FAKE_STATE/list_fail"
+sweep 5
+rm "$FAKE_STATE/list_fail"
+agents 'x-w1 working'
+sweep 1
+assert "an alert is recorded even when the sweep then exits on a herdr failure" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "RESOURCE load 99 over 1 CPUs"'
+: >"$FAKE_STATE/resources"
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
 SWEEP=$REAL_SWEEP
 rm -f "$CREW/.sweep-resources"
 
