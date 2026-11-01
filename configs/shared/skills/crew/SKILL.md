@@ -24,7 +24,14 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `plan.md`, `reflections.md`, `items/`, `.sweep-seen`, `dagr-run` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md`, `check`, `sweep-check` and `lead-notes.md`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
 5. A `lead` file means resume:
    - If `herdr agent get "$slug-lead"` finds a live agent other than you, rename it to the first free `$slug-old<N>` and leave it open, since it may be a session the user still uses. Until its current sweep returns `SUPERSEDED` it may still edit the board, prompt a worker or close a tab, so after your first sweep re-read the board and check every worker.
-   - Mark `done` every item with a `merged` file, or with a `merging` file (`key value` lines `pid`, `start`, `tip` and, once the fast-forward is under way, `merged`) whose `merged` sha is an ancestor of its target, and re-read reports you have not acted on.
+   - A reboot or reset can rename the host, drop profiles and empty temp dirs, so re-derive both from the live host. Read the pool again from `claude-profile names` and log in `rulings.md` each worker whose profile is gone, so you replace it. Then check every absolute path the crew files name, and fix or recreate each one this prints before you assign work:
+
+     ```bash
+     grep -ohE '(^|[^[:alnum:]_.~:/-])/[[:alnum:]_.~/-]+' "$crew"/{check,sweep-check,brief.md,lead-notes.md} "$crew"/items/*/spec.md 2>/dev/null |
+       sed -E 's|^[^/]||; s|[.]+$||' | sort -u | while read -r p; do [[ -e $p ]] || echo "missing: $p"; done
+     ```
+
+   - Run `crew-merge --status`, and `crew-merge --settle <id>` for each `CUT` or `STALE` line it prints. Then mark `done` every item with a `merged` file, and re-read reports you have not acted on.
 6. Name yourself `$slug-lead` with `herdr agent rename` and write `$crew/lead` as your pane id and session id separated by a tab: `$HERDR_PANE_ID` and the `.agent_session.value` of your pane in `herdr pane list`. Do this before you spawn a worker or start a sweep, because without it every sweep prints `SUPERSEDED`. After `/clear` your session id changes and your sweep prints `SUPERSEDED`, so run `/crew` again to resume. Never restart a sweep that printed `SUPERSEDED`; if you think it is wrong, run `crew-role` and act on its answer.
 7. Read `lead-notes.md` and the `## Lessons` lines in `brief.md`. On a fresh start, append the first dated line to `reflections.md`, so the first sweep does not ask for a reflection.
 8. If the user handed you a plan, split it into board items with `references/intake.md` now, after any archive in step 4.
@@ -92,7 +99,8 @@ Run `crew-sweep` with `run_in_background` (it waits up to 900 seconds for an ite
 - `IDLE`: read its screen. "Usage limit reached" means it is rate-limited and cannot write its own report, so replace it on another profile; otherwise prompt it or replace it.
 - `QUIET`: the item shows no progress (row update, report, notes, merging file or commit on its branch) for an hour. Read the worker's screen and `items/<id>/notes.md`, then prompt it, split the item or replace the worker. A worker with an unanswered `question` or `blocked` report is never QUIET.
 - `DIALOG`: read the screen it shows, then answer with `send-keys` within the same limits as at spawn or replace the worker, and log the call in `rulings.md`.
-- `MERGING`: leave it alone, and never close or replace a worker while it merges. `MERGING QUIET` means its merge has run for an hour, possibly a hung `check` holding the merge lock for every item: read `check-<id>.log` in `${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$slug` and tell the user, without closing the worker.
+- `STALE-MERGE <id>`: a `crew-merge` run died (a kill, crash or reboot) and left its marker. Run `crew-merge --settle <id>`. If it reports the item landed, the item now has a `merged` file, so mark it `done`; otherwise prompt its worker, if it is live, to rerun `crew-merge`.
+- `MERGING`: the worker's `crew-merge` is running or queued for the merge lock. Leave it alone, and never close or replace a worker while it merges. `MERGING QUIET` means its merge has run for an hour, possibly a hung `check` holding the merge lock for every item: read `check-<id>.log` in `${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$slug` and tell the user, without closing the worker.
 - `REFLECT`: run a reflection round with `references/reflect.md`. It may arrive up to one wait late.
 - `CHECK <line>`: output from `sweep-check`; act on what it flags. `CHECK failed: <message>` means the check itself failed or timed out after 30 seconds, so fix it.
 
