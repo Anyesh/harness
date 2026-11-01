@@ -39,6 +39,14 @@ Deno.test("existence uses exact names, and case variants are listed", async () =
   assertEquals(await store.exists("wiki/Foo.md"), true);
 });
 
+Deno.test("a case-only rename changes the listed name and returns the new stat", async () => {
+  const { root, store } = await vault();
+  await Deno.writeTextFile(`${root}/wiki/cr.md`, "a");
+  const stat = await store.rename("wiki/cr.md", "wiki/Cr.md");
+  assertEquals(await store.caseVariants("wiki/cr.md"), ["wiki/Cr.md"]);
+  assertEquals(stat, await store.stat("wiki/Cr.md"));
+});
+
 Deno.test("walk skips dotfiles, dot-dirs and temp files", async () => {
   const { root, store } = await vault();
   await Deno.mkdir(`${root}/wiki/.obsidian`);
