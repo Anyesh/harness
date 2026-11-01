@@ -29,6 +29,11 @@ assert() {
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 ORIG_PATH="$PATH"
+NO_RUST_PATH=""
+IFS=: read -ra path_dirs <<<"$ORIG_PATH"
+for d in "${path_dirs[@]}"; do
+  [[ -e "$d/cargo" || -e "$d/rustc" ]] || NO_RUST_PATH+="${NO_RUST_PATH:+:}$d"
+done
 
 export HOME="$TMP/home"
 export HARNESS_MANIFEST="$TMP/manifest.json"
@@ -163,7 +168,7 @@ assert "wsm: an existing build is not rebuilt" '! grep -q "^wsm" "$CALLS"'
 rm -rf "$TMP/checkout/target"
 : >"$CALLS"
 rc=0
-out=$(PATH="$(dirname "$(command -v sh)")" herdr_prebuild_wsm "$HERDR" 2>&1) || rc=$?
+out=$(PATH="$NO_RUST_PATH" herdr_prebuild_wsm "$HERDR" 2>&1) || rc=$?
 assert "wsm without cargo: no build attempt" '! grep -q "^wsm" "$CALLS"'
 assert "wsm without cargo: warns and does not fail the module" '[[ $rc -eq 0 ]] && grep -q cargo <<<"$out"'
 
@@ -260,12 +265,6 @@ done
 rm -f "$FAKE_BIN/go"
 
 echo "=== rust ==="
-
-NO_RUST_PATH=""
-IFS=: read -ra path_dirs <<<"$ORIG_PATH"
-for d in "${path_dirs[@]}"; do
-  [[ -e "$d/cargo" || -e "$d/rustc" ]] || NO_RUST_PATH+="${NO_RUST_PATH:+:}$d"
-done
 
 printf '#!/bin/sh\n' >"$FAKE_BIN/cargo"
 chmod +x "$FAKE_BIN/cargo"
