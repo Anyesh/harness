@@ -237,10 +237,10 @@ cat >"$INSTALL/run.sh" <<EOF
 exit 0
 EOF
 health() {
-  local age_ms="$1" feed_ms="$2" paused="$3" remote="$4" handler="${5:-0}" caught="${6:-true}" now
+  local age_ms="$1" feed_ms="$2" paused="$3" remote="$4" handler="${5:-0}" caught="${6:-true}" path="${7:-null}" now
   now=$(($(date +%s) * 1000))
-  printf '{"ts":%d,"feedTs":%d,"paused":%s,"locked":false,"remote":"%s","oldestHandlerMs":%d,"caughtUp":%s}\n' \
-    $((now - age_ms)) $((now - feed_ms)) "$paused" "$remote" "$handler" "$caught" >"$INSTALL/state/health.json"
+  printf '{"ts":%d,"feedTs":%d,"paused":%s,"locked":false,"remote":"%s","oldestHandlerMs":%d,"oldestHandlerPath":%s,"caughtUp":%s}\n' \
+    $((now - age_ms)) $((now - feed_ms)) "$paused" "$remote" "$handler" "$path" "$caught" >"$INSTALL/state/health.json"
 }
 dog() {
   : >"$H/calls.log"
@@ -266,6 +266,9 @@ assert "watchdog: a silent feed while unreachable does not" '! grep -q "try-rest
 health 5000 5000 false ok 400000
 out=$(dog)
 assert "watchdog: a hung handler restarts" 'grep -q "try-restart" "$H/calls.log"'
+health 5000 5000 false ok 400000 true '"wiki/projects/x/stuck doc.md"'
+out=$(dog)
+assert "watchdog: a hung handler's restart names its path" 'grep -q "has run for 400 s on wiki/projects/x/stuck doc.md" <<<"$out"'
 health 5000 5000 false auth
 out=$(dog)
 assert "watchdog: a rejected login is flagged, not restarted" '! grep -q "try-restart" "$H/calls.log" && grep -q "rejected the login" <<<"$out"'

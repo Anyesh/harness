@@ -287,6 +287,22 @@ Deno.test("writes made while the remote is down arrive after it returns, without
   }
 });
 
+Deno.test("health names the path of a handler that hangs", async () => {
+  const r = await rig();
+  await r.remote.edit("wiki/stuck.md", "never arrives");
+  r.remote.hangReadsFor.add("wiki/stuck.md");
+  await r.start();
+  try {
+    await until(() => r.syncer.health().oldestHandlerPath === "wiki/stuck.md");
+    assert(r.syncer.health().oldestHandlerMs >= 0);
+    r.remote.releaseHungReads();
+    await until(async () => (await read(r, "wiki/stuck.md")) === "never arrives");
+    await until(() => r.syncer.health().oldestHandlerPath === null);
+  } finally {
+    await r.stop();
+  }
+});
+
 Deno.test("a change that fails while a later one succeeds is delivered again after a restart", async () => {
   const r = await rig();
   await r.remote.edit("wiki/first.md", "first");

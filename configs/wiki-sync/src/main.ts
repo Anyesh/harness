@@ -271,6 +271,7 @@ class Daemon {
       locked: this.locked,
       paused: this.paused,
       oldestHandlerMs: h?.oldestHandlerMs ?? 0,
+      oldestHandlerPath: h?.oldestHandlerPath ?? null,
       failing: h?.failing ?? [],
       failedCount: h?.failedCount ?? 0,
       heldDeletions: h?.heldDeletions ?? 0,

@@ -94,6 +94,7 @@ export interface SyncHealth {
   regressed: number;
   unreadable: number;
   oldestHandlerMs: number;
+  oldestHandlerPath: string | null;
   caughtUp: boolean;
   root: "ok" | "missing";
   feedTs: number;
@@ -159,7 +160,7 @@ export class Syncer {
   private readonly lock = new KeyedLock();
   private readonly pending = new Map<string, Pending>();
   private readonly parked = new Map<string, Hint>();
-  private readonly running = new Map<string, number>();
+  private readonly running = new Map<string, { since: number; path: string }>();
   private readonly failing = new Map<string, { path: string; since: number }>();
   private readonly retryTimers = new Map<string, Timer>();
   private readonly waiters = new Map<string, (() => void)[]>();
@@ -261,6 +262,7 @@ export class Syncer {
     const now = Date.now();
     const records = this.d.bases.all();
     const failing = [...this.failing.values()].sort((a, b) => a.since - b.since);
+    const oldest = [...this.running.values()].sort((a, b) => a.since - b.since)[0];
     return {
       failing: failing.slice(0, 5),
       failedCount: failing.length,
@@ -269,7 +271,8 @@ export class Syncer {
       noRemote: records.filter((r) => r.held === "noRemote").length,
       regressed: records.filter((r) => r.held === "regressed").length,
       unreadable: records.filter((r) => r.held === "unreadable").length,
-      oldestHandlerMs: Math.max(0, ...[...this.running.values()].map((t) => now - t)),
+      oldestHandlerMs: oldest ? Math.max(0, now - oldest.since) : 0,
+      oldestHandlerPath: oldest?.path ?? null,
       caughtUp: this.caughtUp,
       root: this.rootIno === null ? "missing" : "ok",
       feedTs: this.d.remote.feedTs(),
@@ -415,7 +418,7 @@ export class Syncer {
       clearTimeout(retry);
       this.retryTimers.delete(id);
     }
-    this.running.set(id, Date.now());
+    this.running.set(id, { since: Date.now(), path: this.pathOf(id, entry.hint) });
     try {
       await this.handle(id, entry.hint);
       this.failing.delete(id);
@@ -429,7 +432,7 @@ export class Syncer {
         this.parked.set(id, mergeHint(this.parked.get(id) ?? {}, entry.hint));
         return;
       }
-      const path = entry.hint.path ?? this.d.bases.get(id)?.path ?? id;
+      const path = this.pathOf(id, entry.hint);
       if (!this.failing.has(id)) this.failing.set(id, { path, since: Date.now() });
       if (!(e instanceof RootMissing)) this.remoteError = errText(e);
       log.warn(`${path}: ${errText(e)}; retrying in ${Math.round(this.cfg.retryMs / 1000)} s`);
@@ -441,6 +444,10 @@ export class Syncer {
     } finally {
       this.running.delete(id);
     }
+  }
+
+  private pathOf(id: string, hint: Hint): string {
+    return hint.path ?? this.d.bases.get(id)?.path ?? id;
   }
 
   private scheduleRecheck(id: string, delay: number): void {

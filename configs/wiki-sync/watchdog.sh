@@ -25,8 +25,9 @@ fi
 
 [[ -r "$HEALTH" ]] || exit 0
 now=$(($(date +%s) * 1000))
-read -r ts feed paused remote handler caught < <(jq -r \
-  '[.ts, .feedTs, ((.paused or .locked) | tostring), .remote, .oldestHandlerMs, (.caughtUp | tostring)] | @tsv' \
+IFS=$'\t' read -r ts feed paused remote handler caught handler_path < <(jq -r \
+  '[.ts, .feedTs, ((.paused or .locked) | tostring), .remote, .oldestHandlerMs, (.caughtUp | tostring),
+    (.oldestHandlerPath // "an unknown path")] | @tsv' \
   "$HEALTH" 2>/dev/null) || exit 0
 
 if [[ "$remote" == ok && "$caught" == true && ! -e "$STATE/first-start-done" ]]; then
@@ -42,6 +43,6 @@ if ((now - ts > 90000)); then
 elif [[ "$paused" != true && "$remote" != unreachable ]] && ((now - feed > 180000)); then
   restart "the changes feed has been silent for $(((now - feed) / 1000)) s"
 elif ((handler > 300000)); then
-  restart "a handler has run for $((handler / 1000)) s"
+  restart "a handler has run for $((handler / 1000)) s on $handler_path"
 fi
 exit 0

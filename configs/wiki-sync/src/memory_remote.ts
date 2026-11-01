@@ -30,6 +30,8 @@ export class MemoryRemote implements RemoteStore {
   writes = 0;
   failPutsFor = new Set<string>();
   failReadsFor = new Set<string>();
+  hangReadsFor = new Set<string>();
+  private hung: (() => void)[] = [];
   undecodable = new Set<string>();
   longpollMs = 50;
   private seq = 0;
@@ -59,8 +61,16 @@ export class MemoryRemote implements RemoteStore {
     return [...doc.revs.keys()].filter((r) => !parents.has(r));
   }
 
+  releaseHungReads(): void {
+    this.hangReadsFor.clear();
+    for (const release of this.hung.splice(0)) release();
+  }
+
   readLeaves(id: string): Promise<RemoteLeaf[]> {
     this.check();
+    if (this.hangReadsFor.has(id)) {
+      return new Promise<void>((res) => this.hung.push(res)).then(() => this.readLeaves(id));
+    }
     if (this.failReadsFor.has(id)) return Promise.reject(new Error(`injected read failure for ${id}`));
     const doc = this.docs.get(id);
     if (!doc) return Promise.resolve([]);
