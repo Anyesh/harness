@@ -9,9 +9,10 @@
 # plus each items/*/spec.md; binary files are skipped.
 #
 # A path counts when it starts a line or follows a character that cannot sit
-# inside a path, URL, $var/..., ~/... or w/1, or follows `:-` as in
-# ${VAR:-/path}. Trailing dots are dropped. A path running into $, *, { or < is
-# cut back to its last /, so the fixed part before an expansion is checked.
+# inside a path, URL, $var/..., ${var}/..., $(cmd)/..., "$var"/..., ~/... or
+# w/1, or follows `:-` as in ${VAR:-/path}. Trailing dots are dropped. A path
+# running into $, *, { or < is cut back to its last /, so the fixed part before
+# an expansion is checked.
 # Only paths whose first component exists are reported, which leaves out API
 # routes such as /health and deliberate dead paths such as /nonexistent/x.
 set -uo pipefail
@@ -42,9 +43,14 @@ done < <(find "$crew" -mindepth 1 -maxdepth 1 -type f)
 if [[ -d $crew/items ]]; then
   while IFS= read -r f; do files+=("$f"); done < <(find "$crew/items" -mindepth 2 -maxdepth 2 -type f -name spec.md)
 fi
-((${#files[@]})) || exit 0
+text=()
+if ((${#files[@]})); then
+  while IFS= read -r f; do text+=("$f"); done < <(grep -Il -- '' "${files[@]}")
+fi
+((${#text[@]})) || exit 0
 
-grep -IohE '(^|[^[:alnum:]_.~:/-]|:-)/[[:alnum:]_.~/-]+[$*{<]?' -- "${files[@]}" |
+sed -E 's|([[:alnum:]_})])"/|\1"#|g' "${text[@]}" |
+  grep -ohE '(^|[^[:alnum:]_.~:/})-]|:-)/[[:alnum:]_.~/-]+[$*{<]?' |
   sed -E 's|^[^/]*||; s|/[^/]*[$*{<]$|/|; s|[.]+$||' | LC_ALL=C sort -u |
   while IFS= read -r p; do
     first=${p#/}

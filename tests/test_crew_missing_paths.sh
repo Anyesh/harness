@@ -52,12 +52,14 @@ done
   printf 'The log ends in %s.\n' "$TMP/dots/missing"
   printf 'Targets: %s and %s and %s.\n' "$TMP/cut/x/\$(basename \"\$PWD\")" "$TMP/\$(date)" "$TMP/wt-parent/nope/w-<id>"
   printf 'Globs: %s and %s\n' "$TMP/globbed/*.log" "$TMP/braced/{a,b}"
+  printf '%s\n' 'Built paths: ${CARGO_HOME}/etc/crew-notreal1, $(pwd)/etc/crew-notreal2, "$main"/etc/crew-notreal3, "${x}"/etc/crew-notreal4.'
+  printf 'Quoted: dir="%s"\n' "$TMP/quoted/missing"
 } >"$CREW/brief.md"
 printf 'bin\0ary %s\n' "$TMP/binmissing" >"$CREW/blob"
 
 echo "reported"
 run "$CMP" "$CREW"
-expected=$(printf 'missing: %s\n' "$TMP/braced/" "$TMP/cut/x/" "$TMP/dots/missing" "$TMP/globbed/" "$TMP/gone/target" "$TMP/stalehome/bin/tool" "$TMP/specmissing/a" "$TMP/wt-parent/nope/" | LC_ALL=C sort)
+expected=$(printf 'missing: %s\n' "$TMP/braced/" "$TMP/cut/x/" "$TMP/dots/missing" "$TMP/globbed/" "$TMP/gone/target" "$TMP/stalehome/bin/tool" "$TMP/quoted/missing" "$TMP/specmissing/a" "$TMP/wt-parent/nope/" | LC_ALL=C sort)
 assert "a stale path in an extra helper file is reported" 'has "missing: $TMP/stalehome/bin/tool"'
 assert "a missing default inside \${VAR:-/path} is reported" 'has "missing: $TMP/gone/target"'
 assert "a path in a backtick code span of a spec is reported" 'has "missing: $TMP/specmissing/a"'
@@ -67,6 +69,8 @@ assert "trailing dots are stripped" 'has "missing: $TMP/dots/missing"'
 assert "the output is exactly the missing paths, sorted, with exit 0" '[[ $OUT == "$expected" && $RC -eq 0 && -z $ERR ]]'
 assert "board, rulings, reflections, plan, watch-paths, lead, dagr and dot files are skipped" '! grep -q skip- <<<"$OUT"'
 assert "URLs, \$var and ~ paths and missing first components are skipped" '! grep -qE "nothere|example|health|projects|nonexistent|w/1" <<<"$OUT"'
+assert "paths after \${x}, \$(cmd) and a closing quote are skipped" '! grep -q crew-notreal <<<"$OUT"'
+assert "a quoted absolute path is checked" 'has "missing: $TMP/quoted/missing"'
 assert "binary files are skipped" '! grep -q binmissing <<<"$OUT"'
 
 echo "edges"
