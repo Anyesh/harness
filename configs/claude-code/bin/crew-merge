@@ -39,6 +39,10 @@ board_row() {
   [[ -n $branch && -n $into ]] || die "board row for $id lacks a branch or into"
 }
 
+write_merged() {
+  printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$1" "$2" "$into" >"$item/merged"
+}
+
 # Taken around every read-then-replace or read-then-remove of a marker, so two
 # runs of one item, or a run and --settle, never act on the same marker at once.
 lock_marker() {
@@ -94,7 +98,7 @@ settle() {
     board_row || die "$id is not on the board; check whether $merged reached its target, then remove $item/merging by hand"
     if g merge-base --is-ancestor "$merged" "refs/heads/$into" 2>/dev/null; then
       tip=$(awk '$1 == "tip" {v = $2} END {print v}' "$item/merging")
-      printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$tip" "$merged" "$into" >"$item/merged"
+      write_merged "$tip" "$merged"
       rm -f "$item/merging"
       echo "$id landed at $merged in $into; wrote $item/merged"
     else
@@ -228,7 +232,7 @@ printf 'pid %s\nstart %s\ntip %s\nmerged %s\n' "$$" "$start" "$tip" "$merged" | 
 trap '' HUP TERM
 g -C "$target" merge -q --ff-only --no-autostash "$merged"
 [[ $(g rev-parse "refs/heads/$into") == "$merged" ]] || die "refs/heads/$into is not $merged after the fast-forward; see $item/merging"
-printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$tip" "$merged" "$into" >"$item/merged"
+write_merged "$tip" "$merged"
 rm "$item/merging"
 trap 'on_signal 129' HUP
 trap 'on_signal 143' TERM

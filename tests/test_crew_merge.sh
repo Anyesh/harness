@@ -313,6 +313,25 @@ hold_lock() {
   wait_for '[[ -e $TMP_DIR/held ]]'
 }
 
+# Holds an item's marker lock, so runs started meanwhile all contend for it
+# when release_marker frees it.
+hold_marker() {
+  command rm -f "$TMP_DIR/mheld"
+  (
+    exec {fd}>"$CREW/items/$1/.marker.lock"
+    flock "$fd"
+    : >"$TMP_DIR/mheld"
+    exec sleep 120
+  ) &
+  MHOLDER=$!
+  PIDS+=("$MHOLDER")
+  wait_for '[[ -e $TMP_DIR/mheld ]]'
+}
+release_marker() {
+  sleep 0.5
+  kill "$MHOLDER"
+}
+
 new_item 18
 hold_lock
 start_merge 18 "$TMP_DIR/out18"
@@ -334,10 +353,12 @@ assert "SIGTERM while queued exits 143 within seconds and removes merging" '[[ $
 
 new_item 19
 printf 'pid %s\nstart 1\ntip %s\n' "$(dead_pid)" "$(tip_of 19)" >"$(marker 19)"
+hold_marker 19
 start_merge 19 "$TMP_DIR/out19a"
 p19a=$BG
 start_merge 19 "$TMP_DIR/out19b"
 p19b=$BG
+release_marker
 wait_for 'grep -q "already merging" "$TMP_DIR/out19a" "$TMP_DIR/out19b"' || true
 if grep -q "already merging" "$TMP_DIR/out19a"; then loser=$p19a winner=$p19b; else loser=$p19b winner=$p19a; fi
 rc=0
@@ -346,9 +367,13 @@ assert "two runs against one stale marker leave one live marker, and the other e
 
 new_item 20
 printf 'pid %s\nstart 1\ntip %s\n' "$(dead_pid)" "$(tip_of 20)" >"$(marker 20)"
+hold_marker 20
 start_merge 20 "$TMP_DIR/out20"
 p20=$BG
-(cd "$MAIN" && "$CM" --settle 20) >/dev/null 2>&1 || true
+(cd "$MAIN" && exec "$CM" --settle 20) >/dev/null 2>&1 &
+settle_pid=$!
+release_marker
+wait "$settle_pid" || true
 wait_for '[[ $(marker_pid 20) == "$p20" ]]' || true
 assert "a --settle racing a rerun never removes the rerun's live marker" '[[ $(marker_pid 20) == "$p20" && $(crew_merge_state "$(marker 20)") == queued ]]'
 
