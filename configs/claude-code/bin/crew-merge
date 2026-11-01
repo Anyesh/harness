@@ -31,7 +31,7 @@ g() { git -c gc.autoDetach=false "$@"; }
 
 board_row() {
   local row
-  row=$(awk -F'\t' -v id="$id" '$1 == id {print $4 "\t" $5}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
+  row=$(awk -F'\t' -v id="$id" '($1 "") == id "" {print $4 "\t" $5}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
   [[ -n $row ]] || return 1
   branch=${row%%$'\t'*}
   into=${row#*$'\t'}

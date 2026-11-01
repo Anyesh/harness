@@ -399,6 +399,13 @@ assert "--settle refuses a cut marker of an item off the board" '[[ $RC -eq 1 &&
 settle 25
 assert "--settle with no marker has nothing to do" '[[ $RC -eq 0 ]]'
 
+mkdir -p "$CREW/items/099"
+printf 'pid %s\nstart 1\ntip %040d\nmerged %s\n' "$(dead_pid)" 0 "$main_sha" >"$(marker 099)"
+printf '99\tdone\tw1\tw/99\tmain\t0\tnumeric twin\n' >>"$CREW/board.tsv"
+settle 099
+assert "--settle matches the board id as text, so 099 is not row 99" '[[ $RC -eq 1 && -e $(marker 099) ]] && grep -q "not on the board" <<<"$SETTLE_OUT"'
+command rm -r "$CREW/items/099"
+
 printf 'pid %s\nstart %s\ntip %040d\nqueued 1\n' "$live" "$(crew_pid_start "$live")" 0 >"$(marker 26)"
 printf 'pid %s\nstart 1\ntip %040d\n' "$(dead_pid)" 0 >"$(marker 27)"
 status_out=$(cd "$MAIN" && "$CM" --status)
