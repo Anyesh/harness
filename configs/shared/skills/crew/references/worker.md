@@ -25,6 +25,12 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 - Use `set -o pipefail` on any command whose exit status you treat as a verdict.
 - When `$crew/heavy-slots` exists, hold the heavy slot for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs. Run `crew-heavy acquire <id> "<purpose>"` with `run_in_background`, since it waits until the slot is free, and `crew-heavy release <id>` once the stack is torn down. Never hold it across idle time (waiting on a review, the lead or a reply), keep test parallelism low while you hold it (for example `pytest -n 2`), and release it before `crew-merge`, which takes the slot itself for the gate.
 
+## Shell pitfalls
+
+- In zsh, the macOS default shell, an unquoted variable holding a file list does not split into words, so a command gets the whole list as one name; pass the list through `xargs` or a file.
+- An interactive `cp -i` or `mv -i` alias can make a plain `cp` or `mv` silently do nothing; use `/bin/cp -f`, `/bin/mv -f` or `command cp`.
+- Homebrew's node links the system ICU, so `Intl` date output can differ from the official nodejs.org build of the same version; compare builds before treating such a difference as a code bug.
+
 ## Reporting
 
 Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked` or `rate-limited`), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
