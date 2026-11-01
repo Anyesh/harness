@@ -540,6 +540,30 @@ rm "$CREW/sweep-check"
 sweep 0
 assert "no sweep-check prints no CHECK line" '! has_re "^CHECK"'
 
+echo "heavy slot"
+HLOCK="$CREW/heavy.lock"
+mkdir "$HLOCK"
+printf '7\tbrowser check\t%s\n' "$(($(date +%s) - 100 * 60))" >"$HLOCK/holder"
+sweep 0
+assert "without heavy-slots a long-held slot prints no HEAVY line" '! has_re "^HEAVY"'
+echo 1 >"$CREW/heavy-slots"
+sweep 0
+assert "a slot held past 90 minutes prints HEAVY with holder, minutes and purpose" 'has "HEAVY 7 100 min browser check"'
+printf '7\tbrowser check\t%s\n' "$(($(date +%s) - 80 * 60))" >"$HLOCK/holder"
+sweep 0
+assert "a slot held under 90 minutes prints no HEAVY line" '! has_re "^HEAVY"'
+rm "$HLOCK/holder"
+touch -d "@$(($(date +%s) - 95 * 60))" "$HLOCK"
+sweep 0
+assert "a slot with no holder file is aged by the lock dir" 'has "HEAVY unknown 95 min unknown"'
+rmdir "$HLOCK"
+sweep 0
+assert "a free slot prints no HEAVY line" '! has_re "^HEAVY"'
+echo 2 >"$CREW/heavy-slots"
+sweep 0
+assert "a heavy-slots file other than 1 is named" 'has "HEAVY failed: heavy-slots must contain 1" && [[ $RC -eq 0 ]]'
+rm "$CREW/heavy-slots"
+
 echo "worker role"
 set_role worker
 sweep 0

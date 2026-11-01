@@ -19,6 +19,11 @@
 #   DEPS <id> <problem>             an open row that can never start: names unknown
 #                                   <dep>, waits on blocked <dep>, is in a cycle, or
 #                                   waits on stuck <dep>
+#   HEAVY <holder> <minutes> min <purpose>
+#                                   with heavy-slots, a heavy slot held longer than
+#                                   CREW_HEAVY_LONG seconds (default 5400); a lock
+#                                   with no holder file is aged by its directory
+#   HEAVY failed: <message>         heavy-slots holds something other than 1
 #   REFLECT                         reflections.md is missing or older than
 #                                   CREW_REFLECT_EVERY seconds (default 2700)
 #   CHECK <line>                    the last 20 lines of $crew/sweep-check, run in
@@ -42,6 +47,7 @@ publish_every=${CREW_DAGR_INTERVAL:-60}
 quiet=${CREW_QUIET:-3600}
 reflect_every=${CREW_REFLECT_EVERY:-2700}
 check_timeout=${CREW_SWEEP_CHECK_TIMEOUT:-30}
+heavy_long=${CREW_HEAVY_LONG:-5400}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
@@ -275,6 +281,21 @@ report_order() {
   '
 }
 
+report_heavy() {
+  local slots lock="$crew/heavy.lock" holder purpose since
+  if ! slots=$(crew_heavy_slots "$crew"); then
+    echo "HEAVY failed: heavy-slots must contain 1"
+    return
+  fi
+  ((slots)) && [[ -d $lock ]] || return 0
+  if ! IFS=$'\t' read -r holder purpose since <"$lock/holder" 2>/dev/null || [[ ! $since =~ ^[0-9]+$ ]]; then
+    holder=unknown purpose=unknown
+    since=$(stat -c %Y "$lock" 2>/dev/null) || return 0
+  fi
+  ((EPOCHSECONDS - since > heavy_long)) || return 0
+  echo "HEAVY $holder $(((EPOCHSECONDS - since) / 60)) min $purpose"
+}
+
 report_reflect() {
   local file="$crew/reflections.md" t
   if ! t=$(stat -c %Y "$file" 2>/dev/null) || ((EPOCHSECONDS - t > reflect_every)); then
@@ -337,6 +358,7 @@ fi
 
 report_workers
 report_order
+report_heavy
 report_reflect
 run_sweep_check
 
