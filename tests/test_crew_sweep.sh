@@ -295,11 +295,13 @@ assert "agent_not_found between list and read counts as GONE" 'has "GONE x-w6" &
 assert "a rate-limited owner (done) with a newer report is not IDLE" 'has "WORKER x-w7 item 7 done"'
 assert "a live merging pid with the recorded start shows MERGING instead of IDLE" 'has "WORKER x-w8 item 8 idle MERGING"'
 assert "a reused merging pid is not MERGING" 'has "WORKER x-w9 item 9 idle IDLE"'
+assert "a dead merging marker is STALE-MERGE and a live one is not" 'has "STALE-MERGE 9" && ! has "STALE-MERGE 8"'
 assert "a done owner with only an older report is IDLE" 'has "WORKER x-w10 item 10 done IDLE"'
 assert "an unparseable updated counts as 0" 'has "WORKER x-w11 item 11 working"'
 assert "owners of rows that are not assigned are not listed" '! has_re "x-w12"'
 assert "the lead, -old panes, unnamed and unrelated agents are not listed" '! has_re "x-lead|x-old1|null|mine"'
 assert "each assigned row prints exactly one line of its own" '[[ $(grep -cE "^(WORKER|GONE) " <<<"$OUT") -eq 11 ]]'
+rm "$CREW/items/9/merging"
 
 agents 'x-w1 done'
 printf 'Usage limit reached\n' >"$FAKE_STATE/screen-x-w1"
@@ -311,8 +313,13 @@ kill "$LIVE" 2>/dev/null || true
 wait "$LIVE" 2>/dev/null || true
 { row 8 assigned x-w8 "$NOW"; } >"$CREW/board.tsv"
 agents 'x-w8 idle'
+mkdir -p "$CREW/items/13"
+printf 'pid %s\nstart 1\ntip %040d\nmerged %040d\n' "$LIVE" 0 1 >"$CREW/items/13/merging"
 sweep 1
 assert "a dead merging pid is not MERGING" 'has "WORKER x-w8 item 8 idle IDLE"'
+assert "a dead merging pid is STALE-MERGE" 'has "STALE-MERGE 8"'
+assert "a cut marker of an item with no assigned row is STALE-MERGE" 'has "STALE-MERGE 13"'
+rm -r "$CREW/items/13"
 printf '8\tassigned\tx-w8\t\tmain\t%s\tx\n' "$NOW" >"$CREW/board.tsv"
 echo "status: done" >"$CREW/items/8/report.md"
 touch -d "@$((NOW - 60))" "$CREW/items/8/report.md"
@@ -327,10 +334,11 @@ PIDS+=("$LIVE")
 live_start=$(crew_pid_start "$LIVE")
 printf 'pid %s\nstart %s\ntip %040d\nmerged %040d\n' "$LIVE" "$live_start" 0 1 >"$CREW/items/8/merging"
 sweep 1
-assert "a merging file with a merged line is still read" 'has "WORKER x-w8 item 8 idle MERGING"'
+assert "a merging file with a merged line is still read" 'has "WORKER x-w8 item 8 idle MERGING" && ! has_re "^STALE-MERGE"'
 printf 'garbage\n' >"$CREW/items/8/merging"
 sweep 1
 assert "an unparseable merging file is not MERGING" 'has "WORKER x-w8 item 8 idle IDLE"'
+assert "an unparseable merging file is STALE-MERGE" 'has "STALE-MERGE 8"'
 rm "$CREW/items/8/merging"
 
 echo "herdr agent list failures"
@@ -434,7 +442,7 @@ export CREW_QUIET=100
 NOW=$(date +%s)
 OLD=$((NOW - 1000))
 rm -rf "$CREW/items" "$CREW/.sweep-seen"
-mkdir -p "$CREW/items"/{1..11}
+mkdir -p "$CREW/items"/{1..12}
 gc() { git -C "$REPO" -c user.name=t -c user.email=t@example.com "$@"; }
 tree=$(gc mktree </dev/null)
 gc update-ref refs/heads/w/3 "$(GIT_COMMITTER_DATE="$NOW +0000" gc commit-tree -m new "$tree")"
@@ -447,11 +455,14 @@ live_start=$(crew_pid_start "$LIVE")
   for i in 1 2 3 4 5 6 7 8 9; do row "$i" assigned "x-w$i" "$OLD"; done
   row 10 assigned x-w10 "$NOW"
   row 11 assigned x-w11 soon
+  row 12 assigned x-w12 "$OLD"
 } >"$CREW/board.tsv"
 echo "test red" >"$CREW/items/2/notes.md"
 printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/5/merging"
 printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/6/merging"
 touch -d "@$OLD" "$CREW/items/6/merging"
+printf 'pid %s\nstart %s\ntip %040d\nqueued %s\n' "$LIVE" "$live_start" 0 "$OLD" >"$CREW/items/12/merging"
+touch -d "@$OLD" "$CREW/items/12/merging"
 echo "status: question" >"$CREW/items/7/report.md"
 touch -d "@$((OLD + 10))" "$CREW/items/7/report.md"
 echo "status: blocked" >"$CREW/items/8/report.md"
@@ -459,7 +470,7 @@ touch -d "@$((OLD + 10))" "$CREW/items/8/report.md"
 echo "status: question" >"$CREW/items/9/report.md"
 touch -d "@$((OLD - 10))" "$CREW/items/9/report.md"
 agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 working' 'x-w5 working' 'x-w6 working' \
-  'x-w7 working' 'x-w8 working' 'x-w9 working' 'x-w10 working' 'x-w11 working'
+  'x-w7 working' 'x-w8 working' 'x-w9 working' 'x-w10 working' 'x-w11 working' 'x-w12 working'
 sweep 0
 assert "no progress inside the interval is QUIET, after IDLE" 'has "WORKER x-w1 item 1 idle IDLE QUIET"'
 assert "a newer notes.md is progress" 'has "WORKER x-w2 item 2 working"'
@@ -472,6 +483,7 @@ assert "a current blocked report is not QUIET" 'has "WORKER x-w8 item 8 working"
 assert "a question report older than the row update is QUIET again" 'has "WORKER x-w9 item 9 working QUIET"'
 assert "a recent row update is progress" 'has "WORKER x-w10 item 10 working"'
 assert "an unparseable updated counts as 0 for QUIET" 'has "WORKER x-w11 item 11 working QUIET"'
+assert "a merge queued longer than the interval is MERGING, never QUIET" 'has "WORKER x-w12 item 12 working MERGING"'
 kill "$LIVE" 2>/dev/null || true
 wait "$LIVE" 2>/dev/null || true
 export CREW_QUIET=1000000

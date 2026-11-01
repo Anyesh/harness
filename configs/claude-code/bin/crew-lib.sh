@@ -73,6 +73,29 @@ crew_load5() {
   '
 }
 
+# State of a crew-merge marker, items/<id>/merging: `key value` lines pid,
+# start, tip, `queued <epoch>` until the merge lock is taken and `merged <sha>`
+# once the fast-forward is under way; the last line for a key wins. Prints
+# running or queued while the pid still has the recorded start time, otherwise
+# `cut <sha>` when a merged line exists, otherwise stale. Fails when the file is
+# missing.
+crew_merge_state() {
+  local fields pid start queued merged
+  [[ -f $1 ]] || return 1
+  fields=$(awk -v OFS='\037' '
+    $1 == "pid" { p = $2 } $1 == "start" { s = $2 } $1 == "queued" { q = 1 } $1 == "merged" { m = $2 }
+    END { print p, s, q, m }
+  ' "$1") || return 1
+  IFS=$'\037' read -r pid start queued merged <<<"$fields"
+  if [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ && $(crew_pid_start "$pid") == "$start" ]]; then
+    if [[ -n $queued ]]; then echo queued; else echo running; fi
+  elif [[ $merged =~ ^[0-9a-f]{40,64}$ ]]; then
+    echo "cut $merged"
+  else
+    echo stale
+  fi
+}
+
 crew_dir() {
   local main
   main=$(crew_main "${1:-.}") || return 1

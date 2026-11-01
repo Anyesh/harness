@@ -22,8 +22,9 @@
 #   GONE <owner>                    an assigned owner herdr no longer lists
 #   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ QUIET][ DIALOG]
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
-#     QUIET means no progress for CREW_QUIET seconds (default 3600), or for a live
-#     MERGING a merging file that old
+#     MERGING means a running or queued crew-merge; QUIET means no progress for
+#     CREW_QUIET seconds (default 3600), or for a running merge a merging file that old
+#   STALE-MERGE <id>                an item whose merging file a dead crew-merge left
 #   READY <id>                      an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
 #                                   <dep>, waits on blocked <dep>, is in a cycle, or
@@ -139,15 +140,6 @@ agent_list() {
   exit 1
 }
 
-merging_live() {
-  local file=$1 pid start
-  [[ -f $file ]] || return 1
-  pid=$(awk '$1 == "pid" {v = $2} END {print v}' "$file")
-  start=$(awk '$1 == "start" {v = $2} END {print v}' "$file")
-  [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ ]] || return 1
-  [[ $(crew_pid_start "$pid") == "$start" ]]
-}
-
 report_since() {
   local report=$1 updated=$2
   [[ $updated =~ ^[0-9]+$ ]] || updated=0
@@ -180,8 +172,11 @@ quiet_since() {
 
 worker_line() {
   local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags="" screen rc
-  local item="$crew/items/$id"
-  if merging_live "$item/merging"; then
+  local item="$crew/items/$id" merge_state
+  merge_state=$(crew_merge_state "$item/merging")
+  if [[ $merge_state == queued ]]; then
+    flags+=" MERGING"
+  elif [[ $merge_state == running ]]; then
     flags+=" MERGING"
     quiet_since "$(stat -c %Y "$item/merging" 2>/dev/null)" && flags+=" QUIET"
   else
@@ -220,6 +215,17 @@ report_workers() {
       worker_line "$id" "$owner" "$branch" "$updated" "${found#+}"
     fi
   done < <(crew_board "$board")
+}
+
+report_stale_merges() {
+  local file id
+  shopt -s nullglob
+  for file in "$crew"/items/*/merging; do
+    id=${file%/merging}
+    id=${id##*/}
+    if [[ $(crew_merge_state "$file") =~ ^(cut|stale) ]]; then echo "STALE-MERGE $id"; fi
+  done
+  shopt -u nullglob
 }
 
 # Open rows whose deps can all reach done are found by a fixpoint from the done
@@ -429,6 +435,7 @@ fi
 
 report_resources
 report_workers
+report_stale_merges
 report_order
 report_reflect
 run_sweep_check
