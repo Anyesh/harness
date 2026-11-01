@@ -97,11 +97,42 @@ fi
 EXTRAS=()
 [ -n "$QUOTA" ] && EXTRAS+=("$QUOTA")
 
+SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
+[[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]] || SESSION_ID=""
+
+# A crew lead reads these files, and treats each file's mtime as when its figures last changed.
+record_usage() {
+    local dir="${XDG_STATE_HOME:-$HOME/.local/state}/harness/usage/sessions"
+    local file="$dir/$SESSION_ID.json" tmp
+    mkdir -p "$dir" || return
+    tmp=$(mktemp "$dir/.$SESSION_ID.XXXXXX") || return
+    if ! echo "$input" | jq --arg profile "${CLAUDE_PROFILE:-default}" --argjson tokens "$CTX_USED" '
+        def num: if type == "number" then floor else null end;
+        def window: {pct: (.used_percentage | num), resets: (.resets_at | num)};
+        {
+            profile: $profile,
+            context_tokens: $tokens,
+            context_window: (.context_window.context_window_size | num),
+            session: (.rate_limits.five_hour // {} | window),
+            week: (.rate_limits.seven_day // {} | window)
+        }' >"$tmp" || cmp -s "$tmp" "$file"; then
+        rm -f "$tmp"
+        return
+    fi
+    if [ -e "$file" ]; then
+        mv -f "$tmp" "$file"
+    else
+        mv -f "$tmp" "$file" && find "$dir" -maxdepth 1 -name '*.json' -type f -mtime +8 -delete
+    fi
+}
+
+# The status line is the product, so a failed usage write stays silent rather than corrupting it.
+[ -n "$SESSION_ID" ] && record_usage 2>/dev/null
+
 # Mods write one segment file per session (see configs/claude-code/mods); the
 # order here is fixed so segments do not jump around, and a file untouched for
 # 10 minutes is skipped because a crashed session never empties its own.
-SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
-if [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+if [ -n "$SESSION_ID" ]; then
     STATUS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/harness/status/$SESSION_ID"
     NOW_MS=$(( $(date +%s) * 1000 ))
     for mod in cache-guard guard-watch; do

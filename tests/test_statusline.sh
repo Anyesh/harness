@@ -135,6 +135,58 @@ segment cache-guard "cache 42m" normal "$NOW_MS"
 out=$(line "../$SID")
 assert "a session id with path characters reads no segments" '[[ "$out" == "$BASE" ]]'
 
+USAGE="$STATE/harness/usage/sessions"
+limits() { jq -c '.rate_limits = {five_hour: {used_percentage: 38.2, resets_at: 1738425600.5}, seven_day: {used_percentage: 61, resets_at: 1738900000}}'; }
+usage() { jq -cS . "$USAGE/$1.json" 2>/dev/null; }
+expect_usage() {
+  jq -cnS --arg p "$1" --argjson s "$2" --argjson w "$3" \
+    '{profile: $p, context_tokens: 380000, context_window: 1000000, session: $s, week: $w}'
+}
+FULL_S='{"pct":38,"resets":1738425600}'
+FULL_W='{"pct":61,"resets":1738900000}'
+NULLS='{"pct":null,"resets":null}'
+
+input u-ero | limits | CLAUDE_PROFILE=ero NO_COLOR=1 XDG_STATE_HOME="$STATE" bash "$STATUSLINE" >/dev/null
+assert "a profile session records its usage with floored figures" '[[ "$(usage u-ero)" == "$(expect_usage ero "$FULL_S" "$FULL_W")" ]]'
+
+input u-def | limits | plain >/dev/null
+assert "a plain session records its usage under the default profile" '[[ "$(usage u-def)" == "$(expect_usage default "$FULL_S" "$FULL_W")" ]]'
+
+input u-week | jq -c '.rate_limits = {seven_day: {used_percentage: 61, resets_at: 1738900000}}' | plain >/dev/null
+assert "a missing five hour window records null figures" '[[ "$(usage u-week)" == "$(expect_usage default "$NULLS" "$FULL_W")" ]]'
+
+input u-none | plain >/dev/null
+assert "no rate limits still records profile and context" '[[ "$(usage u-none)" == "$(expect_usage default "$NULLS" "$NULLS")" ]]'
+
+touch -t 202001010000 "$USAGE/u-def.json" "$TMP_DIR/ref"
+input u-def | limits | plain >/dev/null
+assert "unchanged usage leaves the file mtime alone" '! [[ "$USAGE/u-def.json" -nt "$TMP_DIR/ref" ]]'
+
+input "" | limits | plain >/dev/null
+assert "no session id records nothing" '[[ ! -e "$USAGE/.json" ]]'
+
+OLD_STATUS="$STATE/harness/status/old-sid/cache-guard.json"
+mkdir -p "$(dirname "$OLD_STATUS")"
+: >"$OLD_STATUS"
+: >"$USAGE/old.json"
+: >"$USAGE/week.json"
+: >"$USAGE/old.txt"
+touch -d '9 days ago' "$USAGE/old.json" "$USAGE/old.txt" "$OLD_STATUS"
+touch -d '7 days ago' "$USAGE/week.json"
+input u-prune | plain >/dev/null
+assert "creating a usage file prunes session files older than 8 days" '[[ ! -e "$USAGE/old.json" ]]'
+assert "pruning keeps a 7 day old session file" '[[ -e "$USAGE/week.json" ]]'
+assert "pruning keeps a non-json file" '[[ -e "$USAGE/old.txt" ]]'
+assert "pruning leaves status files alone" '[[ -e "$OLD_STATUS" ]]'
+
+: >"$USAGE/old.json"
+touch -d '9 days ago' "$USAGE/old.json"
+input u-prune | limits | plain >/dev/null
+assert "rewriting a usage file prunes nothing" '[[ -e "$USAGE/old.json" && "$(usage u-prune)" == "$(expect_usage default "$FULL_S" "$FULL_W")" ]]'
+
+out=$(input u-x | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME=/dev/null/nope bash "$STATUSLINE" 2>&1)
+assert "an unwritable state dir still prints the status line and no errors" '[[ "$out" == "$BASE" ]]'
+
 echo ""
 echo "statusline: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

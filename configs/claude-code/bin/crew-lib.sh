@@ -103,6 +103,56 @@ crew_dstate_summary() {
   '
 }
 
+crew_usage_dir() {
+  printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/harness/usage/sessions"
+}
+
+# Profile, context tokens and context window of one session, tab-separated,
+# from the file the statusline writes; a number that is not a whole number
+# (null, missing) prints as ?, so nothing but digits reaches bash arithmetic.
+crew_session_usage() {
+  local file
+  [[ $1 =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+  file="$(crew_usage_dir)/$1.json"
+  [[ -f $file ]] || return 1
+  jq -r '
+    def n: if type == "number" and . >= 0 and . == floor then tostring else "?" end;
+    [(.profile | if type == "string" and test("^[A-Za-z0-9_.-]+$") then . else "?" end),
+     (.context_tokens | n), (.context_window | n)] | @tsv
+  ' "$file" 2>/dev/null
+}
+
+# `session_pct session_resets week_pct week_resets` for one profile, merged
+# over every session file on it: per window, among figures whose reset is still
+# ahead, the highest within 300 s of the latest reset, since sessions report a
+# window's reset a few seconds apart and an idle session keeps its older,
+# lower figure. A window with no such figure prints ? ?. The second argument
+# overrides the current epoch second.
+crew_profile_usage() {
+  local profile=$1 now=${2:-$EPOCHSECONDS} dir files filter f
+  dir=$(crew_usage_dir)
+  files=()
+  if [[ -d $dir ]]; then
+    while IFS= read -r f; do files+=("$f"); done < <(find "$dir" -maxdepth 1 -type f -name '*.json')
+  fi
+  filter='
+    def int: type == "number" and . >= 0 and . == floor;
+    def window(w): [.[] | objects | select(.profile == $p) | .[w]
+        | select(type == "object" and (.pct | int) and (.resets | int) and .resets > $now)] as $xs
+      | if ($xs | length) == 0 then ["?", "?"]
+        else ($xs | map(.resets) | max) as $r
+          | [($xs | map(select(.resets >= $r - 300) | .pct) | max | tostring), ($r | tostring)]
+        end;
+    window("session") + window("week") | join(" ")
+  '
+  if ((${#files[@]} == 0)); then
+    echo "? ? ? ?"
+  elif ! jq -rs --arg p "$profile" --argjson now "$now" "$filter" "${files[@]}" 2>/dev/null; then
+    for f in "${files[@]}"; do jq -c . "$f" 2>/dev/null; done |
+      jq -rs --arg p "$profile" --argjson now "$now" "$filter"
+  fi
+}
+
 # State of a crew-merge marker, items/<id>/merging: `key value` lines pid,
 # start, tip, `queued <epoch>` until the merge lock is taken and `merged <sha>`
 # once the fast-forward is under way; the last line for a key wins. Prints

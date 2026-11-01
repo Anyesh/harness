@@ -108,6 +108,31 @@ assert "a missing marker fails with no output" '! out=$(crew_merge_state "$TMP_D
 kill "$live"
 wait "$live" 2>/dev/null || true
 
+echo "usage files"
+export XDG_STATE_HOME="$TMP_DIR/state"
+U="$XDG_STATE_HOME/harness/usage/sessions"
+mkdir -p "$U"
+NOW=$EPOCHSECONDS
+B=$(((NOW / 300 + 12) * 300))
+W=$((NOW + 5 * 86400))
+session() { printf '{"profile":"%s","context_tokens":%s,"context_window":%s,"session":{"pct":%s,"resets":%s},"week":{"pct":%s,"resets":%s}}\n' "$2" "$3" "$4" "$5" "$6" "$7" "$8" >"$U/$1.json"; }
+session busy ero 420000 1000000 88 "$((B + 1))" 40 "$W"
+session idle ero 9000 1000000 61 "$((B - 1))" 39 "$W"
+session old ero 1000 1000000 99 "$((NOW - 60))" 10 "$((NOW - 60))"
+session main default null null null null 50 "$W"
+assert "session usage gives profile, context tokens and window" '[[ $(crew_session_usage busy) == "ero	420000	1000000" ]]'
+assert "null context fields read as ?" '[[ $(crew_session_usage main) == "default	?	?" ]]'
+assert "a missing session file fails" '! crew_session_usage nosuch >/dev/null'
+assert "a session id with odd characters fails" '! crew_session_usage "../busy" >/dev/null'
+assert "profile usage takes the highest figure in the latest window, within 300 s of jitter" '[[ $(crew_profile_usage ero) == "88 $((B + 1)) 40 $W" ]]'
+assert "a passed or null window reads ?" '[[ $(crew_profile_usage default) == "? ? 50 $W" ]]'
+assert "a profile with no session files reads ?" '[[ $(crew_profile_usage nobody) == "? ? ? ?" ]]'
+printf '{"profile":"ero","session":{"pct":"lots","resets":%s}}\n' "$((B + 5))" >"$U/strange.json"
+printf '{"profile":"ero",' >"$U/torn.json"
+assert "non-integer and unparseable files are ignored" '[[ $(crew_profile_usage ero) == "88 $((B + 1)) 40 $W" ]]'
+rm -f "$U"/*.json
+assert "an empty usage dir reads ?" '[[ $(crew_profile_usage ero) == "? ? ? ?" ]]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
