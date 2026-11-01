@@ -288,7 +288,7 @@ report_heavy() {
     return
   fi
   ((slots)) && [[ -d $lock ]] || return 0
-  if ! IFS=$'\t' read -r holder purpose since <"$lock/holder" 2>/dev/null || [[ ! $since =~ ^[0-9]+$ ]]; then
+  if [[ ! -f $lock/holder ]] || ! IFS=$'\t' read -r holder purpose since <"$lock/holder" || [[ ! $since =~ ^[0-9]+$ ]]; then
     holder=unknown purpose=unknown
     since=$(stat -c %Y "$lock" 2>/dev/null) || return 0
   fi

@@ -556,6 +556,7 @@ rm "$HLOCK/holder"
 touch -d "@$(($(date +%s) - 95 * 60))" "$HLOCK"
 sweep 0
 assert "a slot with no holder file is aged by the lock dir" 'has "HEAVY unknown 95 min unknown"'
+assert "a slot with no holder file prints no error" '! has_re "No such file"'
 rmdir "$HLOCK"
 sweep 0
 assert "a free slot prints no HEAVY line" '! has_re "^HEAVY"'
