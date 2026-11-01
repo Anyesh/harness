@@ -73,6 +73,16 @@ printf 'summary\nstatus:  question \nstatus: done\n' >"$TMP_DIR/report.md"
 assert "report status is the first status line, trimmed" '[[ $(crew_report_status "$TMP_DIR/report.md") == question ]]'
 assert "a missing report has an empty status" '[[ -z $(crew_report_status "$TMP_DIR/none.md") ]]'
 
+SLOTS="$TMP_DIR/slots"
+mkdir -p "$SLOTS"
+assert "no heavy-slots file means 0 heavy slots" '[[ $(crew_heavy_slots "$SLOTS") == 0 ]]'
+printf ' 1\n' >"$SLOTS/heavy-slots"
+assert "heavy-slots holding 1 means 1 heavy slot" '[[ $(crew_heavy_slots "$SLOTS") == 1 ]]'
+for bad in 2 0 '' x; do
+  printf '%s\n' "$bad" >"$SLOTS/heavy-slots"
+  assert "heavy-slots holding '$bad' is refused" '! out=$(crew_heavy_slots "$SLOTS") && [[ -z $out ]]'
+done
+
 before=$EPOCHSECONDS
 sleep 30 &
 live=$!

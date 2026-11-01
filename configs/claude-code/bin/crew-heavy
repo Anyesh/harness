@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Usage: crew-heavy acquire <holder> <purpose> [max-wait-seconds]   (default 7200)
+#        crew-heavy release <holder>
+#        crew-heavy status
+#        crew-heavy run <holder> <purpose> [max-wait-seconds] -- <command...>
+#
+# One machine-wide slot for memory-heavy work, held as the directory
+# <crew dir>/heavy.lock with a holder file `holder<TAB>purpose<TAB>epoch`.
+set -euo pipefail
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-heavy: %s\n' "$*" >&2
+  exit 1
+}
+
+crew=$(crew_dir) || die "not inside a git repository"
+crew_heavy_slots "$crew" >/dev/null || die "$crew/heavy-slots must contain 1, the only slot count supported"
+lock=$crew/heavy.lock
+poll=${CREW_HEAVY_POLL:-15}
+
+holder_line() {
+  [[ -f $lock/holder ]] && cat "$lock/holder"
+}
+
+acquire() {
+  local holder=$1 purpose=$2 max_wait=${3:-7200} start=$EPOCHSECONDS next_note=$EPOCHSECONDS
+  [[ $holder =~ ^[A-Za-z0-9_.-]+$ ]] || die "holder must be an item id or name"
+  [[ $max_wait =~ ^[0-9]+$ ]] || die "max wait must be whole seconds"
+  mkdir -p "$crew"
+  while ! mkdir "$lock" 2>/dev/null; do
+    if [[ $(holder_line | cut -f1) == "$holder" ]]; then
+      echo "crew-heavy: $holder already holds the slot"
+      return 0
+    fi
+    ((EPOCHSECONDS - start >= max_wait)) && die "gave up after $((EPOCHSECONDS - start))s; held by: $(holder_line || echo unknown)"
+    if ((EPOCHSECONDS >= next_note)); then
+      echo "crew-heavy: waiting; held by: $(holder_line || echo unknown)"
+      next_note=$((EPOCHSECONDS + 300))
+    fi
+    sleep "$poll"
+  done
+  printf '%s\t%s\t%s\n' "$holder" "$purpose" "$EPOCHSECONDS" >"$lock/holder"
+  echo "crew-heavy: acquired by $holder for $purpose"
+}
+
+release() {
+  local holder=$1 current
+  [[ -d $lock ]] || {
+    echo "crew-heavy: slot is free"
+    return 0
+  }
+  current=$(holder_line | cut -f1)
+  [[ $current == "$holder" ]] || die "slot is held by ${current:-unknown}, not $holder"
+  rm -f "$lock/holder"
+  rmdir "$lock"
+  echo "crew-heavy: released by $holder"
+}
+
+status() {
+  if [[ -d $lock ]]; then
+    local h p t
+    IFS=$'\t' read -r h p t < <(holder_line || printf 'unknown\tunknown\t%s\n' "$EPOCHSECONDS")
+    echo "held by $h for $p, $(((EPOCHSECONDS - t) / 60)) min"
+  else
+    echo "free"
+  fi
+}
+
+cmd=${1:-}
+shift || true
+case $cmd in
+acquire)
+  (($# >= 2)) || die "usage: crew-heavy acquire <holder> <purpose> [max-wait-seconds]"
+  acquire "$@"
+  ;;
+release)
+  (($# == 1)) || die "usage: crew-heavy release <holder>"
+  release "$1"
+  ;;
+status) status ;;
+run)
+  (($# >= 2)) || die "usage: crew-heavy run <holder> <purpose> [max-wait-seconds] -- <command...>"
+  holder=$1 purpose=$2
+  shift 2
+  max_wait=7200
+  if [[ ${1:-} != -- && $# -gt 0 ]]; then
+    max_wait=$1
+    shift
+  fi
+  [[ ${1:-} == -- ]] || die "run needs -- before the command"
+  shift
+  acquire "$holder" "$purpose" "$max_wait"
+  trap 'release "$holder" >/dev/null' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 143' TERM
+  "$@"
+  ;;
+*) die "usage: crew-heavy acquire|release|status|run" ;;
+esac
