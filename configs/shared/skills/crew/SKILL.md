@@ -120,7 +120,7 @@ When the user says to stop the crew, close every worker tab (waiting for any `ME
 
 ## Close-out
 
-1. Run a last reflection round with `references/reflect.md`, then delete `$crew/lead`, which also ends the question guard for you.
+1. Run a last reflection round with `references/reflect.md`, saving user preferences and cross-crew gotchas to project memory as it says, then delete `$crew/lead`, which also ends the question guard for you.
 2. For every `w/<id>` whose tip is already in its target, run `git -C "$main" worktree remove <path>` and then `git -C "$main" branch -d w/<id>`, never with `--force`, and list any that refuse.
 3. Write one devlog entry for the crew's outcomes.
 4. Tell the user the list under `## Proposed /crew changes` in `lead-notes.md`, then remove the entries you told, so the next crew does not repeat them.
