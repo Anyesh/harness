@@ -113,8 +113,7 @@ leakguard_deploy_scan_hook() {
     log_error "$(git --version) does not run config hooks (hook.<name>.event), so the leak scan would never run; install a newer git"
     return 1
   fi
-  cp "$REPO_ROOT/configs/leakguard/scan" "$HOME/.config/leakguard/scan"
-  chmod +x "$HOME/.config/leakguard/scan"
+  atomic_copy "$REPO_ROOT/configs/leakguard/scan" "$HOME/.config/leakguard/scan" executable || return 1
   git config --global --replace-all hook.leakguard.command "$HOME/.config/leakguard/scan"
   git config --global --replace-all hook.leakguard.event pre-commit
   log_info "global pre-commit leak scan active (hook.leakguard)"
@@ -125,9 +124,7 @@ leakguard_deploy_dispatcher() {
     log_info "[dry-run] would deploy pre-commit dispatcher and set core.hooksPath"
     return
   fi
-  mkdir -p "$HOME/.config/git/hooks"
-  cp "$REPO_ROOT/configs/leakguard/pre-commit" "$HOME/.config/git/hooks/pre-commit"
-  chmod +x "$HOME/.config/git/hooks/pre-commit"
+  atomic_copy "$REPO_ROOT/configs/leakguard/pre-commit" "$HOME/.config/git/hooks/pre-commit" executable || return 1
   git config --global core.hooksPath "$HOME/.config/git/hooks"
   log_info "pre-commit dispatcher chains repo-local hooks (core.hooksPath=~/.config/git/hooks)"
 }

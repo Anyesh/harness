@@ -85,8 +85,7 @@ restore_originals() {
     elif [[ "$state" == "present" ]]; then
       local orig
       if orig=$(find_original "$dest"); then
-        mkdir -p "$(dirname "$dest")"
-        cp -p "$orig" "$dest"
+        atomic_copy "$orig" "$dest" preserve || return 1
         log_info "restored original: $dest"
         restored=$((restored + 1))
       else

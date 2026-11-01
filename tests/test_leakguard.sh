@@ -73,8 +73,16 @@ assert "installed config carries the personal terms from the env file" \
 assert "repo ruleset names no personal term" \
   "! grep -qi zorblax '$REPO_ROOT/configs/leakguard/gitleaks.toml'"
 
+# shellcheck disable=SC2012
+inode_of() { ls -di "$1" | awk '{print $1}'; }
+SCAN_INODE=$(inode_of "$H/.config/leakguard/scan")
+HOOK_INODE=$(inode_of "$H/.config/git/hooks/pre-commit")
 chmod 644 "$H/.config/leakguard/gitleaks.toml"
 install_leakguard "$H" >/dev/null
+assert "reinstall replaces the scan and pre-commit files with new inodes" \
+  "[ \"$SCAN_INODE\" != \"\$(inode_of '$H/.config/leakguard/scan')\" ] && [ \"$HOOK_INODE\" != \"\$(inode_of '$H/.config/git/hooks/pre-commit')\" ]"
+assert "reinstalled scan and pre-commit files stay executable" \
+  "[ -x '$H/.config/leakguard/scan' ] && [ -x '$H/.config/git/hooks/pre-commit' ]"
 assert "the installed ruleset is private to the user" \
   "[ \"\$(stat -c %a '$H/.config/leakguard/gitleaks.toml' 2>/dev/null || stat -f %Lp '$H/.config/leakguard/gitleaks.toml')\" = 600 ]"
 assert "reinstall registers the scan hook once" \

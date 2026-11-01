@@ -92,3 +92,51 @@ harness_env_set() {
     return 1
   }
 }
+
+# Plain readlink in a loop because BSD readlink only learned -f in macOS 12.3.
+resolve_symlink_chain() {
+  local path="$1" target hops=0
+  while [[ -L "$path" ]]; do
+    if ((hops >= 40)); then
+      log_error "too many symlink hops resolving $1 (cycle?)"
+      return 1
+    fi
+    hops=$((hops + 1))
+    target=$(readlink "$path") || return 1
+    [[ "$target" == /* ]] || target="$(dirname "$path")/$target"
+    path="$target"
+  done
+  printf '%s\n' "$path"
+}
+
+atomic_copy_stage() {
+  local src="$1" target="$2" tmp="$3" mode="$4"
+  if [[ "$mode" == "preserve" ]]; then
+    cp -p "$src" "$tmp" || return 1
+  elif [[ -e "$target" ]]; then
+    cp -p "$target" "$tmp" || return 1
+    cp "$src" "$tmp" || return 1
+  else
+    rm -f "$tmp" || return 1
+    cp "$src" "$tmp" || return 1
+  fi
+  if [[ "$mode" == "executable" ]]; then
+    chmod +x "$tmp" || return 1
+  fi
+}
+
+# Replaces dest by rename so a process still reading the old file (a running
+# bash script) keeps its inode. A symlinked dest is followed and its target
+# replaced, so the link survives. A replaced file keeps its mode, a new one gets
+# plain cp's mode; "executable" adds +x, "preserve" takes the source's mode.
+atomic_copy() {
+  local src="$1" dest="$2" mode="${3:-}" target dir tmp
+  target=$(resolve_symlink_chain "$dest") || return 1
+  dir=$(dirname "$target")
+  mkdir -p "$dir" || return 1
+  tmp=$(mktemp "$dir/.$(basename "$target").XXXXXX") || return 1
+  if ! atomic_copy_stage "$src" "$target" "$tmp" "$mode" || ! mv -f "$tmp" "$target"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}

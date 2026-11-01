@@ -37,11 +37,7 @@ deploy_file() {
   local existed=false
   [[ -e "$dest" ]] && existed=true
   [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-  mkdir -p "$(dirname "$dest")"
-  cp "$candidate" "$dest"
-  if [[ "$mode" == "executable" ]]; then
-    chmod +x "$dest" 2>/dev/null || true
-  fi
+  atomic_copy "$candidate" "$dest" "$mode" || return 1
   manifest_add "$dest" "$manifest_source" "$templated"
   if [[ "$existed" == "true" ]]; then
     log_update "updated: $label"

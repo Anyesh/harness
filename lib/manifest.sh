@@ -153,7 +153,7 @@ manifest_prune_orphans() {
         log_info "would restore the original over orphan: $dest"
         continue
       fi
-      cp -p "$orig" "$dest"
+      atomic_copy "$orig" "$dest" preserve || return 1
       manifest_drop "$dest"
       log_info "restored the original over orphan: $dest (source $source is gone)"
     else
