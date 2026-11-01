@@ -2,9 +2,14 @@
 set -euo pipefail
 
 REAL_DAGR=
-if root=$(timeout 10 herdr plugin list --json 2>/dev/null |
-  jq -er '.result.plugins[]? | select(.plugin_id == "herdr-dagr") | .plugin_root' 2>/dev/null); then
-  [[ -x $root/bin/dagr ]] && REAL_DAGR=$root/bin/dagr
+if [[ -n ${DAGR_BIN:-} && -x $DAGR_BIN ]]; then
+  REAL_DAGR=$DAGR_BIN
+elif ! REAL_DAGR=$(command -v dagr); then
+  REAL_DAGR=
+  if root=$(timeout 10 herdr plugin list --json 2>/dev/null |
+    jq -er '.result.plugins[]? | select(.plugin_id == "herdr-dagr") | .plugin_root' 2>/dev/null); then
+    [[ -x $root/bin/dagr ]] && REAL_DAGR=$root/bin/dagr
+  fi
 fi
 
 unset HARNESS_UNATTENDED HARNESS_NOTIFY HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_BIN_PATH DAGR_BIN
@@ -281,6 +286,52 @@ assert "a blocked row with a blocked dep waits on that dep, not the user" '[[ $(
 assert "a blocked row whose deps are not blocked waits on the user" '[[ $(tq 9 .unblock) == user ]]'
 assert "every blocked dep is named" '[[ $(tq 10 .unblock) == "7, 8" && $(tq 10 "has(\"deps\")") == false ]]'
 assert "the real dagr check finds no errors with deps" 'real_check "$RUN"'
+
+echo "events journal"
+rm -rf "$CREW/items" "$REPO/.dagr" "$CREW/dagr.log"
+mkdir -p "$CREW/items"
+{
+  row 1 done x-w1 "$U"
+  row 2 blocked x-w2 "$U"
+} >"$CREW/board.tsv"
+run_dagr
+assert "no journal publishes an empty events array" '[[ $RC -eq 0 && $(jq -c .events "$RUN") == "[]" ]]'
+JOURNAL="$CREW/dagr-events.jsonl"
+T1=2026-10-01T10:00:00Z
+T2=2026-10-01T09:00:00Z
+{
+  jq -n -c --arg at "$T1" '{at: $at, type: "message_resolved", task: "2", message_id: "msg-a", actor: "x-lead", detail: "unblocked"}'
+  printf '{"at": "2026-10-01T09:30:00Z", "type": "message_resolved", "task": "2"\n'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "message_resolved", task: "99", message_id: "msg-b", detail: "x"}'
+  printf '\n'
+  jq -n -c --arg at "$T2" '{at: $at, type: "directive", task: "1", verb: "answer", by: "operator", message_id: "msg-c", detail: "use the loaded data"}'
+  jq -n -c '{at: "2026-02-30T09:30:00Z", type: "note", task: "1", detail: "x"}'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "chat", task: "1", detail: "x"}'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "message_resolved", task: "1", message_id: "msg-d"}'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "note", task: "1", actor: 7}'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "note", task: "1", attempt: "1·a9"}'
+  jq -n -c '{at: "2026-10-01T09:30:00Z", type: "directive", task: "1", verb: "shout", by: "operator"}'
+  printf '[1]\n'
+} >"$JOURNAL"
+run_dagr
+assert "a journal publishes and exits 0" '[[ $RC -eq 0 ]]'
+assert "valid journal lines become events in ascending time" '[[ $(jq -r "[.events[] | .message_id] | join(\" \")" "$RUN") == "msg-c msg-a" ]]'
+assert "an event keeps its fields" '[[ $(jq -c ".events[1]" "$RUN") == $(sed -n 1p "$JOURNAL") ]]'
+assert "each dropped line is logged with its line number" '[[ $(grep -c "dagr-events.jsonl line" "$CREW/dagr.log") -eq 9 ]]'
+assert "a malformed line is logged" 'grep -q "line 2 dropped: not a JSON object" "$CREW/dagr.log"'
+assert "a task not on the board is logged" 'grep -q "line 3 dropped: task 99 is not on the board" "$CREW/dagr.log"'
+assert "a blank line is skipped without a log entry" '! grep -q "line 4 " "$CREW/dagr.log"'
+assert "an impossible date is dropped" 'grep -q "line 6 dropped: at " "$CREW/dagr.log"'
+assert "a message_resolved without detail is dropped" 'grep -q "line 8 dropped: .*detail" "$CREW/dagr.log"'
+assert "a non-string field is dropped" 'grep -q "line 9 dropped: actor " "$CREW/dagr.log"'
+assert "an unknown attempt is dropped" 'grep -q "line 10 dropped: attempt 1·a9 " "$CREW/dagr.log"'
+assert "the journal is left as written" '[[ $(wc -l <"$JOURNAL") -eq 12 ]]'
+if [[ -n $REAL_DAGR ]]; then
+  assert "the real dagr check finds no errors with a journal" 'real_check "$RUN"'
+else
+  printf '  SKIP  the real dagr check with a journal (no dagr binary)\n'
+fi
+rm "$JOURNAL"
 
 echo "failures"
 cp "$RUN" "$TMP_DIR/before.json"

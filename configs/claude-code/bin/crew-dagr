@@ -3,9 +3,11 @@
 #
 # Writes the crew as a dagr run document to .dagr/run.json under the lead
 # pane's cwd, or under the main checkout when that cwd lies outside it, and
-# only when `dagr check` finds no errors. Failures go to $crew/dagr.log and
-# leave the previous document in place. Without a dagr binary or a lead file
-# it does nothing.
+# only when `dagr check` finds no errors. The document's events are the lines
+# of the lead's append-only $crew/dagr-events.jsonl that dagr would accept, so
+# they survive every rewrite; each line it drops is logged. Failures go to
+# $crew/dagr.log and leave the previous document in place. Without a dagr
+# binary or a lead file it does nothing.
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -18,10 +20,15 @@ crew=$(crew_dir) || {
 main=$(crew_main)
 board="$crew/board.tsv"
 log="$crew/dagr.log"
+journal="$crew/dagr-events.jsonl"
 now=$(date +%s)
 
-fail() {
+log() {
   printf '%s %s\n' "$(date -u -d "@$now" +%FT%TZ)" "$*" >>"$log"
+}
+
+fail() {
+  log "$*"
   printf 'crew-dagr: %s\n' "$*" >&2
   exit 1
 }
@@ -152,13 +159,53 @@ def task($ids; $blocked):
   | {id: $f.id, title: $f.title, kind: "impl", owner: $f.owner, deps: $deps} + $state + {attempts: $attempts}
   | clean;
 
+def is_str: . == null or type == "string";
+def filled: type == "string" and . != "";
+
+# Mirrors the event rules of `dagr check`, so a published event never fails
+# it. `at` is held to one UTC form because the events are sorted as strings.
+def event_problem($task_ids; $attempt_ids):
+  if (.at | type) != "string" or (.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") | not)
+     or (.at | try (fromdateiso8601 | todate) catch null) != .at then
+    "at \(.at | tojson) is not a UTC time like 2026-01-02T03:04:05Z"
+  elif (.type | IN("attempt_started", "attempt_settled", "promoted", "directive", "message_resolved", "note") | not) then
+    "unknown type \(.type | tojson)"
+  elif ([.task, .attempt, .actor, .verb, .by, .detail, .message_id] | all(is_str) | not) then
+    (to_entries | first(.[] | select((.key | IN("task", "attempt", "actor", "verb", "by", "detail", "message_id")) and (.value | is_str | not))) | "\(.key) is not a string")
+  elif has("source_messages") and (.source_messages | type != "array" or (all(filled) | not)) then
+    "source_messages is not a list of message ids"
+  elif .message_id == "" then "message_id is empty"
+  elif .task != null and (.task as $t | $task_ids | index([$t]) | not) then "task \(.task) is not on the board"
+  elif .attempt != null and (.attempt as $a | $attempt_ids | index([$a]) | not) then "attempt \(.attempt) is not in the run"
+  elif (.type | IN("attempt_started", "attempt_settled")) and (.attempt | filled | not) then "\(.type) names no attempt"
+  elif .type == "promoted" and (.task | filled | not) then "promoted names no task"
+  elif .type == "directive" and (.verb | IN("reject", "unblock", "answer", "rule") | not) then "directive verb \(.verb | tojson) is not reject, unblock, answer or rule"
+  elif .type == "directive" and (.by | filled | not) then "directive names no by"
+  elif .type == "message_resolved" and ([.task, .message_id, .detail] | all(filled) | not) then "message_resolved needs task, message_id and detail"
+  else null end;
+
+def journal_lines($tasks):
+  [$tasks[].id] as $task_ids
+  | [$tasks[].attempts[].id] as $attempt_ids
+  | [$journal | split("\n") | to_entries[] | select(.value | test("\\S"))
+     | (.key + 1) as $n
+     | (.value | try fromjson catch null) as $e
+     | (if ($e | type) == "object" then $e | event_problem($task_ids; $attempt_ids) else "not a JSON object" end) as $why
+     | if $why == null then {event: $e} else {drop: "dagr-events.jsonl line \($n) dropped: \($why)"} end];
+
 # A blocked row keeps no deps, so blocking the rows of a cycle, as the lead
 # answers DEPS, ends the E122 cycle error instead of failing every publish.
 # It waits on its blocked deps, and on the user only when it has none.
-{dagr: 3,
- run: {id: $run_id, title: "crew \($repo)", started_at: $run_started, orchestrator: {pane: $lead_pane}},
- generated_at: ($now | iso),
- tasks: (map(.id) as $ids | map(select(.status == "blocked") | .id) as $blocked | map(task($ids; $blocked)))}
+map(.id) as $ids
+| map(select(.status == "blocked") | .id) as $blocked
+| map(task($ids; $blocked)) as $tasks
+| journal_lines($tasks) as $lines
+| {doc: {dagr: 3,
+         run: {id: $run_id, title: "crew \($repo)", started_at: $run_started, orchestrator: {pane: $lead_pane}},
+         generated_at: ($now | iso),
+         tasks: $tasks,
+         events: ([$lines[].event | values] | sort_by(.at))},
+   drops: [$lines[].drop | values]}
 '
 
 find_dagr || exit 0
@@ -189,9 +236,15 @@ mkdir -p "$dir" || fail "cannot create $dir"
 tmp=$(mktemp "$dir/.run.json.XXXXXX") || fail "cannot create a temporary file in $dir"
 trap 'rm -f "$tmp"' EXIT
 
-printf '%s\n' "${facts[@]}" | jq -s \
+[[ -f $journal ]] || journal=/dev/null
+built=$(printf '%s\n' "${facts[@]}" | jq -s -c \
   --argjson now "$now" --argjson agents "$agents" --arg run_id "$run_id" --arg run_started "$run_started" \
-  --arg repo "${main##*/}" --arg lead_pane "$lead_pane" "$project" >"$tmp" || fail "building the document failed"
+  --arg repo "${main##*/}" --arg lead_pane "$lead_pane" --rawfile journal "$journal" "$project") ||
+  fail "building the document failed"
+while IFS= read -r drop; do
+  log "$drop"
+done < <(jq -r '.drops[]' <<<"$built")
+jq '.doc' <<<"$built" >"$tmp" || fail "building the document failed"
 
 findings=$("$dagr" check "$tmp" --json 2>&1)
 if ! errors=$(jq -c '[.[] | select(.level == "error")]' <<<"$findings" 2>/dev/null); then

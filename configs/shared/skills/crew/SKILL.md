@@ -21,7 +21,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
    ```
 
 3. Create `$crew` if needed and make sure `<git common dir>/info/exclude` lists `.claude/crew/`, `.claude/worktrees/` and `.dagr/` (the run file `crew-sweep` writes for the dagr pane, wherever your pane's directory is).
-4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `plan.md`, `reflections.md`, `items/`, `.sweep-seen`, `dagr-run` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md`, `check`, `sweep-check` and `lead-notes.md`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
+4. No `$crew/lead` file means a fresh crew. Move any `board.tsv`, `rulings.md`, `plan.md`, `reflections.md`, `items/`, `.sweep-seen`, `dagr-run`, `dagr-events.jsonl` and `dagr.log` into `$crew/done-$(date +%F-%H%M%S)/`, keeping `brief.md`, `check`, `sweep-check` and `lead-notes.md`. Item ids continue past the highest id in any `done-*` archive, and never use an id whose `w/<id>` branch or `.claude/worktrees/w-<id>` worktree exists.
 5. A `lead` file means resume:
    - If `herdr agent get "$slug-lead"` finds a live agent other than you, rename it to the first free `$slug-old<N>` and leave it open, since it may be a session the user still uses. Until its current sweep returns `SUPERSEDED` it may still edit the board, prompt a worker or close a tab, so after your first sweep re-read the board and check every worker.
    - Mark `done` every item with a `merged` file, or with a `merging` file (`key value` lines `pid`, `start`, `tip` and, once the fast-forward is under way, `merged`) whose `merged` sha is an ancestor of its target, and re-read reports you have not acted on.
@@ -40,6 +40,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 - `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
 - `lead-notes.md`: rules for you from reflection, and `## Proposed /crew changes` for every crew in any repo.
 - `reflections.md`: one dated line per reflection round (`references/reflect.md`).
+- `dagr-events.jsonl`: append-only, one dagr event object per line, which `crew-dagr` publishes as the run file's `events[]` because it rewrites that file every sweep. When you resolve a `[DAGR OPERATOR MESSAGE]`, append `{"at":"<date -u +%FT%TZ>","type":"message_resolved","task":"<id>","message_id":"<its message_id>","actor":"$slug-lead","detail":"<what you did>"}` here, never to the run file; a line `dagr check` would reject or whose task is not on the board is dropped and logged in `dagr.log`.
 
 ## Heavy slot
 
