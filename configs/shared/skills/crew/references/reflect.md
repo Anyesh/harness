@@ -8,6 +8,7 @@ Read when a sweep prints `REFLECT` and at close-out. A round turns what went wro
    - Anything a script can catch goes into `sweep-check` (while work runs, read-only) or `check` (at merge).
    - A rule for you goes into `lead-notes.md`.
    - A rule every crew in any repo should follow goes under `## Proposed /crew changes` in `lead-notes.md`; close-out tells the user that list.
+   - A preference of the user's, or a gotcha a later crew in this repo would hit again, goes to Claude Code's project memory when your session has a memory directory: one fact per file, with a line for it in that directory's `MEMORY.md`. Repo files alone do not carry what a crew learns about the user past the crew.
 3. Merge duplicate lines and drop ones that stopped applying, so the brief stays short.
 4. Change `check` or `sweep-check` only by writing a temporary file in `$crew`, running `chmod +x` on it and moving it over the old one with `mv`. Bash reads a running script as it goes, and `crew-merge` may be running `check` for a worker at that moment; it also refuses a `check` that is not executable.
 5. Look at throughput: items replaced twice, items stuck since the last round, profiles with room and no worker. Act on each.

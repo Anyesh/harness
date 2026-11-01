@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Usage: crew-resources [path...]
+#
+# Prints one line per resource past its threshold and exits 0. When a probe
+# fails it says why on stderr, still runs the other probes, and exits 1.
+#
+#   disk <mount> <N> GB free[, critical] (<path>)
+#       once per mount holding the paths given, the main checkout, the crew runs
+#       dir or a line of $crew/watch-paths, naming the first such path; under
+#       CREW_DISK_MIN_GB (default 20), critical under a quarter of it
+#   memory <N> MB available   under CREW_MEM_MIN_MB (default 1024)
+#   load <x> over <n> CPUs    5-minute load above CREW_LOAD_PER_CPU (default 2) per CPU
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+disk_min=${CREW_DISK_MIN_GB:-20}
+mem_min=${CREW_MEM_MIN_MB:-1024}
+load_per_cpu=${CREW_LOAD_PER_CPU:-2}
+os=$(uname -s)
+failed=0
+
+fail() {
+  printf 'crew-resources: %s\n' "$*" >&2
+  failed=1
+}
+
+number() {
+  [[ $2 =~ ^-?[0-9]+([.][0-9]+)?$ ]] || {
+    fail "$1 is not a number: $2"
+    return 1
+  }
+}
+
+# Awk does the comparisons because bash has no floating point.
+less() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a < b) }'; }
+
+existing_ancestor() {
+  local p=$1
+  while [[ ! -e $p && $p != / && $p != . ]]; do p=$(dirname -- "$p"); done
+  printf '%s\n' "$p"
+}
+
+declare -A seen_mount
+probe_disk() {
+  local path=$1 at out rc parsed avail mount gb
+  at=$(existing_ancestor "$path")
+  out=$(timeout 10 df -Pk -- "$at" 2>&1)
+  rc=$?
+  if ((rc == 124)); then
+    fail "df timed out after 10 s on $at"
+    return
+  elif ((rc != 0)); then
+    fail "df $at: ${out//$'\n'/ }"
+    return
+  fi
+  # Filesystem and mount names may hold spaces, so the capacity column, the
+  # only one ending in %, anchors the fields around it.
+  parsed=$(awk '
+    NR == 2 && match($0, / [0-9]+% +/) {
+      n = split(substr($0, 1, RSTART - 1), f, " ")
+      mount = substr($0, RSTART + RLENGTH)
+      if (n >= 4 && f[n] ~ /^[0-9]+$/ && mount != "") { print f[n] "\t" mount; ok = 1 }
+    }
+    END { exit !ok }
+  ' <<<"$out") || {
+    fail "cannot parse df output for $at: ${out//$'\n'/ }"
+    return
+  }
+  avail=${parsed%%$'\t'*}
+  mount=${parsed#*$'\t'}
+  [[ -z ${seen_mount[$mount]+x} ]] || return 0
+  seen_mount[$mount]=1
+  less "$avail" "$(awk -v g="$disk_min" 'BEGIN { printf "%.0f", g * 1048576 }')" || return 0
+  gb=$(awk -v k="$avail" 'BEGIN { printf "%.0f", int(k / 1048576) }')
+  if less "$avail" "$(awk -v g="$disk_min" 'BEGIN { printf "%.0f", g * 262144 }')"; then
+    printf 'disk %s %s GB free, critical (%s)\n' "$mount" "$gb" "$path"
+  else
+    printf 'disk %s %s GB free (%s)\n' "$mount" "$gb" "$path"
+  fi
+}
+
+probe_memory() {
+  local mb
+  case $os in
+  Linux) mb=$(crew_mem_avail_mb Linux </proc/meminfo) ;;
+  Darwin) mb=$(vm_stat | crew_mem_avail_mb Darwin) ;;
+  *) false ;;
+  esac || {
+    fail "cannot read available memory on $os"
+    return
+  }
+  if less "$mb" "$mem_min"; then printf 'memory %s MB available\n' "$mb"; fi
+}
+
+probe_load() {
+  local load cpus
+  case $os in
+  Linux) load=$(crew_load5 Linux </proc/loadavg) ;;
+  Darwin) load=$(LC_ALL=C sysctl -n vm.loadavg | crew_load5 Darwin) ;;
+  *) false ;;
+  esac || {
+    fail "cannot read the load average on $os"
+    return
+  }
+  cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null)
+  [[ $cpus =~ ^[1-9][0-9]*$ ]] || {
+    fail "cannot read the CPU count: $cpus"
+    return
+  }
+  if less "$(awk -v p="$load_per_cpu" -v c="$cpus" 'BEGIN { print p * c }')" "$load"; then
+    printf 'load %s over %s CPUs\n' "$load" "$cpus"
+  fi
+}
+
+if number CREW_DISK_MIN_GB "$disk_min"; then
+  paths=("$@")
+  if main=$(crew_main); then paths+=("$main"); fi
+  paths+=("${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}")
+  if crew=$(crew_dir) && [[ -f $crew/watch-paths ]]; then
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ -z $line ]] || paths+=("$line")
+    done <"$crew/watch-paths"
+  fi
+  for p in "${paths[@]}"; do probe_disk "$p"; done
+fi
+if number CREW_MEM_MIN_MB "$mem_min"; then probe_memory; fi
+if number CREW_LOAD_PER_CPU "$load_per_cpu"; then probe_load; fi
+exit "$failed"

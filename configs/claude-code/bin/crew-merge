@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# Usage: crew-merge <item>          land the item's reviewed branch through $crew/check
+#        crew-merge --status        RUNNING <id>, QUEUED <id>, CUT <id> <sha> or
+#                                   STALE <id> per merge marker; nothing when idle
+#        crew-merge --settle <item> clear the marker a dead run left, writing the
+#                                   merged file when its fast-forward had landed
+#
+# Exit status: 0 done, 1 refused or failed, 2 usage, 3 another run is merging
+# the item.
 set -euo pipefail
 bin=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # shellcheck source=crew-lib.sh
@@ -10,15 +18,115 @@ die() {
   exit 1
 }
 
+busy() {
+  printf 'crew-merge: %s\n' "$*" >&2
+  exit 3
+}
+
+usage() {
+  echo "usage: crew-merge <item> | --status | --settle <item>" >&2
+  exit 2
+}
+
 # A detached gc would inherit the lock fd and hold the merge queue after we exit.
 g() { git -c gc.autoDetach=false "$@"; }
 
-(($# == 1)) || {
-  echo "usage: crew-merge <item>" >&2
-  exit 2
+board_row() {
+  local row
+  row=$(awk -F'\t' -v id="$id" '($1 "") == id "" {print $4 "\t" $5}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
+  [[ -n $row ]] || return 1
+  branch=${row%%$'\t'*}
+  into=${row#*$'\t'}
+  into=${into%%$'\n'*}
+  [[ -n $branch && -n $into ]] || die "board row for $id lacks a branch or into"
 }
-id=$1
+
+write_merged() {
+  printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$1" "$2" "$into" >"$item/merged"
+}
+
+# Taken around every read-then-replace or read-then-remove of a marker, so two
+# runs of one item, or a run and --settle, never act on the same marker at once.
+lock_marker() {
+  exec {marker_lock}>"$item/.marker.lock"
+  flock -w 10 "$marker_lock" || die "cannot lock $item/.marker.lock"
+}
+
+# A rename replaces the marker whole, so a sweep never reads half of one and
+# takes it for stale.
+write_marker() {
+  local t
+  t=$(mktemp "$item/.merging.XXXXXX")
+  cat >"$t"
+  mv -f "$t" "$item/merging"
+}
+
+status() {
+  local f i state
+  shopt -s nullglob
+  for f in "$crew"/items/*/merging; do
+    i=${f%/merging}
+    i=${i##*/}
+    state=$(crew_merge_state "$f") || continue
+    case $state in
+    running) echo "RUNNING $i" ;;
+    queued) echo "QUEUED $i" ;;
+    cut\ *) echo "CUT $i ${state#cut }" ;;
+    *) echo "STALE $i" ;;
+    esac
+  done
+}
+
+settle() {
+  local state merged tip
+  item=$crew/items/$id
+  if [[ ! -e $item/merging ]]; then
+    echo "nothing to settle: $id has no merge marker"
+    return
+  fi
+  lock_marker
+  state=$(crew_merge_state "$item/merging") || {
+    echo "nothing to settle: $id has no merge marker"
+    return
+  }
+  case $state in
+  running | queued) busy "$id is still merging ($state)" ;;
+  stale)
+    rm -f "$item/merging"
+    echo "removed the stale merge marker of $id"
+    ;;
+  *)
+    merged=${state#cut }
+    board_row || die "$id is not on the board; check whether $merged reached its target, then remove $item/merging by hand"
+    if g merge-base --is-ancestor "$merged" "refs/heads/$into" 2>/dev/null; then
+      tip=$(awk '$1 == "tip" {v = $2} END {print v}' "$item/merging")
+      write_merged "$tip" "$merged"
+      rm -f "$item/merging"
+      echo "$id landed at $merged in $into; wrote $item/merged"
+    else
+      rm -f "$item/merging"
+      echo "removed the cut merge marker of $id; $merged is not in $into"
+    fi
+    ;;
+  esac
+}
+
+case ${1:-} in
+--status) (($# == 1)) || usage ;;
+--settle) (($# == 2)) || usage ;;
+*) (($# == 1)) || usage ;;
+esac
 crew=$(crew_dir) || die "not inside a git repository"
+if [[ $1 == --status ]]; then
+  status
+  exit 0
+elif [[ $1 == --settle ]]; then
+  id=$2
+  settle
+  exit 0
+fi
+
+id=$1
 heavy_slots=$(crew_heavy_slots "$crew") || die "$crew/heavy-slots must contain 1, the only slot count supported"
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
@@ -26,24 +134,63 @@ mkdir -p "$runs"
 runs=$(cd "$runs" && pwd -P)
 item=$crew/items/$id
 
-row=$(awk -F'\t' -v id="$id" '$1 == id {print $4 "\t" $5}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
-[[ -n $row ]] || die "item $id is not on the board"
-branch=${row%%$'\t'*}
-into=${row#*$'\t'}
-into=${into%%$'\n'*}
-[[ -n $branch && -n $into ]] || die "board row for $id lacks a branch or into"
-
+board_row || die "item $id is not on the board"
 tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
 start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
 mkdir -p "$item"
-printf 'pid %s\nstart %s\ntip %s\n' "$$" "$start" "$tip" >"$item/merging"
 
 if [[ -f $crew/check ]] && head -n 1 "$crew/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
   syntax=$(bash -n "$crew/check" 2>&1) || die "check at $crew/check has a syntax error: $syntax"
 fi
 
+lock_marker
+if state=$(crew_merge_state "$item/merging"); then
+  case $state in
+  running | queued) busy "item $id is already merging ($state); see crew-merge --status" ;;
+  cut\ *) die "a dead run of $id was cut off after its fast-forward began (${state#cut }); run crew-merge --settle $id first" ;;
+  esac
+fi
+
+tmp=
+wrote_marker=
+queue_wait=
+heavy_held=
+heavy_release() {
+  [[ -n $heavy_held ]] || return 0
+  heavy_held=
+  "$heavy" release "merge-$id" >&2 || echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
+}
+# Removes our own marker unless the fast-forward began; a marker with a merged
+# line stays for --settle.
+cleanup() {
+  heavy_release
+  if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
+  if [[ -n $wrote_marker && -f $item/merging ]] &&
+    [[ $(awk '$1 == "pid" {v = $2} END {print v}' "$item/merging") == "$$" ]] &&
+    ! grep -q '^merged ' "$item/merging"; then
+    rm -f "$item/merging"
+  fi
+}
+on_signal() {
+  if [[ -n $queue_wait ]]; then kill "$queue_wait" 2>/dev/null || true; fi
+  exit "$1"
+}
+trap cleanup EXIT
+trap 'on_signal 129' HUP
+trap 'on_signal 143' TERM
+printf 'pid %s\nstart %s\ntip %s\nqueued %s\n' "$$" "$start" "$tip" "$EPOCHSECONDS" | write_marker
+wrote_marker=1
+exec {marker_lock}>&-
+
+# Bash defers a trap until its foreground child returns, so flock waits in the
+# background where a signal can interrupt the wait. The lock belongs to the
+# open file description, so it stays held through our fd after flock exits.
 exec {lock}>"$common/crew-merge.lock"
-flock -w 1800 "$lock" || die "merge queue busy"
+flock -w 1800 "$lock" &
+queue_wait=$!
+wait "$queue_wait" || die "merge queue busy"
+queue_wait=
+printf 'pid %s\nstart %s\ntip %s\n' "$$" "$start" "$tip" | write_marker
 g worktree prune
 mapfile -t worktrees < <(g worktree list --porcelain | sed -n 's/^worktree //p')
 for wt in "${worktrees[@]}"; do
@@ -76,20 +223,6 @@ target_ok
 base=$(g -C "$target" rev-parse HEAD)
 [[ -x $crew/check ]] || die "no executable check at $crew/check"
 
-tmp=
-heavy_held=
-heavy_release() {
-  [[ -n $heavy_held ]] || return 0
-  heavy_held=
-  "$heavy" release "merge-$id" >&2 || echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
-}
-cleanup() {
-  heavy_release
-  if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
-}
-trap cleanup EXIT
-trap 'exit 129' HUP
-trap 'exit 143' TERM
 tmp=$(mktemp -d "$runs/merge-XXXXXX")
 g worktree add -q --detach "$tmp" "$base"
 g -C "$tmp" merge -q --no-ff --no-edit -m "Merge branch '$branch' into $into" "$tip" ||
@@ -121,12 +254,12 @@ tail -n 20 "$log"
 
 target_ok
 [[ $(g -C "$target" rev-parse HEAD) == "$base" ]] || die "$into moved during check; $into unchanged, rerun"
-printf 'merged %s\n' "$merged" >>"$item/merging"
+printf 'pid %s\nstart %s\ntip %s\nmerged %s\n' "$$" "$start" "$tip" "$merged" | write_marker
 trap '' HUP TERM
 g -C "$target" merge -q --ff-only --no-autostash "$merged"
 [[ $(g rev-parse "refs/heads/$into") == "$merged" ]] || die "refs/heads/$into is not $merged after the fast-forward; see $item/merging"
-printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$branch" "$tip" "$merged" "$into" >"$item/merged"
+write_merged "$tip" "$merged"
 rm "$item/merging"
-trap 'exit 129' HUP
-trap 'exit 143' TERM
+trap 'on_signal 129' HUP
+trap 'on_signal 143' TERM
 printf '%s\n' "$merged"

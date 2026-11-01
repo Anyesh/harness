@@ -27,7 +27,10 @@ assert() {
 
 TMP_DIR=$(cd "$(mktemp -d)" && pwd -P)
 BG_PID_FILE="$TMP_DIR/bg.pid"
+PIDS=()
 cleanup() {
+  local p
+  for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null || true; done
   if [[ -s $BG_PID_FILE ]]; then kill "$(cat "$BG_PID_FILE")" 2>/dev/null || true; fi
   command rm -rf "$TMP_DIR"
 }
@@ -96,6 +99,7 @@ refuses() {
   before=$(git -C "$MAIN" rev-parse main)
   run_merge "$id" >"$TMP_DIR/out" 2>&1 || rc=$?
   assert "refuses $name" '[[ $rc -ne 0 && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/$id/merged" ]] && grep -q "$pattern" "$TMP_DIR/out" && no_leftover'
+  assert "removes merging after refusing $name" '[[ ! -e "$CREW/items/$id/merging" ]]'
 }
 
 push_block() {
@@ -276,42 +280,42 @@ HEAVY="$REPO_ROOT/configs/claude-code/bin/crew-heavy"
 HLOCK="$CREW/heavy.lock"
 export CREW_HEAVY_POLL=0.2
 
-new_item 18
+new_item 30
 set_check "[[ ! -e '$HLOCK' ]]"
-run_merge 18 >"$TMP_DIR/out" 2>&1 || true
-assert "without heavy-slots check runs without the heavy slot" '[[ -f "$CREW/items/18/merged" && ! -e $HLOCK ]]'
+run_merge 30 >"$TMP_DIR/out" 2>&1 || true
+assert "without heavy-slots check runs without the heavy slot" '[[ -f "$CREW/items/30/merged" && ! -e $HLOCK ]]'
 
 echo 1 >"$CREW/heavy-slots"
-new_item 19
+new_item 31
 set_check "cut -f1,2 '$HLOCK/holder' >'$TMP_DIR/holder.snap'"
-run_merge 19 >"$TMP_DIR/out" 2>&1 || true
-assert "with heavy-slots check holds the slot as merge-<id> for the merge gate" '[[ -f "$CREW/items/19/merged" && $(<"$TMP_DIR/holder.snap") == "merge-19"$'"'"'\t'"'"'"merge gate" ]]'
+run_merge 31 >"$TMP_DIR/out" 2>&1 || true
+assert "with heavy-slots check holds the slot as merge-<id> for the merge gate" '[[ -f "$CREW/items/31/merged" && $(<"$TMP_DIR/holder.snap") == "merge-31"$'"'"'\t'"'"'"merge gate" ]]'
 assert "the slot is free after a landed merge" '[[ ! -e $HLOCK ]]'
 
-new_item 20
+new_item 32
 set_check "[[ -d '$HLOCK' ]] && echo held-then-failed; exit 1"
-refuses "a failing check under the heavy slot" 20 "held-then-failed"
+refuses "a failing check under the heavy slot" 32 "held-then-failed"
 assert "the slot is free after a failed check" '[[ ! -e $HLOCK ]]'
 set_check 'exit 0'
 
-new_item 21
+new_item 33
 (cd "$MAIN" && "$HEAVY" acquire 7 stack >/dev/null)
 before=$(git -C "$MAIN" rev-parse main)
 rc=0
-(cd "$(wt_of 21)" && CREW_HEAVY_MERGE_WAIT=1 exec "$CM" 21) >"$TMP_DIR/out" 2>&1 || rc=$?
-assert "a merge gives up when the slot stays held past its wait" '[[ $rc -ne 0 && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/21/merged" ]] && grep -q "held by: 7" "$TMP_DIR/out" && no_leftover'
+(cd "$(wt_of 33)" && CREW_HEAVY_MERGE_WAIT=1 exec "$CM" 33) >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a merge gives up when the slot stays held past its wait" '[[ $rc -ne 0 && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/33/merged" ]] && grep -q "held by: 7" "$TMP_DIR/out" && no_leftover'
 assert "giving up keeps the other holder's slot and frees the merge lock" '[[ $(cut -f1 "$HLOCK/holder") == 7 ]] && flock -n "$LOCK" true'
 
-run_merge 21 >"$TMP_DIR/out" 2>&1 &
+run_merge 33 >"$TMP_DIR/out" 2>&1 &
 p21=$!
 sleep 1
-assert "a merge waits for the slot after its temporary merge" 'kill -0 "$p21" && [[ ! -e "$CREW/items/21/merged" ]]'
+assert "a merge waits for the slot after its temporary merge" 'kill -0 "$p21" && [[ ! -e "$CREW/items/33/merged" ]]'
 (cd "$MAIN" && "$HEAVY" release 7 >/dev/null)
 rc=0
 wait "$p21" || rc=$?
-assert "the waiting merge lands once the slot is released and frees it" '[[ $rc -eq 0 && -f "$CREW/items/21/merged" && ! -e $HLOCK ]]'
+assert "the waiting merge lands once the slot is released and frees it" '[[ $rc -eq 0 && -f "$CREW/items/33/merged" && ! -e $HLOCK ]]'
 
-n=22
+n=34
 for sig in HUP:129 TERM:143; do
   want=${sig#*:} sig=${sig%:*}
   new_item "$n"
@@ -333,7 +337,7 @@ done
 set_check 'exit 0'
 command rm "$CREW/heavy-slots"
 
-new_item 24
+new_item 36
 (
   exec {fd}>"$LOCK"
   flock "$fd"
@@ -344,14 +348,176 @@ until ! flock -n "$LOCK" true; do sleep 0.1; done
 for shebang in '/usr/bin/env bash' /bin/sh; do
   printf '#!%s\nif then\n' "$shebang" >"$CREW/check"
   t0=$SECONDS
-  refuses "a $shebang check with a syntax error" 24 "syntax error"
+  refuses "a $shebang check with a syntax error" 36 "syntax error"
   assert "a $shebang check with a syntax error fails without waiting for the merge lock" '((SECONDS - t0 < 10))'
 done
 kill "$(cat "$BG_PID_FILE")"
 : >"$BG_PID_FILE"
 printf '#!/usr/bin/env false\nif then\n' >"$CREW/check"
-refuses "a check in another language without a bash syntax check" 24 "check failed"
+refuses "a check in another language without a bash syntax check" 36 "check failed"
 set_check 'exit 0'
+marker() { printf '%s/items/%s/merging' "$CREW" "$1"; }
+marker_pid() { awk '$1 == "pid" {v = $2} END {print v}' "$(marker "$1")" 2>/dev/null; }
+dead_pid() {
+  sleep 0 &
+  local p=$!
+  wait "$p"
+  echo "$p"
+}
+wait_for() {
+  local i
+  for ((i = 0; i < 100; i++)); do
+    if eval "$1"; then return 0; fi
+    sleep 0.1
+  done
+  return 1
+}
+# Backgrounding run_merge would fork a subshell around it, so $! would not be
+# the crew-merge pid.
+start_merge() {
+  (cd "$(wt_of "$1")" && exec "$CM" "$1") >"$2" 2>&1 &
+  BG=$!
+  PIDS+=("$BG")
+}
+HOLDER=
+hold_lock() {
+  command rm -f "$TMP_DIR/held"
+  (
+    exec {fd}>"$LOCK"
+    flock "$fd"
+    : >"$TMP_DIR/held"
+    exec sleep 120
+  ) &
+  HOLDER=$!
+  PIDS+=("$HOLDER")
+  wait_for '[[ -e $TMP_DIR/held ]]'
+}
+
+# Holds an item's marker lock, so runs started meanwhile all contend for it
+# when release_marker frees it.
+hold_marker() {
+  command rm -f "$TMP_DIR/mheld"
+  (
+    exec {fd}>"$CREW/items/$1/.marker.lock"
+    flock "$fd"
+    : >"$TMP_DIR/mheld"
+    exec sleep 120
+  ) &
+  MHOLDER=$!
+  PIDS+=("$MHOLDER")
+  wait_for '[[ -e $TMP_DIR/mheld ]]'
+}
+release_marker() {
+  sleep 0.5
+  kill "$MHOLDER"
+}
+
+new_item 18
+hold_lock
+start_merge 18 "$TMP_DIR/out18"
+p18=$BG
+assert "a run waiting on the merge queue marks itself queued" 'wait_for "grep -q \"^queued \" \"$(marker 18)\" 2>/dev/null"'
+status_out=$(cd "$MAIN" && "$CM" --status)
+assert "--status lists a queued run as QUEUED without waiting for the lock" 'grep -qx "QUEUED 18" <<<"$status_out"'
+before18=$(cat "$(marker 18)")
+rc=0
+run_merge 18 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a second run of an item already merging exits 3 and leaves the marker" '[[ $rc -eq 3 && $(cat "$(marker 18)") == "$before18" ]] && grep -q "already merging" "$TMP_DIR/out"'
+(sleep 10 && kill -KILL "$p18" 2>/dev/null) &
+watchdog=$!
+kill -TERM "$p18"
+rc=0
+wait "$p18" || rc=$?
+kill "$watchdog" 2>/dev/null || true
+assert "SIGTERM while queued exits 143 within seconds and removes merging" '[[ $rc -eq 143 && ! -e $(marker 18) ]]'
+
+new_item 19
+printf 'pid %s\nstart 1\ntip %s\n' "$(dead_pid)" "$(tip_of 19)" >"$(marker 19)"
+hold_marker 19
+start_merge 19 "$TMP_DIR/out19a"
+p19a=$BG
+start_merge 19 "$TMP_DIR/out19b"
+p19b=$BG
+release_marker
+wait_for 'grep -q "already merging" "$TMP_DIR/out19a" "$TMP_DIR/out19b"' || true
+if grep -q "already merging" "$TMP_DIR/out19a"; then loser=$p19a winner=$p19b; else loser=$p19b winner=$p19a; fi
+rc=0
+wait "$loser" || rc=$?
+assert "two runs against one stale marker leave one live marker, and the other exits 3" '[[ $rc -eq 3 && $(marker_pid 19) == "$winner" && $(crew_merge_state "$(marker 19)") == queued ]]'
+
+new_item 20
+printf 'pid %s\nstart 1\ntip %s\n' "$(dead_pid)" "$(tip_of 20)" >"$(marker 20)"
+hold_marker 20
+start_merge 20 "$TMP_DIR/out20"
+p20=$BG
+(cd "$MAIN" && exec "$CM" --settle 20) >/dev/null 2>&1 &
+settle_pid=$!
+release_marker
+wait "$settle_pid" || true
+wait_for '[[ $(marker_pid 20) == "$p20" ]]' || true
+assert "a --settle racing a rerun never removes the rerun's live marker" '[[ $(marker_pid 20) == "$p20" && $(crew_merge_state "$(marker 20)") == queued ]]'
+
+kill "$HOLDER"
+rc19=0
+rc20=0
+wait "$winner" || rc19=$?
+wait "$p20" || rc20=$?
+assert "the queued runs land once the queue frees" '[[ $rc19 -eq 0 && $rc20 -eq 0 && -f $CREW/items/19/merged && -f $CREW/items/20/merged ]]'
+
+new_item 21
+main_sha=$(git -C "$MAIN" rev-parse main)
+printf 'pid %s\nstart 1\ntip %s\nmerged %s\n' "$(dead_pid)" "$(tip_of 21)" "$main_sha" >"$(marker 21)"
+before21=$(cat "$(marker 21)")
+rc=0
+run_merge 21 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a run over a cut marker exits 1, names --settle and leaves the marker" '[[ $rc -eq 1 && $(cat "$(marker 21)") == "$before21" ]] && grep -q -- "--settle 21" "$TMP_DIR/out"'
+
+settle() {
+  RC=0
+  SETTLE_OUT=$(cd "$MAIN" && "$CM" --settle "$1" 2>&1) || RC=$?
+}
+settle 21
+assert "--settle writes merged for a cut marker whose sha is in the target" '[[ $RC -eq 0 && ! -e $(marker 21) ]] && grep -qx "branch w/21" "$CREW/items/21/merged" && grep -qx "tip $(tip_of 21)" "$CREW/items/21/merged" && grep -qx "merged $main_sha" "$CREW/items/21/merged" && grep -qx "into main" "$CREW/items/21/merged" && grep -q landed <<<"$SETTLE_OUT"'
+
+new_item 22
+printf 'pid %s\nstart 1\ntip %s\nmerged %s\n' "$(dead_pid)" "$(tip_of 22)" "$(tip_of 22)" >"$(marker 22)"
+settle 22
+assert "--settle removes a cut marker whose sha is not in the target" '[[ $RC -eq 0 && ! -e $(marker 22) && ! -e $CREW/items/22/merged ]]'
+
+mkdir -p "$CREW/items/23"
+printf 'pid %s\nstart 1\ntip %040d\n' "$(dead_pid)" 0 >"$(marker 23)"
+settle 23
+assert "--settle removes a stale marker of an item off the board" '[[ $RC -eq 0 && ! -e $(marker 23) ]]'
+
+sleep 60 &
+live=$!
+PIDS+=("$live")
+mkdir -p "$CREW/items/24" "$CREW/items/26" "$CREW/items/27" "$CREW/items/99"
+printf 'pid %s\nstart %s\ntip %040d\n' "$live" "$(crew_pid_start "$live")" 0 >"$(marker 24)"
+settle 24
+assert "--settle refuses a live marker with exit 3" '[[ $RC -eq 3 && -e $(marker 24) ]]'
+
+printf 'pid %s\nstart 1\ntip %040d\nmerged %s\n' "$(dead_pid)" 0 "$main_sha" >"$(marker 99)"
+settle 99
+assert "--settle refuses a cut marker of an item off the board" '[[ $RC -eq 1 && -e $(marker 99) ]] && grep -q "not on the board" <<<"$SETTLE_OUT"'
+
+settle 25
+assert "--settle with no marker has nothing to do" '[[ $RC -eq 0 ]]'
+
+mkdir -p "$CREW/items/099"
+printf 'pid %s\nstart 1\ntip %040d\nmerged %s\n' "$(dead_pid)" 0 "$main_sha" >"$(marker 099)"
+printf '99\tdone\tw1\tw/99\tmain\t0\tnumeric twin\n' >>"$CREW/board.tsv"
+settle 099
+assert "--settle matches the board id as text, so 099 is not row 99" '[[ $RC -eq 1 && -e $(marker 099) ]] && grep -q "not on the board" <<<"$SETTLE_OUT"'
+command rm -r "$CREW/items/099"
+
+printf 'pid %s\nstart %s\ntip %040d\nqueued 1\n' "$live" "$(crew_pid_start "$live")" 0 >"$(marker 26)"
+printf 'pid %s\nstart 1\ntip %040d\n' "$(dead_pid)" 0 >"$(marker 27)"
+status_out=$(cd "$MAIN" && "$CM" --status)
+assert "--status reports RUNNING, QUEUED, CUT with its sha, and STALE" 'grep -qx "RUNNING 24" <<<"$status_out" && grep -qx "QUEUED 26" <<<"$status_out" && grep -qx "CUT 99 $main_sha" <<<"$status_out" && grep -qx "STALE 27" <<<"$status_out"'
+command rm -f "$CREW"/items/*/merging
+status_out=$(cd "$MAIN" && "$CM" --status)
+assert "--status prints nothing when no item is merging" '[[ -z $status_out ]]'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

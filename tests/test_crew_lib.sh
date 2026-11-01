@@ -94,6 +94,30 @@ kill "$live"
 wait "$live" 2>/dev/null || true
 assert "pid start fails with no output for a dead pid" '! out=$(crew_pid_start "$live") && [[ -z $out ]]'
 
+sleep 30 &
+live=$!
+live_start=$(crew_pid_start "$live")
+sleep 0 &
+dead=$!
+wait "$dead"
+m="$TMP_DIR/merging"
+sha=$(printf '%040d' 7)
+printf 'pid %s\nstart %s\ntip %s\n' "$live" "$live_start" "$sha" >"$m"
+assert "a marker whose pid lives with the recorded start is running" '[[ $(crew_merge_state "$m") == running ]]'
+printf 'pid %s\nstart %s\ntip %s\nqueued 1\n' "$live" "$live_start" "$sha" >"$m"
+assert "a live marker with a queued line is queued" '[[ $(crew_merge_state "$m") == queued ]]'
+printf 'pid %s\nstart %s\ntip %s\nmerged %s\n' "$live" "$live_start" "$sha" "$sha" >"$m"
+assert "a live marker with a merged line is still running" '[[ $(crew_merge_state "$m") == running ]]'
+printf 'pid %s\nstart %s\ntip %s\nmerged %s\n' "$live" "$((live_start + 1))" "$sha" "$sha" >"$m"
+assert "a reused pid with a merged line is cut at that sha" '[[ $(crew_merge_state "$m") == "cut $sha" ]]'
+printf 'pid %s\nstart %s\ntip %s\n' "$dead" "$live_start" "$sha" >"$m"
+assert "a dead pid without a merged line is stale" '[[ $(crew_merge_state "$m") == stale ]]'
+printf 'garbage\n' >"$m"
+assert "an unparseable marker is stale" '[[ $(crew_merge_state "$m") == stale ]]'
+assert "a missing marker fails with no output" '! out=$(crew_merge_state "$TMP_DIR/none") && [[ -z $out ]]'
+kill "$live"
+wait "$live" 2>/dev/null || true
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
