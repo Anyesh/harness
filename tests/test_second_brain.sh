@@ -50,8 +50,9 @@ rc=0
 out=$(HOME="$H" PATH="$TMP/bsd-bin:$PATH" sh "$REPO_ROOT/configs/second-brain/sb-sync.sh" 2>&1) || rc=$?
 assert "no peers file: exits 0 with a UTC timestamp under BSD date" '[[ $rc -eq 0 ]] && grep -Eq "${ISO_UTC}no peers file" <<<"$out"'
 
-# Builds a fake HOME with a fake second-brain-api and service-manager stubs
-# that log their argv; $home/active makes the daemon look running.
+# Builds a fake HOME with a fake second-brain-api, service-manager stubs that
+# log their argv and a password database that names it the account home;
+# $home/active makes the daemon look running.
 new_home() {
   local home="$1" tool
   mkdir -p "$home/bin" "$home/.cargo/bin"
@@ -70,6 +71,9 @@ esac
 EOF
     chmod +x "$home/bin/$tool"
   done
+  printf '#!/bin/sh\necho "NFSHomeDirectory: %s"\n' "$home" >"$home/bin/dscl"
+  printf '#!/bin/sh\necho "me:*:501:20:Me:%s:/bin/sh"\n' "$home" >"$home/bin/getent"
+  chmod +x "$home/bin/dscl" "$home/bin/getent"
   cat >"$home/bin/uname" <<EOF
 #!/bin/sh
 case "\$1" in -m) echo arm64 ;; *) echo "\${FAKE_OS:-Linux}" ;; esac

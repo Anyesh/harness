@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 source "$REPO_ROOT/lib/launchd.sh"
+source "$REPO_ROOT/lib/service_manager.sh"
 
 second_brain_check() {
     if ! command -v sb &>/dev/null; then
@@ -176,6 +177,7 @@ second_brain_daemon_linux() {
   local service_dir="$HOME/.config/systemd/user"
   local service_file="$service_dir/second-brain.service"
 
+  service_manager_owns "$service_file" || return 0
   mkdir -p "$service_dir"
 
   cat > "$service_file" <<UNIT
@@ -241,6 +243,7 @@ second_brain_agent_current() {
 
 second_brain_daemon_darwin() {
   local sb_api="$1" label=com.harness.second-brain rendered
+  service_manager_owns "$(launchd_agents_dir)/$label.plist" || return 0
   rendered=$(mktemp)
   second_brain_render_agent "$label" "$rendered" "$sb_api"
   if second_brain_agent_current "$label" "$rendered"; then
@@ -301,6 +304,7 @@ PEERS
 second_brain_sync_timer_linux() {
   local service_dir="$HOME/.config/systemd/user"
 
+  service_manager_owns "$service_dir/sb-sync.timer" || return 0
   mkdir -p "$service_dir"
 
   cat > "$service_dir/sb-sync.service" <<'UNIT'
@@ -337,6 +341,7 @@ UNIT
 
 second_brain_sync_agent_darwin() {
   local label=com.harness.sb-sync rendered
+  service_manager_owns "$(launchd_agents_dir)/$label.plist" || return 0
   rendered=$(mktemp)
   second_brain_render_agent "$label" "$rendered"
   if second_brain_agent_current "$label" "$rendered"; then

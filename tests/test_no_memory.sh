@@ -29,7 +29,8 @@ MEMORY_HOOK_NAMES=(session-start-wiki.sh wiki-nudge.sh stop-wiki-enforce.sh sess
 MEMORY_COMMAND_NAMES=(devlog plan decision)
 
 # Args: fake home, "vault" to write WIKI_VAULT to ~/.harness.env. Every mock
-# appends its argv to $home/calls.log so tests can assert what never ran.
+# appends its argv to $home/calls.log so tests can assert what never ran; the
+# password database names the fake home the account home so services load.
 new_home() {
     local home="$1" with_vault="${2:-}"
     mkdir -p "$home/.cursor" "$home/.local/bin"
@@ -43,6 +44,9 @@ new_home() {
     printf '#!/bin/sh\necho "herdr $*" >> "%s/calls.log"\n[ "$1" = --version ] && echo "herdr %s"\nexit 0\n' \
         "$home" "$HERDR_PINNED" > "$home/.local/bin/herdr"
     chmod +x "$home/.local/bin/herdr"
+    printf '#!/bin/sh\necho "NFSHomeDirectory: %s"\n' "$home" > "$home/.local/bin/dscl"
+    printf '#!/bin/sh\necho "me:*:501:20:Me:%s:/bin/sh"\n' "$home" > "$home/.local/bin/getent"
+    chmod +x "$home/.local/bin/dscl" "$home/.local/bin/getent"
 }
 
 add_fake_second_brain() {

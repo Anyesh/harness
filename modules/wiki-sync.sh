@@ -2,6 +2,7 @@
 
 source "$REPO_ROOT/lib/verified_download.sh"
 source "$REPO_ROOT/lib/launchd.sh"
+source "$REPO_ROOT/lib/service_manager.sh"
 
 WIKI_SYNC_SRC="${WIKI_SYNC_SRC:-$REPO_ROOT/configs/wiki-sync}"
 WIKI_SYNC_UNITS=(wiki-sync.service wiki-sync-watchdog.service wiki-sync-watchdog.timer wiki-sync-watchdog.path)
@@ -209,13 +210,15 @@ wiki_sync_stop_service() {
 }
 
 wiki_sync_install() {
-  local home rendered stamp
+  local home rendered stamp unit="$HOME/.config/systemd/user/wiki-sync.service"
   home=$(wiki_sync_home)
   wiki_sync_resolve || return 1
   if [[ "$DRY_RUN" == "true" ]]; then
     log_info "[dry-run] would install wiki-sync for $WS_WIKI_DIR (vault $WS_VAULT) into $home"
     return 0
   fi
+  [[ "$(uname -s)" == Darwin ]] && unit="$(launchd_agents_dir)/com.harness.wiki-sync.plist"
+  service_manager_owns "$unit" || return 0
   rendered=$(mktemp -d)
   wiki_sync_render_services "$rendered" "$home"
   stamp=$(wiki_sync_stamp "$rendered" | wiki_sync_stamp_value)

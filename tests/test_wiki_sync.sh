@@ -26,7 +26,8 @@ trap 'rm -rf "$TMP"' EXIT
 PINNED=$(sed -n 's/^WIKI_SYNC_DENO_VERSION=//p' "$REPO_ROOT/configs/wiki-sync/pins.env")
 
 # Args: home, "work" for a work machine. Builds a fake HOME with a vault, the
-# plugin's data.json, a pre-installed fake Deno and stubs that log their argv.
+# plugin's data.json, a pre-installed fake Deno, stubs that log their argv and
+# a password database that names it the account home.
 new_home() {
   local home="$1" mode="${2:-}" tool
   mkdir -p "$home/bin" "$home/vault/wiki/projects" "$home/vault/.obsidian/plugins/obsidian-livesync"
@@ -52,6 +53,9 @@ esac
 EOF
     chmod +x "$home/bin/$tool"
   done
+  printf '#!/bin/sh\necho "NFSHomeDirectory: %s"\n' "$home" >"$home/bin/dscl"
+  printf '#!/bin/sh\necho "me:*:501:20:Me:%s:/bin/sh"\n' "$home" >"$home/bin/getent"
+  chmod +x "$home/bin/dscl" "$home/bin/getent"
   cat >"$home/bin/uname" <<EOF
 #!/bin/sh
 case "\$1" in -s) echo "\${FAKE_OS:-Linux}" ;; -m) echo x86_64 ;; *) echo "\${FAKE_OS:-Linux}" ;; esac
