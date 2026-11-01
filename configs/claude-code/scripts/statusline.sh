@@ -122,7 +122,7 @@ record_usage() {
     if [ -e "$file" ]; then
         mv -f "$tmp" "$file"
     else
-        mv -f "$tmp" "$file" && find "$dir" -maxdepth 1 -name '*.json' -type f -mtime +8 -delete
+        mv -f "$tmp" "$file" && find "$dir" -maxdepth 1 -name '*.json' -type f -mtime +7 -delete
     fi
 }
 
