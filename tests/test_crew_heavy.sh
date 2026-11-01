@@ -48,6 +48,8 @@ heavy() {
 }
 
 holder_field() { cut -f"$1" "$LOCK/holder"; }
+QUEUE="$CREW/heavy.queue"
+tickets() { find "$QUEUE" -type f 2>/dev/null | wc -l; }
 
 echo "acquire and release"
 heavy status
@@ -62,6 +64,7 @@ heavy acquire 1 "browser check"
 assert "the holder acquiring again succeeds at once" '[[ $RC -eq 0 && $OUT == *"already holds"* ]]'
 heavy acquire 2 "stack" 0
 assert "another holder gives up after its max wait, naming the holder" '[[ $RC -ne 0 && $OUT == *"held by: 1"* && $(holder_field 1) == 1 ]]'
+assert "giving up removes the waiter's ticket" '[[ $(tickets) -eq 0 ]]'
 heavy release 2
 assert "another holder cannot release the slot" '[[ $RC -ne 0 && -d $LOCK && $(holder_field 1) == 1 ]]'
 heavy release 1
@@ -81,6 +84,65 @@ rc=0
 wait "$waiter" || rc=$?
 assert "the waiting holder takes the slot once it is released" '[[ $rc -eq 0 && $(holder_field 1) == 2 && $(holder_field 2) == suite ]]'
 heavy release 2
+assert "a waiter that took the slot leaves no ticket behind" '[[ $(tickets) -eq 0 ]]'
+
+echo "queue order"
+heavy acquire 1 stack
+: >"$TMP_DIR/order"
+for w in 2:1 3:0.5 4:0.1; do
+  (cd "$MAIN" && CREW_HEAVY_POLL=${w#*:} exec "$HEAVY" run "${w%%:*}" suite 30 -- bash -c "echo ${w%%:*} >>'$TMP_DIR/order'; sleep 0.5") >/dev/null 2>&1 &
+  PIDS+=("$!")
+  sleep 0.5
+done
+heavy status
+assert "status keeps its first line and lists the waiters in arrival order" '[[ $OUT == "held by 1 for stack, 0 min"$'\''\n'\''"waiting: 2, 3, 4" ]]'
+heavy release 1
+for p in "${PIDS[@]: -3}"; do wait "$p" || true; done
+assert "waiters take the slot in arrival order, however often each polls" '[[ $(paste -sd" " "$TMP_DIR/order") == "2 3 4" && ! -e $LOCK && $(tickets) -eq 0 ]]'
+
+heavy acquire 1 stack
+(cd "$MAIN" && exec "$HEAVY" acquire 2 suite 30) >/dev/null 2>&1 &
+dead=$!
+sleep 0.5
+kill -KILL "$dead"
+wait "$dead" 2>/dev/null || true
+(cd "$MAIN" && exec "$HEAVY" acquire 3 suite 30) >/dev/null 2>&1 &
+waiter=$!
+PIDS+=("$waiter")
+sleep 0.5
+heavy release 1
+rc=0
+wait "$waiter" || rc=$?
+assert "a waiter whose process died does not block the queue" '[[ $rc -eq 0 && $(holder_field 1) == 3 && $(tickets) -eq 0 ]]'
+heavy release 3
+
+heavy acquire 1 stack
+mkdir -p "$QUEUE"
+: >"$QUEUE/00000000000000000001.$$.9"
+(cd "$MAIN" && exec "$HEAVY" acquire 3 suite 30) >/dev/null 2>&1 &
+waiter=$!
+PIDS+=("$waiter")
+sleep 0.5
+heavy release 1
+rc=0
+wait "$waiter" || rc=$?
+assert "a ticket whose pid now belongs to a newer process does not block the queue" '[[ $rc -eq 0 && $(holder_field 1) == 3 && $(tickets) -eq 0 ]]'
+heavy release 3
+
+heavy acquire 1 stack
+(cd "$MAIN" && exec "$HEAVY" acquire 2 suite 30) >/dev/null 2>&1 &
+first=$!
+PIDS+=("$first")
+sleep 0.5
+heavy acquire 1 stack
+assert "the holder acquiring again skips the queue" '[[ $RC -eq 0 && $OUT == *"already holds"* && $(tickets) -eq 1 ]]'
+heavy acquire 3 suite 1
+assert "a waiter behind another gives up at its max wait and removes its ticket" '[[ $RC -ne 0 && $(tickets) -eq 1 ]]'
+kill -TERM "$first"
+rc=0
+wait "$first" 2>/dev/null || rc=$?
+assert "a terminated waiter removes its ticket" '[[ $rc -eq 143 && $(tickets) -eq 0 && $(holder_field 1) == 1 ]]'
+heavy release 1
 
 echo "run"
 heavy run 3 "suite" -- bash -c "cut -f1 '$LOCK/holder'"

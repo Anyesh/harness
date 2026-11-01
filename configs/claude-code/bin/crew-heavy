@@ -6,6 +6,9 @@
 #
 # One machine-wide slot for memory-heavy work, held as the directory
 # <crew dir>/heavy.lock with a holder file `holder<TAB>purpose<TAB>epoch`.
+# Waiters queue first come, first served: each holds a ticket in
+# <crew dir>/heavy.queue named `<epoch microseconds, zero-padded>.<pid>.<holder>`
+# and may take the lock only while no older ticket is live.
 set -euo pipefail
 # shellcheck source=crew-lib.sh
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
@@ -18,30 +21,74 @@ die() {
 crew=$(crew_dir) || die "not inside a git repository"
 crew_heavy_slots "$crew" >/dev/null || die "$crew/heavy-slots must contain 1, the only slot count supported"
 lock=$crew/heavy.lock
+queue=$crew/heavy.queue
+ticket=
 poll=${CREW_HEAVY_POLL:-15}
 
 holder_line() {
   [[ -f $lock/holder ]] && cat "$lock/holder"
 }
 
+# A ticket is live while its pid runs a process that started no later than the
+# ticket, so a pid reused by a newer process does not hold the queue.
+ticket_live() {
+  local name=${1##*/} pid start
+  pid=${name#*.}
+  pid=${pid%%.*}
+  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
+  start=$(crew_pid_start "$pid") || return 1
+  ((start <= 10#${name%%.*} / 1000000))
+}
+
+# Prints how many live tickets are older than ticket $1, removing dead ones.
+tickets_ahead() {
+  local t n=0
+  for t in "$queue"/*; do
+    [[ -e $t && $t < $1 ]] || continue
+    if ticket_live "$t"; then
+      n=$((n + 1))
+    else
+      rm -f "$t"
+    fi
+  done
+  echo "$n"
+}
+
+drop_ticket() {
+  [[ -n $ticket ]] && rm -f "$ticket"
+  ticket=
+}
+
 acquire() {
-  local holder=$1 purpose=$2 max_wait=${3:-7200} start=$EPOCHSECONDS next_note=$EPOCHSECONDS
+  local holder=$1 purpose=$2 max_wait=${3:-7200} start=$EPOCHSECONDS next_note=$EPOCHSECONDS ahead
   [[ $holder =~ ^[A-Za-z0-9_.-]+$ ]] || die "holder must be an item id or name"
   [[ $max_wait =~ ^[0-9]+$ ]] || die "max wait must be whole seconds"
-  mkdir -p "$crew"
-  while ! mkdir "$lock" 2>/dev/null; do
+  mkdir -p "$queue"
+  printf -v ticket '%s/%020d.%s.%s' "$queue" "$((10#${EPOCHREALTIME//[!0-9]/}))" "$$" "$holder"
+  trap drop_ticket EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  while :; do
     if [[ $(holder_line | cut -f1) == "$holder" ]]; then
+      drop_ticket
       echo "crew-heavy: $holder already holds the slot"
       return 0
     fi
+    [[ -e $ticket ]] || : >"$ticket"
+    ahead=$(tickets_ahead "$ticket")
+    ((ahead == 0)) && mkdir "$lock" 2>/dev/null && break
     ((EPOCHSECONDS - start >= max_wait)) && die "gave up after $((EPOCHSECONDS - start))s; held by: $(holder_line || echo unknown)"
     if ((EPOCHSECONDS >= next_note)); then
-      echo "crew-heavy: waiting; held by: $(holder_line || echo unknown)"
+      echo "crew-heavy: waiting, $ahead ahead in the queue; held by: $(holder_line || echo unknown)"
       next_note=$((EPOCHSECONDS + 300))
     fi
-    sleep "$poll"
+    sleep "$poll" &
+    wait "$!"
   done
   printf '%s\t%s\t%s\n' "$holder" "$purpose" "$EPOCHSECONDS" >"$lock/holder"
+  drop_ticket
+  trap - EXIT HUP INT TERM
   echo "crew-heavy: acquired by $holder for $purpose"
 }
 
@@ -66,6 +113,17 @@ status() {
   else
     echo "free"
   fi
+  local t name waiting=()
+  for t in "$queue"/*; do
+    [[ -e $t ]] && ticket_live "$t" || continue
+    name=${t##*/}
+    name=${name#*.}
+    waiting+=("${name#*.}")
+  done
+  ((${#waiting[@]})) || return 0
+  local list
+  printf -v list '%s, ' "${waiting[@]}"
+  echo "waiting: ${list%, }"
 }
 
 cmd=${1:-}
