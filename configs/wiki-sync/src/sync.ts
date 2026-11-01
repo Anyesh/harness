@@ -198,7 +198,10 @@ export class Syncer {
     this.handledSeq = this.savedSeq = (await this.d.checkpoint.read({ since: "" })).since;
     const cutoff = Date.now() - PAUSE_WINDOW_KEEP_MS;
     this.windows = (await this.d.pauses.read([])).filter((w) => w.to === null || w.to > cutoff);
-    for (const w of this.windows) w.to ??= Date.now();
+    if (this.windows.some((w) => w.to === null)) {
+      for (const w of this.windows) w.to ??= Date.now();
+      await this.d.pauses.write(this.windows);
+    }
     this.rootIno = await this.d.local.rootInode();
     this.paused = paused;
     if (paused) await this.openPauseWindow();

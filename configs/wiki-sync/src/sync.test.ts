@@ -451,6 +451,25 @@ Deno.test("concurrent edits keep the newer on disk and the other as one conflict
   }
 });
 
+Deno.test("a pause window left open by a crash is closed once and stays closed across restarts", async () => {
+  const r = await rig();
+  await Deno.writeTextFile(
+    `${r.state}/pauses.json`,
+    JSON.stringify([{ from: Date.now() - 60_000, to: null }]),
+  );
+  const closedAt = async () => JSON.parse(await Deno.readTextFile(`${r.state}/pauses.json`))[0].to;
+  await r.start();
+  try {
+    const first = await closedAt();
+    assert(first !== null, "the open window was not closed on disk");
+    await new Promise((res) => setTimeout(res, 20));
+    await r.restart();
+    assertEquals(await closedAt(), first);
+  } finally {
+    await r.stop();
+  }
+});
+
 Deno.test("while paused nothing is written; afterwards local edits push and stale rewrites do not", async () => {
   const r = await rig();
   await write(r, "wiki/p.md", "v1");
