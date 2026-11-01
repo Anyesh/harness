@@ -272,6 +272,67 @@ new_item 17
 run_merge 17 >"$TMP_DIR/out" 2>&1
 assert "the next run clears a leftover temp worktree" '[[ -f "$CREW/items/17/merged" && ! -e $leftover ]] && no_leftover'
 
+HEAVY="$REPO_ROOT/configs/claude-code/bin/crew-heavy"
+HLOCK="$CREW/heavy.lock"
+export CREW_HEAVY_POLL=0.2
+
+new_item 18
+set_check "[[ ! -e '$HLOCK' ]]"
+run_merge 18 >"$TMP_DIR/out" 2>&1 || true
+assert "without heavy-slots check runs without the heavy slot" '[[ -f "$CREW/items/18/merged" && ! -e $HLOCK ]]'
+
+echo 1 >"$CREW/heavy-slots"
+new_item 19
+set_check "cut -f1,2 '$HLOCK/holder' >'$TMP_DIR/holder.snap'"
+run_merge 19 >"$TMP_DIR/out" 2>&1 || true
+assert "with heavy-slots check holds the slot as merge-<id> for the merge gate" '[[ -f "$CREW/items/19/merged" && $(<"$TMP_DIR/holder.snap") == "merge-19"$'"'"'\t'"'"'"merge gate" ]]'
+assert "the slot is free after a landed merge" '[[ ! -e $HLOCK ]]'
+
+new_item 20
+set_check "[[ -d '$HLOCK' ]] && echo held-then-failed; exit 1"
+refuses "a failing check under the heavy slot" 20 "held-then-failed"
+assert "the slot is free after a failed check" '[[ ! -e $HLOCK ]]'
+set_check 'exit 0'
+
+new_item 21
+(cd "$MAIN" && "$HEAVY" acquire 7 stack >/dev/null)
+before=$(git -C "$MAIN" rev-parse main)
+rc=0
+(cd "$(wt_of 21)" && CREW_HEAVY_MERGE_WAIT=1 exec "$CM" 21) >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a merge gives up when the slot stays held past its wait" '[[ $rc -ne 0 && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/21/merged" ]] && grep -q "held by: 7" "$TMP_DIR/out" && no_leftover'
+assert "giving up keeps the other holder's slot and frees the merge lock" '[[ $(cut -f1 "$HLOCK/holder") == 7 ]] && flock -n "$LOCK" true'
+
+run_merge 21 >"$TMP_DIR/out" 2>&1 &
+p21=$!
+sleep 1
+assert "a merge waits for the slot after its temporary merge" 'kill -0 "$p21" && [[ ! -e "$CREW/items/21/merged" ]]'
+(cd "$MAIN" && "$HEAVY" release 7 >/dev/null)
+rc=0
+wait "$p21" || rc=$?
+assert "the waiting merge lands once the slot is released and frees it" '[[ $rc -eq 0 && -f "$CREW/items/21/merged" && ! -e $HLOCK ]]'
+
+n=22
+for sig in HUP:129 TERM:143; do
+  want=${sig#*:} sig=${sig%:*}
+  new_item "$n"
+  command rm -f "$TMP_DIR/started"
+  set_check "touch '$TMP_DIR/started'; sleep 2"
+  before=$(git -C "$MAIN" rev-parse main)
+  (cd "$(wt_of "$n")" && CREW_HEAVY_MERGE_WAIT=5 exec "$CM" "$n") >"$TMP_DIR/out" 2>&1 &
+  pid=$!
+  for _ in $(seq 100); do
+    [[ -e $TMP_DIR/started ]] && break
+    sleep 0.1
+  done
+  kill -"$sig" "$pid"
+  rc=0
+  wait "$pid" || rc=$?
+  assert "$sig during check frees the slot and lands nothing" '[[ $rc -eq $want && ! -e $HLOCK && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/$n/merged" ]] && no_leftover'
+  n=$((n + 1))
+done
+set_check 'exit 0'
+command rm "$CREW/heavy-slots"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

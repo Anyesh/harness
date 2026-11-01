@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+bin=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # shellcheck source=crew-lib.sh
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+. "$bin/crew-lib.sh"
+heavy=$bin/crew-heavy
 
 die() {
   printf 'crew-merge: %s\n' "$*" >&2
@@ -17,6 +19,7 @@ g() { git -c gc.autoDetach=false "$@"; }
 }
 id=$1
 crew=$(crew_dir) || die "not inside a git repository"
+heavy_slots=$(crew_heavy_slots "$crew") || die "$crew/heavy-slots must contain 1, the only slot count supported"
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
 mkdir -p "$runs"
@@ -70,7 +73,14 @@ base=$(g -C "$target" rev-parse HEAD)
 [[ -x $crew/check ]] || die "no executable check at $crew/check"
 
 tmp=
+heavy_held=
+heavy_release() {
+  [[ -n $heavy_held ]] || return 0
+  heavy_held=
+  "$heavy" release "merge-$id" >&2 || echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
+}
 cleanup() {
+  heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
 }
 trap cleanup EXIT
@@ -86,8 +96,20 @@ unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
 for v in $(compgen -e); do
   if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
 done
+# heavy_held is set before acquire returns, so a HUP or TERM that lands as the
+# slot is taken still releases it; release refuses a slot someone else holds.
+if ((heavy_slots)); then
+  heavy_held=1
+  "$heavy" acquire "merge-$id" "merge gate" "${CREW_HEAVY_MERGE_WAIT:-10800}" {lock}>&- || {
+    heavy_held=
+    die "no heavy slot for the merge gate; $into unchanged"
+  }
+fi
 log=$runs/check-$id.log
-if ! (cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&-; then
+check_rc=0
+(cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&- || check_rc=$?
+heavy_release
+if ((check_rc)); then
   tail -n 20 "$log" >&2
   die "check failed on $branch merged into $into; $into unchanged (log: $log)"
 fi
