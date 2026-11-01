@@ -36,7 +36,7 @@ new_home() {
     : > "$home/.harness.env"
     [[ "$with_vault" == "vault" ]] && printf 'WIKI_VAULT=%s/vault\n' "$TMP_DIR" > "$home/.harness.env"
     local tool
-    for tool in cursor codex opencode sb cargo systemctl claude go; do
+    for tool in cursor codex opencode sb cargo systemctl launchctl loginctl claude go; do
         printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$tool" "$home" > "$home/.local/bin/$tool"
         chmod +x "$home/.local/bin/$tool"
     done
@@ -88,6 +88,7 @@ lite_out=$(harness "$LH" --no-plugins --no-memory) || true
 
 assert "lite: cargo never called" '! grep -q "^cargo" <<<"$(calls "$LH")"'
 assert "lite: systemctl never called" '! grep -q "^systemctl" <<<"$(calls "$LH")"'
+assert "lite: launchctl never loads second-brain" '! grep -q "^launchctl.*second-brain" <<<"$(calls "$LH")"'
 assert "lite: claude mcp add never registers second-brain" '! grep -q "mcp add.*second-brain" <<<"$(calls "$LH")"'
 assert "lite: no second-brain service file" '[[ ! -e "$LH/.config/systemd/user/second-brain.service" ]]'
 assert "lite: no vault created" '[[ ! -e "$LH/Obsidian" && ! -e "$TMP_DIR/vault" ]]'
@@ -171,7 +172,7 @@ assert "control: wiki skill and memory commands deployed" '[[ -d "$FH/.claude/sk
 assert "control: cursor rules and hooks carry memory" '[[ -f "$FH/.cursor/rules/second-brain.mdc" && -f "$FH/.cursor/rules/wiki-maintenance.mdc" ]] && grep -q wiki-nudge "$FH/.cursor/hooks.json"'
 assert "control: codex hooks and scripts carry memory" 'grep -q session-start-wiki "$FH/.codex/hooks.json" && [[ -x "$FH/.codex/hooks/session-start-wiki.sh" ]]'
 assert "control: codex and opencode register second-brain" 'grep -q "mcp_servers.second-brain" "$FH/.codex/config.toml" && grep -q second-brain "$FH/.config/opencode/opencode.json" && [[ -f "$FH/.config/opencode/plugins/harness-second-brain.js" ]]'
-assert "control: second-brain daemon path ran" 'grep -q "^systemctl" <<<"$(calls "$FH")"'
+assert "control: second-brain daemon path ran" 'grep -qE "^(systemctl --user enable second-brain\.service|launchctl bootstrap gui/[0-9]+ .*/com\.harness\.second-brain\.plist)" <<<"$(calls "$FH")"'
 
 echo ""
 echo "=== default output identity ==="
