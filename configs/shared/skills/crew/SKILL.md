@@ -45,7 +45,9 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 
 ## Workers
 
-The pool is `claude-profile names` plus `default`. Keep your own `${CLAUDE_PROFILE:-default}` for yourself and spread workers across the rest, at most two live workers per profile (or the number `rulings.md` sets), since workers on one profile share its usage limit.
+The pool is `claude-profile names` plus `default`, your own `${CLAUDE_PROFILE:-default}` included. Run at most five live workers per profile (or the number `rulings.md` sets), since workers on one profile share its usage limit. Fill the other profiles first, because yours also carries you, and when your profile nears its usage limit, close or replace the workers on it first.
+
+Your status line and Claude's usage warnings never reach your context, so once per sweep read your own pane with `herdr agent read "$slug-lead" --source visible --lines 8` and check the session and week figures there.
 
 To spawn one worker:
 
