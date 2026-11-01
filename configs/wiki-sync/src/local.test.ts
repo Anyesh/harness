@@ -1,5 +1,8 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { isGenerated, isIgnoredPath, LocalStore, RootMissing } from "./local.ts";
+import { tempDirFoldsCase } from "./testing.ts";
+
+const foldsCase = await tempDirFoldsCase();
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -30,7 +33,7 @@ Deno.test("read hashes the file and reuses the hash when the stat matches", asyn
   assertEquals((await store.read("wiki/missing.md")).kind, "absent");
 });
 
-Deno.test("existence uses exact names, and case variants are listed", async () => {
+Deno.test("existence uses exact names, and case variants are listed", { ignore: foldsCase }, async () => {
   const { root, store } = await vault();
   await Deno.writeTextFile(`${root}/wiki/foo.md`, "a");
   await Deno.writeTextFile(`${root}/wiki/Foo.md`, "b");

@@ -145,7 +145,7 @@ wiki_sync_stage() {
   mkdir -p "$home/state" "$home/recovered" "$home/snapshots"
   rm -rf "$home/src.new"
   cp -R "$WIKI_SYNC_SRC/src" "$home/src.new"
-  rm -f "$home/src.new/"*.test.ts "$home/src.new/memory_remote.ts"
+  rm -f "$home/src.new/"*.test.ts "$home/src.new/memory_remote.ts" "$home/src.new/testing.ts"
   rm -rf "$home/src"
   mv "$home/src.new" "$home/src"
   for f in run.sh watchdog.sh reset.sh service.sh; do

@@ -152,7 +152,7 @@ assert "linux: linger enabled" 'grep -q "loginctl enable-linger" "$H/calls.log"'
 assert "linux: no launchctl calls" '! grep -q launchctl "$H/calls.log"'
 assert "linux: first start took a snapshot of the wiki" 'ls "$INSTALL"/snapshots/first-start-*.tar.gz >/dev/null 2>&1 && tar -tzf "$INSTALL"/snapshots/first-start-*.tar.gz | grep -q "wiki/projects/a.md"'
 assert "linux: source staged without tests, env records the vault and wiki dir" \
-  '[[ -f $INSTALL/src/main.ts && ! -e $INSTALL/src/sync.test.ts && -x $INSTALL/run.sh ]] && grep -q "WIKI_SYNC_DIR=$H/vault/wiki" "$INSTALL/env"'
+  '[[ -f $INSTALL/src/main.ts && ! -e $INSTALL/src/sync.test.ts && ! -e $INSTALL/src/testing.ts && -x $INSTALL/run.sh ]] && grep -q "WIKI_SYNC_DIR=$H/vault/wiki" "$INSTALL/env"'
 assert "linux: dependencies cached with a frozen lockfile" 'grep -q "deno install --frozen --entrypoint main.ts" "$H/calls.log"'
 assert "linux: stamp written" '[[ -s $INSTALL/stamp ]]'
 
