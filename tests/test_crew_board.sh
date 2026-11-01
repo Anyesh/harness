@@ -38,7 +38,7 @@ cb() {
   RC=0
   OUT=$(cd "$REPO" && "$CB" "$@" 2>&1) || RC=$?
 }
-field() { awk -F'\t' -v id="$1" -v n="$2" '$1 == id {print $n}' "$BOARD"; }
+field() { awk -F'\t' -v id="$1" -v n="$2" '($1 "") == id "" {print $n}' "$BOARD"; }
 nf() { awk -F'\t' -v id="$1" '$1 == id {print NF}' "$BOARD"; }
 unchanged() { cmp -s "$BOARD" "$TMP_DIR/before"; }
 snap() { command cp "$BOARD" "$TMP_DIR/before"; }
@@ -74,6 +74,18 @@ cb set 1 updated=123 deliverable="new words" deps=2 into=dev
 assert "set takes an explicit updated, deliverable, deps and into" '[[ $RC -eq 0 && $(field 1 6) == 123 && $(field 1 7) == "new words" && $(field 1 8) == 2 && $(field 1 5) == dev ]]'
 cb set 1 owner= deps=
 assert "set clears a field given an empty value" '[[ $RC -eq 0 && -z $(field 1 3) && -z $(field 1 8) && $(nf 1) -eq 8 ]]'
+
+cb set 1 updated=5
+t0=$(date +%s)
+cb set 1
+assert "set with only an id stamps updated now" '[[ $RC -eq 0 ]] && (($(field 1 6) >= t0))'
+
+snap
+cb set 01 status=done
+assert "an id is matched as text, so 01 is not row 1" '[[ $RC -ne 0 ]] && unchanged'
+cb add 01 main "zero one"
+assert "add accepts 01 beside an existing 1" '[[ $RC -eq 0 && $(field 01 7) == "zero one" && $(field 1 7) == "new words" ]]'
+command sed -i '/^01	/d' "$BOARD"
 
 snap
 cb set 9 status=done

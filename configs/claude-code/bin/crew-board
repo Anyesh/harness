@@ -34,7 +34,7 @@ rows_of() {
     echo 0
     return
   }
-  ID=$1 awk -F'\t' '$1 == ENVIRON["ID"] { n++ } END { print n + 0 }' "$board"
+  ID=$1 awk -F'\t' '($1 "") == ENVIRON["ID"] "" { n++ } END { print n + 0 }' "$board"
 }
 
 rewrite() {
@@ -68,7 +68,7 @@ add() {
 }
 
 set_fields() {
-  (($# >= 2)) || usage
+  (($# >= 1)) || usage
   local id=$1 arg name value
   shift
   export CREW_BOARD_SET_updated=$EPOCHSECONDS
@@ -94,7 +94,7 @@ set_fields() {
   # shellcheck disable=SC2016
   rewrite '
     function put(i, name) { if (("CREW_BOARD_SET_" name) in ENVIRON) $i = ENVIRON["CREW_BOARD_SET_" name] }
-    $1 == ENVIRON["CREW_BOARD_ID"] {
+    ($1 "") == ENVIRON["CREW_BOARD_ID"] "" {
       for (i = NF + 1; i <= 8; i++) $i = ""
       put(2, "status"); put(3, "owner"); put(5, "into"); put(6, "updated"); put(7, "deliverable"); put(8, "deps")
     }
