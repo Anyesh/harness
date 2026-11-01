@@ -6,6 +6,7 @@ HERDR_VERSION="0.9.5"
 HERDR_GO_VERSION="1.27.2"
 HERDR_RUST_VERSION="1.96.1"
 WSM_SLUG="razajamil/herdr-plugin-workspace-manager"
+HERDR_RETIRED_PLUGINS=(usagebar)
 
 herdr_check() {
   local ok=0 tool
@@ -31,6 +32,7 @@ herdr_install() {
   herdr_ensure_go || rc=1
   herdr_ensure_rust || rc=1
   herdr_deploy_plugin_configs || rc=1
+  herdr_retire_plugins || rc=1
   herdr_install_plugins || rc=1
   herdr_deploy_config || rc=1
   return $rc
@@ -171,8 +173,8 @@ herdr_go_root() {
   printf '%s\n' "$HOME/.local/share/harness/go"
 }
 
-# usagebar's build falls back to an unchecksummed binary download when it
-# cannot run go build, so Go must be present before the plugin installs.
+# A Go plugin's build may fall back to an unchecksummed binary download when it
+# cannot run go build, so Go must be present before plugins install.
 herdr_system_go_ok() {
   local version
   version=$(go env GOVERSION 2>/dev/null) || return 1
@@ -192,8 +194,22 @@ herdr_system_rust_ok() {
   herdr_version_at_least "$HERDR_RUST_VERSION" "${version%% *}"
 }
 
+herdr_plugins_need() {
+  local tool="$1" tsv="$2" needs
+  local -a tools
+  while IFS=$'\t' read -r _ _ needs; do
+    IFS=, read -ra tools <<<"$needs"
+    [[ " ${tools[*]} " == *" $tool "* ]] && return 0
+  done < <(herdr_read_plugins "$tsv")
+  return 1
+}
+
 herdr_ensure_go() {
-  local root label="go $HERDR_GO_VERSION" platform
+  local tsv="${1:-$REPO_ROOT/configs/herdr/plugins.tsv}" root label="go $HERDR_GO_VERSION" platform
+  if ! herdr_plugins_need go "$tsv"; then
+    log_skip "go" "no plugin needs it"
+    return 0
+  fi
   root=$(herdr_go_root)
   if herdr_system_go_ok; then
     log_skip "go" "go $HERDR_GO_VERSION or newer already on PATH"
@@ -481,6 +497,26 @@ herdr_install_plugins() {
   while IFS=$'\t' read -r slug ref needs <&3; do
     herdr_install_plugin "$bin" "$slug" "$ref" "$needs" || rc=1
   done 3< <(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")
+  return $rc
+}
+
+herdr_retire_plugins() {
+  local bin id rc=0
+  [[ "${NO_PLUGINS:-false}" == "true" ]] && return 0
+  bin=$(herdr_bin)
+  [[ -n "$bin" ]] || return 0
+  for id in "${HERDR_RETIRED_PLUGINS[@]}"; do
+    "$bin" plugin list --json 2>/dev/null |
+      jq -e --arg id "$id" 'any(.result.plugins[]?; .plugin_id == $id)' >/dev/null 2>&1 || continue
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[dry-run] would uninstall: herdr plugin $id"
+    elif "$bin" plugin uninstall "$id" >/dev/null; then
+      log_info "uninstalled retired herdr plugin $id"
+    else
+      log_error "herdr plugin $id was not uninstalled"
+      rc=1
+    fi
+  done
   return $rc
 }
 

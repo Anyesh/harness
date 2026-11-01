@@ -190,8 +190,10 @@ opencode      opencode: AGENTS.md, commands, skills via ~/.agents/skills
 herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               commits in configs/herdr/plugins.tsv and their configs; Go
               and Rust (sha256-pinned, into ~/.local/share/harness) for
-              plugin builds unless PATH has the pinned version or newer;
-              install fails when a plugin declares a newer one, and
+              plugin builds unless PATH has the pinned version or newer
+              (Go only while a plugin lists it); install fails when a
+              plugin declares a newer one, retired plugins are
+              uninstalled, and
               scripts/pin-toolchain.sh rust|go <version> moves a pin. A
               C linker (cc) must come from the system. Never restarts a
               running herdr server. godview (our own, prefix+alt+o) shows

@@ -49,6 +49,7 @@ case "$1" in
   --version) echo "herdr 0.9.3" ;;
   plugin)
     [[ "$2" == "list" ]] && cat "$PLUGIN_JSON"
+    [[ "$2" == "uninstall" && -n "${FAIL_UNINSTALL:-}" ]] && exit 1
     exit 0
     ;;
   config)
@@ -69,7 +70,7 @@ plugin_json() {
 echo "=== plugins.tsv ==="
 
 rows=$(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")
-assert "lists eight plugins" '[[ $(wc -l <<<"$rows") -eq 8 ]]'
+assert "lists seven plugins" '[[ $(wc -l <<<"$rows") -eq 7 ]]'
 assert "herdr-bar downloads its release with curl" \
   '[[ $(awk -F"\t" "\$1 == \"jeffarese/herdr-bar\" { print \$3 }" <<<"$rows") == curl ]]'
 assert "every third-party ref is a full 40-char sha" \
@@ -77,7 +78,7 @@ assert "every third-party ref is a full 40-char sha" \
 assert "godview, our own, follows main" \
   '[[ $(awk -F"\t" "\$1 == \"Anyesh/godview\" { print \$2 }" <<<"$rows") == main ]]'
 assert "every row has three fields" \
-  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 8 ]]'
+  '[[ $(awk -F"\t" "NF == 3" <<<"$rows" | wc -l) -eq 7 ]]'
 for slug in Anyesh/godview razajamil/herdr-plugin-workspace-manager; do
   assert "$slug builds with cargo and links with cc" \
     '[[ $(awk -F"\t" -v s="$slug" "\$1 == s { print \$3 }" <<<"$rows") == cargo,cc ]]'
@@ -429,6 +430,56 @@ fi
 out=$(PATH="$CHECK_BIN:$SYS_RUST" herdr_check 2>&1) || true
 assert "check with a good system rust does not ask for xz" '! grep -q "xz not found" <<<"$out"'
 
+echo "=== go needs ==="
+
+NOGO="$TMP/nogo.tsv"
+WITHGO="$TMP/withgo.tsv"
+printf 'a/b\tmain\tcargo,cc\n' >"$NOGO"
+printf 'a/b\tmain\tcargo,go\n' >"$WITHGO"
+out=$(PATH="$ORIG_PATH" herdr_ensure_go "$NOGO" 2>&1)
+assert "go is skipped when no plugin needs it" 'grep -q "no plugin needs it" <<<"$out"'
+printf '#!/bin/sh\n[ "$1 $2" = "env GOVERSION" ] && echo go%s\n' "$HERDR_GO_VERSION" >"$FAKE_BIN/go"
+chmod +x "$FAKE_BIN/go"
+out=$(PATH="$FAKE_BIN:$ORIG_PATH" herdr_ensure_go "$WITHGO" 2>&1)
+assert "go is provided when a plugin needs it" 'grep -q "already on PATH" <<<"$out"'
+rm -f "$FAKE_BIN/go"
+
+echo "=== retire ==="
+
+printf '{"result":{"plugins":[{"plugin_id":"usagebar"},{"plugin_id":"godview"}]}}\n' >"$PLUGIN_JSON"
+: >"$CALLS"
+rc=0
+herdr_retire_plugins >/dev/null 2>&1 || rc=$?
+assert "an installed retired plugin is uninstalled" '[[ $rc -eq 0 ]] && grep -qx "plugin uninstall usagebar" "$CALLS"'
+assert "a plugin that is not retired stays" '! grep -q "plugin uninstall godview" "$CALLS"'
+
+: >"$CALLS"
+rc=0
+FAIL_UNINSTALL=1 herdr_retire_plugins >/dev/null 2>&1 || rc=$?
+assert "a failed uninstall fails the step" '[[ $rc -ne 0 ]]'
+
+: >"$CALLS"
+DRY_RUN=true
+out=$(herdr_retire_plugins 2>&1)
+DRY_RUN=false
+assert "dry run only names the retired plugin" \
+  '! grep -q "plugin uninstall" "$CALLS" && grep -q "\[dry-run\] would uninstall: herdr plugin usagebar" <<<"$out"'
+
+: >"$CALLS"
+NO_PLUGINS=true herdr_retire_plugins >/dev/null 2>&1
+assert "--no-plugins leaves retired plugins alone" '! grep -q "^plugin" "$CALLS"'
+
+printf '{"result":{"plugins":[{"plugin_id":"godview"}]}}\n' >"$PLUGIN_JSON"
+: >"$CALLS"
+herdr_retire_plugins >/dev/null 2>&1
+assert "a retired plugin that is not installed is skipped" '! grep -q "plugin uninstall" "$CALLS"'
+
+echo '{}' >"$PLUGIN_JSON"
+: >"$CALLS"
+rc=0
+herdr_retire_plugins >/dev/null 2>&1 || rc=$?
+assert "a reply without plugins uninstalls nothing" '[[ $rc -eq 0 ]] && ! grep -q "plugin uninstall" "$CALLS"'
+
 echo "=== config ==="
 
 mkdir -p "$TMP/repo/configs/herdr"
@@ -452,6 +503,7 @@ assert "dry run succeeds" '[[ $rc -eq 0 ]]'
 assert "dry run without system rust lists rust" 'grep -qF "[dry-run] would install rust $HERDR_RUST_VERSION" <<<"$out"'
 assert "dry run writes nothing under HOME" '[[ "$before" == "$after" && ! -e "$HOME/.config" ]]'
 assert "dry run calls no installer" '! grep -q "plugin install" "$CALLS"'
+assert "dry run uninstalls nothing" '! grep -q "plugin uninstall" "$CALLS"'
 assert "dry run lists the binary" 'grep -q "\[dry-run\] would install herdr 0.9.5" <<<"$out"'
 assert "dry run lists the config" 'grep -q "\[dry-run\] would deploy: herdr config.toml" <<<"$out"'
 while IFS=$'\t' read -r slug _ _; do
