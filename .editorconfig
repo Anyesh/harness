@@ -1,0 +1,12 @@
+root = true
+
+[*.sh]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+space_redirects = false
+binary_next_line = false
+function_next_line = false
+
+[{configs/claude-code/scripts/statusline.sh,configs/shared/hooks/cleanup-nudge.sh,configs/shared/hooks/pre-edit-code-quality.sh,configs/shared/hooks/scope-drift-detector.sh,configs/shared/hooks/session-end-ingest.sh,configs/shared/hooks/session-start-wiki.sh,configs/shared/hooks/stop-sloppiness-guard.sh,configs/shared/hooks/stop-wiki-enforce.sh,configs/shared/hooks/wiki-index-build.sh,configs/shared/hooks/wiki-nudge.sh,configs/shared/hooks/worktree-sweep.sh,modules/lib.sh,tests/test_claude_overlay.sh,tests/test_harness_mods.sh,tests/test_hook_fallback_rules.sh,tests/test_integration.sh,tests/test_manifest_sync.sh,tests/test_no_memory.sh,tests/test_rules_lint.sh,tests/test_settings_reconcile.sh,tests/test_work_mode.sh}]
+indent_size = 4
