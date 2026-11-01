@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Usage: crew-board show
+#        crew-board add <id> <into> <deliverable> [deps]
+#        crew-board set <id> [status=|owner=|into=|deliverable=|deps=|updated=]...
+#
+# The lead's way to edit board.tsv. add writes an open row on branch w/<id>
+# updated now; set stamps updated with now unless given one. The row it writes
+# always has all 8 fields, every other row is copied as it is, and the board
+# is replaced by rename, so a failed write leaves it unchanged.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-board: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2,4s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+crew=$(crew_dir) || die "not inside a git repository"
+board=$crew/board.tsv
+
+no_tabs() {
+  [[ $2 != *[$'\t\n']* ]] || die "$1 holds a tab or newline"
+}
+
+rows_of() {
+  [[ -f $board ]] || {
+    echo 0
+    return
+  }
+  ID=$1 awk -F'\t' '$1 == ENVIRON["ID"] { n++ } END { print n + 0 }' "$board"
+}
+
+rewrite() {
+  local t src=$board
+  [[ -f $src ]] || src=/dev/null
+  t=$(mktemp "$crew/.board.XXXXXX") || die "cannot write a temp file in $crew"
+  if ! awk -F'\t' -v OFS='\t' "$1" "$src" >"$t" || ! mv -f "$t" "$board"; then
+    rm -f "$t"
+    die "cannot write $board"
+  fi
+}
+
+show() {
+  (($# == 0)) || usage
+  printf 'id\tstatus\towner\tbranch\tinto\tupdated\tdeliverable\tdeps\n'
+  [[ ! -f $board ]] || cat "$board"
+}
+
+add() {
+  (($# == 3 || $# == 4)) || usage
+  local id=$1 into=$2 deliverable=$3 deps=${4:-}
+  [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "an item id is letters, digits, dot, underscore and dash: $id"
+  no_tabs into "$into"
+  no_tabs deliverable "$deliverable"
+  no_tabs deps "$deps"
+  [[ -n $into ]] || die "into is empty"
+  [[ -n $deliverable ]] || die "deliverable is empty"
+  (($(rows_of "$id") == 0)) || die "item $id is already on the board"
+  export CREW_BOARD_ROW="$id"$'\topen\t\t'"w/$id"$'\t'"$into"$'\t'"$EPOCHSECONDS"$'\t'"$deliverable"$'\t'"$deps"
+  rewrite '{ print } END { print ENVIRON["CREW_BOARD_ROW"] }'
+}
+
+set_fields() {
+  (($# >= 2)) || usage
+  local id=$1 arg name value
+  shift
+  export CREW_BOARD_SET_updated=$EPOCHSECONDS
+  for arg; do
+    [[ $arg == *=* ]] || die "expected field=value: $arg"
+    name=${arg%%=*}
+    value=${arg#*=}
+    no_tabs "$name" "$value"
+    case $name in
+    status) [[ $value =~ ^(open|assigned|done|blocked)$ ]] || die "status is open, assigned, done or blocked: $value" ;;
+    updated) [[ $value =~ ^[0-9]+$ ]] || die "updated is epoch seconds: $value" ;;
+    owner | into | deliverable | deps) ;;
+    *) die "set takes status, owner, into, deliverable, deps and updated, not $name" ;;
+    esac
+    export "CREW_BOARD_SET_$name=$value"
+  done
+  case $(rows_of "$id") in
+  0) die "item $id is not on the board" ;;
+  1) ;;
+  *) die "item $id has more than one row; fix the board by hand" ;;
+  esac
+  export CREW_BOARD_ID=$id
+  # shellcheck disable=SC2016
+  rewrite '
+    function put(i, name) { if (("CREW_BOARD_SET_" name) in ENVIRON) $i = ENVIRON["CREW_BOARD_SET_" name] }
+    $1 == ENVIRON["CREW_BOARD_ID"] {
+      for (i = NF + 1; i <= 8; i++) $i = ""
+      put(2, "status"); put(3, "owner"); put(5, "into"); put(6, "updated"); put(7, "deliverable"); put(8, "deps")
+    }
+    { print }
+  '
+}
+
+cmd=${1:-}
+(($# == 0)) || shift
+case $cmd in
+show) show "$@" ;;
+add) add "$@" ;;
+set) set_fields "$@" ;;
+*) usage ;;
+esac
