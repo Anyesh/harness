@@ -81,7 +81,7 @@ To spawn one worker:
 
    If `herdr agent list` then shows the pane with an empty `.name // ""`, rename it.
 5. Only now run `crew-board set <id> status=assigned owner=$slug-wN`, which also sets `updated` to now.
-6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. Say that the user asked for workflows only when they did.
+6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. For a new item write "create your worktree at `$main/.claude/worktrees/w-<id>`", because "your worktree is <path>" reads as an existing one, which `references/worker.md` has the worker report as blocked. Say that the user asked for workflows only when they did.
 
 Address workers only by name: `send-keys` and `agent prompt` take the name. To close a worker's tab, take the `tab_id` of the `herdr tab list` entry labelled `$slug-wN` at that moment, and close nothing unless exactly one tab carries that label, noting it in `rulings.md` instead.
 
