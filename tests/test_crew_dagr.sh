@@ -197,6 +197,7 @@ report 4 done $((U - 50))
 report 5 question $((NOW - 50))
 report 6 blocked $((NOW - 50))
 report 7 rate-limited $((NOW - 50))
+report 11 handoff $((NOW - 40))
 merged 9 1111111111111111111111111111111111111111
 agents 'x-w2 wB:p2' 'x-w3 wB:p3' 'x-w4 wB:p4' 'x-w5 wB:p5' 'x-w6 wB:p6' 'x-w7 wB:p7' 'x-w11 wB:p11' 'x-lead wB:p0'
 run_dagr
@@ -218,6 +219,7 @@ assert "done without merged is reported" '[[ $(tq 4 ".state, .attempts[0].outcom
 assert "question is blocked on the lead with a working attempt" '[[ $(tq 5 ".state, .unblock, .attempts[0].state" | tr "\n" " ") == "blocked lead working " ]]'
 assert "a blocked report is blocked on the lead" '[[ $(tq 6 ".state, .unblock" | tr "\n" " ") == "blocked lead " ]]'
 assert "rate-limited loses the attempt and blocks on the lead" '[[ $(tq 7 ".state, .unblock, .attempts[0].state" | tr "\n" " ") == "blocked lead lost " ]]'
+assert "a handoff loses the attempt at the report's time and blocks on the lead" '[[ $(tq 11 ".state, .unblock, .attempts[0].state, .attempts[0].ended_at" | tr "\n" " ") == "blocked lead lost $(date -u -d "@$((NOW - 40))" +%FT%TZ) " ]]'
 assert "an owner herdr does not list loses the attempt" '[[ $(tq 8 ".state, .unblock, .attempts[0].state" | tr "\n" " ") == "blocked lead lost " ]]'
 assert "a done row is done and verified by its merge" '[[ $(tq 9 ".state, .attempts[0].state, .attempts[0].outcome.evidence" | tr "\n" " ") == "done done verified " ]]'
 assert "a blocked row waits on the user" '[[ $(tq 10 ".state, .unblock, .attempts[0].state" | tr "\n" " ") == "blocked user lost " ]]'

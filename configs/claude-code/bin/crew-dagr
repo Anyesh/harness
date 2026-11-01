@@ -117,7 +117,7 @@ def task($ids):
   | (if $n > 0 then $agents[$list[-1].actor // ""] else null end) as $pane
   | ($f.status == "done" or ($f.status == "assigned" and $rs == "done")) as $done
   | (if $done then "done"
-     elif $rs == "rate-limited" or $pane == null then "lost"
+     elif $rs == "rate-limited" or $rs == "handoff" or $pane == null then "lost"
      else "working" end) as $last
   | [range($n) as $i
      | $list[$i] as $a
@@ -133,7 +133,7 @@ def task($ids):
                      evidence: (if $f.merged then "verified" else "reported" end),
                      receipt: (if $f.merged then "merged \($f.merged.sha[:12]) into \($f.merged.into)" else null end)} | clean)}
        elif $last == "lost" then
-         {state: "lost", ended_at: (later(if $rs == "rate-limited" then $f.report.mtime else $now end; $a.start) | iso)}
+         {state: "lost", ended_at: (later(if $rs == "rate-limited" or $rs == "handoff" then $f.report.mtime else $now end; $a.start) | iso)}
        else
          {state: "working",
           locator: {pane: $pane, agent: $a.actor},
