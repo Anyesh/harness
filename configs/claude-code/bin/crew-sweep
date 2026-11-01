@@ -9,7 +9,16 @@
 #   ALL-DONE                        every board row is done or blocked
 #   ERROR <step>: <message>         a failed crew-role or herdr call, retried
 #   CHANGED <path> / REMOVED <path> item files that differ from the last sweep
-#   TIMEOUT                         nothing changed within the wait
+#   TIMEOUT                         nothing changed within the wait and no resource
+#                                   breach ended it
+#   RESOURCE <line>                 each breach crew-resources (beside this script)
+#                                   prints, checked before the wait, every
+#                                   CREW_RESOURCE_EVERY seconds (default 30) and at
+#                                   the end; one whose key (disk <mount>, plus
+#                                   disk <mount> critical, memory or load) has no
+#                                   alert in .sweep-resources from the last
+#                                   CREW_RESOURCE_HOLD seconds (default 600) ends the wait
+#   RESOURCE failed: <message>      crew-resources failed; this never ends the wait
 #   GONE <owner>                    an assigned owner herdr no longer lists
 #   WORKER <owner> item <id> <herdr status>[ MERGING|IDLE][ QUIET][ DIALOG]
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
@@ -27,8 +36,9 @@
 #                                   executable
 set -uo pipefail
 
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # shellcheck source=crew-lib.sh
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+. "$here/crew-lib.sh"
 
 limit=${1:-900}
 [[ $limit =~ ^[0-9]+$ ]] || {
@@ -42,6 +52,8 @@ publish_every=${CREW_DAGR_INTERVAL:-60}
 quiet=${CREW_QUIET:-3600}
 reflect_every=${CREW_REFLECT_EVERY:-2700}
 check_timeout=${CREW_SWEEP_CHECK_TIMEOUT:-30}
+resource_every=${CREW_RESOURCE_EVERY:-30}
+resource_hold=${CREW_RESOURCE_HOLD:-600}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
@@ -50,6 +62,7 @@ crew=$(crew_dir) || {
 main=$(crew_main)
 board="$crew/board.tsv"
 seen="$crew/.sweep-seen"
+alerts="$crew/.sweep-resources"
 
 role_once() {
   local out err rc
@@ -303,6 +316,81 @@ run_sweep_check() {
   fi
 }
 
+declare -A alerted
+load_alerts() {
+  local key t
+  [[ -f $alerts ]] || return 0
+  while IFS=$'\t' read -r key t; do
+    if [[ -n $key && $t =~ ^[0-9]+$ ]]; then alerted[$key]=$t; fi
+  done <"$alerts"
+}
+
+alerted_recently() {
+  local t=${alerted[$1]:-}
+  [[ -n $t ]] && ((EPOCHSECONDS - t < resource_hold))
+}
+
+save_alerts() {
+  local key
+  for key in "${!alerted[@]}"; do
+    if alerted_recently "$key"; then printf '%s\t%s\n' "$key" "${alerted[$key]}"; fi
+  done >"$alerts.tmp"
+  mv -f "$alerts.tmp" "$alerts"
+}
+
+resource_keys() {
+  local disk_re='^disk (.+) [0-9]+ GB free(, critical)? \('
+  case $1 in
+  memory\ *) keys=(memory) ;;
+  load\ *) keys=(load) ;;
+  *)
+    keys=()
+    if [[ $1 =~ $disk_re ]]; then
+      keys=("disk ${BASH_REMATCH[1]}")
+      [[ -z ${BASH_REMATCH[2]} ]] || keys+=("disk ${BASH_REMATCH[1]} critical")
+    fi
+    ;;
+  esac
+}
+
+# A breach ends the wait when any of its keys has no recent alert; it then
+# counts as alerted for all of them, so a falling disk wakes the lead once when
+# it turns critical and not again when it recovers to merely low.
+resource_lines=()
+resource_woke=0
+check_resources() {
+  local out err rc line key fresh keys
+  err=$(mktemp)
+  out=$(cd "$main" && "$here/crew-resources" 2>"$err")
+  rc=$?
+  resource_lines=()
+  while IFS= read -r line; do
+    [[ -n $line ]] || continue
+    resource_lines+=("$line")
+    resource_keys "$line"
+    fresh=0
+    for key in "${keys[@]}"; do alerted_recently "$key" || fresh=1; done
+    if ((fresh)); then
+      for key in "${keys[@]}"; do alerted[$key]=$EPOCHSECONDS; done
+      resource_woke=1
+    fi
+  done <<<"$out"
+  if ((rc != 0)); then
+    if [[ -s $err ]]; then
+      while IFS= read -r line; do resource_lines+=("failed: ${line#crew-resources: }"); done <"$err"
+    else
+      resource_lines+=("failed: crew-resources exited $rc")
+    fi
+  fi
+  rm -f "$err"
+  resources_at=$SECONDS
+}
+
+report_resources() {
+  local line
+  for line in "${resource_lines[@]}"; do echo "RESOURCE $line"; done
+}
+
 publish() {
   timeout 30 crew-dagr >/dev/null 2>&1 || true
   next_publish=$((SECONDS + publish_every))
@@ -315,17 +403,21 @@ if all_done; then
   exit 0
 fi
 
+load_alerts
+check_resources
 previous=$(cat "$seen" 2>/dev/null)
 current=$(snapshot)
 deadline=$((SECONDS + limit))
-while [[ $current == "$previous" ]] && ((SECONDS < deadline)); do
+while [[ $current == "$previous" ]] && ((! resource_woke && SECONDS < deadline)); do
   sleep 1
   ((SECONDS >= next_publish)) && publish
+  ((SECONDS >= resources_at + resource_every)) && check_resources
   current=$(snapshot)
 done
+((resource_woke || SECONDS == resources_at)) || check_resources
 
 if [[ $current == "$previous" ]]; then
-  echo TIMEOUT
+  ((resource_woke)) || echo TIMEOUT
 else
   awk -F'\t' '
     NR == FNR { if ($0 != "") old[$1] = $0; next }
@@ -335,6 +427,7 @@ else
   ' <(printf '%s\n' "$previous") <(printf '%s\n' "$current") | LC_ALL=C sort
 fi
 
+report_resources
 report_workers
 report_order
 report_reflect
@@ -346,4 +439,5 @@ else
   : >"$seen.tmp"
 fi
 mv -f "$seen.tmp" "$seen"
+save_alerts
 publish

@@ -38,6 +38,7 @@ trap cleanup EXIT
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_SWEEP_RETRY_WAIT=0.05
 export CREW_QUIET=1000000
+export CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000
 export FAKE_STATE="$TMP_DIR/state"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_STATE" "$FAKE_BIN"
@@ -539,6 +540,67 @@ assert "a sweep-check that is not executable is named" 'has "CHECK failed: sweep
 rm "$CREW/sweep-check"
 sweep 0
 assert "no sweep-check prints no CHECK line" '! has_re "^CHECK"'
+
+echo "resources"
+rm -rf "$CREW/items" "$CREW/.sweep-seen" "$CREW/.sweep-resources"
+mkdir -p "$CREW/items"
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
+CREW_MEM_MIN_MB=999999999 sweep 30
+assert "a breach on a first sweep ends the wait at once without TIMEOUT" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^RESOURCE memory [0-9]+ MB available$"'
+assert ".sweep-resources records each key with when it was alerted" 'grep -qE "^memory	[0-9]+$" "$CREW/.sweep-resources"'
+CREW_MEM_MIN_MB=999999999 sweep 2
+assert "a breach alerted within the hold waits out the wait and is still printed" '[[ $ELAPSED -ge 2000 ]] && has TIMEOUT && has_re "^RESOURCE memory "'
+sweep 0
+assert "a cleared breach prints no RESOURCE line" '! has_re "^RESOURCE"'
+CREW_MEM_MIN_MB=999999999 sweep 2
+assert "a breach that clears and returns within the hold does not end the wait" '[[ $ELAPSED -ge 2000 ]] && has TIMEOUT'
+sleep 1
+CREW_MEM_MIN_MB=999999999 CREW_RESOURCE_HOLD=1 sweep 30
+assert "a breach that persists past the hold ends the wait again" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT'
+CREW_DISK_MIN_GB=999999 sweep 0
+assert "a disk under its threshold prints a RESOURCE disk line" 'has_re "^RESOURCE disk .+ [0-9]+ GB free, critical \(.+\)$"'
+printf 'gone\t1\n' >>"$CREW/.sweep-resources"
+sweep 0
+assert "records older than the hold are dropped" '! grep -q "^gone" "$CREW/.sweep-resources"'
+
+REAL_SWEEP=$SWEEP
+mkdir -p "$TMP_DIR/sweepcopy"
+cp "$SWEEP" "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh" "$TMP_DIR/sweepcopy/"
+SWEEP="$TMP_DIR/sweepcopy/crew-sweep"
+# Fake crew-resources beside the copied sweep: prints $FAKE_STATE/resources,
+# and with resources_err present writes that to stderr and exits 1.
+cat >"$TMP_DIR/sweepcopy/crew-resources" <<'EOF'
+#!/usr/bin/env bash
+cat "$FAKE_STATE/resources" 2>/dev/null
+if [[ -f $FAKE_STATE/resources_err ]]; then
+  cat "$FAKE_STATE/resources_err" >&2
+  exit 1
+fi
+EOF
+chmod +x "$TMP_DIR/sweepcopy/crew-resources"
+rm -f "$CREW/.sweep-resources"
+: >"$FAKE_STATE/resources"
+(sleep 1.5 && echo "memory 10 MB available" >"$FAKE_STATE/resources.tmp" && mv "$FAKE_STATE/resources.tmp" "$FAKE_STATE/resources") &
+CREW_RESOURCE_EVERY=1 sweep 10
+assert "a breach that starts during the wait ends it" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "RESOURCE memory 10 MB available"'
+echo "disk /Volumes/My Disk 9 GB free (/w)" >"$FAKE_STATE/resources"
+sweep 0
+sweep 1
+assert "a low disk alerted within the hold does not end the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "RESOURCE disk /Volumes/My Disk 9 GB free (/w)"'
+echo "disk /Volumes/My Disk 3 GB free, critical (/w)" >"$FAKE_STATE/resources"
+sweep 10
+assert "a disk falling to critical ends the wait at once" '[[ $ELAPSED -lt 3000 ]] && ! has TIMEOUT && has "RESOURCE disk /Volumes/My Disk 3 GB free, critical (/w)"'
+echo "disk /Volumes/My Disk 6 GB free (/w)" >"$FAKE_STATE/resources"
+sweep 1
+assert "a critical disk recovering to low within the hold does not end the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+: >"$FAKE_STATE/resources"
+echo "crew-resources: df /x: Stale file handle" >"$FAKE_STATE/resources_err"
+sweep 1
+assert "a failing crew-resources prints RESOURCE failed and never ends the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "RESOURCE failed: df /x: Stale file handle"'
+rm "$FAKE_STATE/resources_err"
+SWEEP=$REAL_SWEEP
+rm -f "$CREW/.sweep-resources"
 
 echo "worker role"
 set_role worker
