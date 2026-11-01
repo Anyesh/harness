@@ -36,9 +36,14 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 - `brief.md`: what workers in this repo need beyond `references/worker.md`, such as test commands, build paths that must not depend on the checkout location and what not to touch, with the lessons from reflection under `## Lessons`.
 - `check`: an executable gate that `crew-merge` runs in a temporary merge of the item into its target. Write it before the first assignment.
 - `sweep-check`: an optional executable that `crew-sweep` runs in the main checkout after each wait, for checks that should run while work is under way (stray logs, a full disk). It prints its findings and exits 0; a non-zero exit means the check itself broke. It only reads: it never changes tracked files, the index or refs, because `crew-merge` needs the main checkout clean and fast-forwards it.
+- `heavy-slots`: optional, containing `1`; it turns on the heavy slot below.
 - `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
 - `lead-notes.md`: rules for you from reflection, and `## Proposed /crew changes` for every crew in any repo.
 - `reflections.md`: one dated line per reflection round (`references/reflect.md`).
+
+## Heavy slot
+
+On a machine that cannot run a Docker stack, a browser check and the merge gate at once, write `1` to `$crew/heavy-slots` before the first assignment. `crew-heavy` then keeps one machine-wide slot: workers hold it for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs, and `crew-merge` holds it as `merge-<id>` while `check` runs, waiting up to three hours for it (`CREW_HEAVY_MERGE_WAIT` in seconds). Use `crew-heavy status` to see who holds it, and never run `acquire` from your own shell to test it, because you would queue behind the workers and then take the slot from the real queue.
 
 ## Workers
 
@@ -93,6 +98,7 @@ Run `crew-sweep` with `run_in_background` (it waits up to 900 seconds for an ite
 - `QUIET`: the item shows no progress (row update, report, notes, merging file or commit on its branch) for an hour. Read the worker's screen and `items/<id>/notes.md`, then prompt it, split the item or replace the worker. A worker with an unanswered `question` or `blocked` report is never QUIET.
 - `DIALOG`: read the screen it shows, then answer with `send-keys` within the same limits as at spawn or replace the worker, and log the call in `rulings.md`.
 - `MERGING`: leave it alone, and never close or replace a worker while it merges. `MERGING QUIET` means its merge has run for an hour, possibly a hung `check` holding the merge lock for every item: read `check-<id>.log` in `${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$slug` and tell the user, without closing the worker.
+- `HEAVY <holder> <minutes> min <purpose>`: the heavy slot has been held for over 90 minutes. Read the holder's screen (a `merge-<id>` holder is that item's worker merging); prompt a worker that holds it while idle to release it, and run `crew-heavy release <holder>` yourself only when the holder's pane is gone. `HEAVY failed: <message>` means `heavy-slots` holds something other than `1`, which also stops every merge, so fix the file.
 - `REFLECT`: run a reflection round with `references/reflect.md`. It may arrive up to one wait late.
 - `CHECK <line>`: output from `sweep-check`; act on what it flags. `CHECK failed: <message>` means the check itself failed or timed out after 30 seconds, so fix it.
 
