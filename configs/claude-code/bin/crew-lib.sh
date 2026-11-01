@@ -73,6 +73,36 @@ crew_load5() {
   '
 }
 
+# The full line's avg60 from /proc/pressure/io text on stdin: the share of the
+# last 60 s in which every runnable task waited on I/O.
+crew_io_full_avg60() {
+  awk '
+    $1 == "full" { for (i = 2; i <= NF; i++) if ($i ~ /^avg60=[0-9]+([.][0-9]+)?$/) { print substr($i, 7); ok = 1 } exit }
+    END { exit !ok }
+  '
+}
+
+# Up to five names of processes in state D (waiting on disk) from
+# `ps -eo stat=,comm=` output on stdin, most frequent first as `name xN`, or
+# `none seen`. Names may hold spaces; kworker/<n>:<m> threads count as kworker.
+crew_dstate_summary() {
+  awk '
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      if (line !~ /^D/ || !match(line, /[ \t]+/)) next
+      name = substr(line, RSTART + RLENGTH)
+      sub(/[ \t]+$/, "", name)
+      if (name ~ /^kworker\//) name = "kworker"
+      if (name != "") n[name]++
+    }
+    END { for (k in n) printf "%d\t%s\n", n[k], k }
+  ' | LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2 | awk -F'\t' '
+    NR <= 5 { s = s (NR > 1 ? ", " : "") $2 ($1 > 1 ? " x" $1 : "") }
+    END { print (s == "" ? "none seen" : s) }
+  '
+}
+
 # State of a crew-merge marker, items/<id>/merging: `key value` lines pid,
 # start, tip, `queued <epoch>` until the merge lock is taken and `merged <sha>`
 # once the fast-forward is under way; the last line for a key wins. Prints

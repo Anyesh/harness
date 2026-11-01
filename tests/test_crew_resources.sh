@@ -58,6 +58,14 @@ spaces)
 esac
 EOF
 chmod +x "$FAKE_BIN/df"
+REAL_PS=$(command -v ps)
+export REAL_PS
+cat >"$FAKE_BIN/ps" <<'EOF'
+#!/usr/bin/env bash
+[[ ${FAKE_PS:-} != hang ]] || exec sleep 30
+exec "$REAL_PS" "$@"
+EOF
+chmod +x "$FAKE_BIN/ps"
 
 OUT=
 ERR=
@@ -68,7 +76,7 @@ run() {
   OUT=$(cd "$RUN_DIR" && env "$@" 2>"$TMP_DIR/err") || RC=$?
   ERR=$(<"$TMP_DIR/err")
 }
-QUIET_ENV=(CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000)
+QUIET_ENV=(CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000)
 has() { grep -qxF -- "$1" <<<"$OUT"; }
 has_re() { grep -qE -- "$1" <<<"$OUT"; }
 count_re() { grep -cE -- "$1" <<<"$OUT" || true; }
@@ -86,6 +94,14 @@ assert "Linux loadavg gives the 5-minute field" '[[ $(crew_load5 Linux <<<"0.52 
 assert "Darwin vm.loadavg gives the 5-minute field" '[[ $(crew_load5 Darwin <<<"{ 1.86 2.03 2.11 }") == 2.03 ]]'
 assert "unparseable load fails" '! crew_load5 Linux <<<"busy" >/dev/null && ! crew_load5 Darwin <<<"1.86 2.03 2.11" >/dev/null'
 assert "an unknown OS fails" '! crew_load5 Plan9 <<<"0.1 0.2 0.3" >/dev/null && ! crew_mem_avail_mb Plan9 <<<"$meminfo" >/dev/null'
+psi=$'some avg10=75.14 avg60=67.61 avg300=70.78 total=12803151204\nfull avg10=71.31 avg60=31.68 avg300=66.32 total=11209717557\n'
+assert "PSI io gives the full line's avg60" '[[ $(crew_io_full_avg60 <<<"$psi") == 31.68 ]]'
+assert "PSI text with only a some line fails" '! crew_io_full_avg60 <<<"${psi%%full*}" >/dev/null'
+assert "unparseable PSI text fails" '! crew_io_full_avg60 <<<"pressure high" >/dev/null && ! crew_io_full_avg60 <<<"full avg10=1.00 avg60=busy" >/dev/null'
+pslist=$'Ss   systemd\nD    cargo\nD+   cargo\nDl   rustc\nDN   my proc name\nI<   kworker/0:0H\nD    kworker/u16:3+flush-259:0\nD    kworker/2:1\nR+   ps\nS    D-not\n'
+assert "D-state names count D, D+, Dl and DN, keep spaces and fold kworkers, most frequent first" '[[ $(crew_dstate_summary <<<"$pslist") == "cargo x2, kworker x2, my proc name, rustc" ]]'
+assert "D-state names stop at five" '[[ $(crew_dstate_summary <<<$'"'"'D a\nD b\nD c\nD d\nD e\nD f\n'"'"') == "a, b, c, d, e" ]]'
+assert "no D-state process prints none seen" '[[ $(crew_dstate_summary <<<"Ss systemd") == "none seen" && $(crew_dstate_summary </dev/null) == "none seen" ]]'
 
 echo "real probes"
 run "${QUIET_ENV[@]}" "$CR"
@@ -136,6 +152,19 @@ RUN_DIR=$TMP_DIR
 run "${QUIET_ENV[@]}" PATH="$FAKE_BIN:$PATH" FAKE_DF=hang CREW_RUNS_DIR="$TMP_DIR" "$CR"
 RUN_DIR=$REPO
 assert "a hung df is stopped after 10 seconds and named" '((SECONDS - t0 < 20)) && [[ $RC -eq 1 ]] && grep -q "timed out" <<<"$ERR"'
+
+echo "io pressure"
+if [[ -r /proc/pressure/io ]] && cat /proc/pressure/io >/dev/null 2>&1; then
+  run "${QUIET_ENV[@]}" CREW_IO_FULL_PCT=-1 "$CR"
+  assert "io over its threshold prints full avg60 and the D-state names" 'has_re "^io [0-9]+([.][0-9]+)?% full over 60 s \(D state: .+\)$" && [[ $(count_re .) -eq 1 && $RC -eq 0 ]]'
+  run "${QUIET_ENV[@]}" CREW_IO_FULL_PCT=1000000 "$CR"
+  assert "io under its threshold prints nothing" '[[ -z $OUT && $RC -eq 0 ]]'
+  t0=$SECONDS
+  run "${QUIET_ENV[@]}" CREW_IO_FULL_PCT=-1 PATH="$FAKE_BIN:$PATH" FAKE_PS=hang "$CR"
+  assert "a hung ps is stopped after 10 seconds and the io line says D state: unknown" '((SECONDS - t0 < 20)) && has_re "^io .+ \(D state: unknown\)$" && [[ $RC -eq 0 ]]'
+else
+  echo "  SKIP  no readable /proc/pressure/io"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

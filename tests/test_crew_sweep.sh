@@ -38,7 +38,7 @@ trap cleanup EXIT
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_SWEEP_RETRY_WAIT=0.05
 export CREW_QUIET=1000000
-export CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000
+export CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000
 export FAKE_STATE="$TMP_DIR/state"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_STATE" "$FAKE_BIN"
@@ -611,6 +611,12 @@ echo "crew-resources: df /x: Stale file handle" >"$FAKE_STATE/resources_err"
 sweep 1
 assert "a failing crew-resources prints RESOURCE failed and never ends the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "RESOURCE failed: df /x: Stale file handle"'
 rm "$FAKE_STATE/resources_err"
+echo "io 45.20% full over 60 s (D state: cargo x3, kworker)" >"$FAKE_STATE/resources"
+sweep 10
+assert "a new io breach ends the wait" '[[ $ELAPSED -lt 3000 ]] && ! has TIMEOUT && has "RESOURCE io 45.20% full over 60 s (D state: cargo x3, kworker)"'
+echo "io 51.00% full over 60 s (D state: none seen)" >"$FAKE_STATE/resources"
+sweep 1
+assert "an io breach alerted within the hold does not end the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^RESOURCE io 51.00% "'
 echo "load 99 over 1 CPUs" >"$FAKE_STATE/resources"
 { row 1 assigned x-w1 "$(date +%s)"; } >"$CREW/board.tsv"
 echo 1000 >"$FAKE_STATE/list_fail"

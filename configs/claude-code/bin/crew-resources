@@ -10,6 +10,9 @@
 #       CREW_DISK_MIN_GB (default 20), critical under a quarter of it
 #   memory <N> MB available   under CREW_MEM_MIN_MB (default 1024)
 #   load <x> over <n> CPUs    5-minute load above CREW_LOAD_PER_CPU (default 2) per CPU
+#   io <x>% full over 60 s (D state: <names>)
+#       Linux only: /proc/pressure/io full avg60 above CREW_IO_FULL_PCT (default
+#       30), with up to five processes waiting on disk; skipped without PSI
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -18,6 +21,7 @@ set -uo pipefail
 disk_min=${CREW_DISK_MIN_GB:-20}
 mem_min=${CREW_MEM_MIN_MB:-1024}
 load_per_cpu=${CREW_LOAD_PER_CPU:-2}
+io_full_pct=${CREW_IO_FULL_PCT:-30}
 os=$(uname -s)
 failed=0
 
@@ -114,6 +118,26 @@ probe_load() {
   fi
 }
 
+# A kernel without PSI, or booted with psi=0, has no readable pressure file;
+# that is skipped quietly so it never reads as a failure on every sweep. A
+# disk pile-up can stall ps as well, hence its timeout.
+probe_io() {
+  local psi pct out summary
+  [[ $os == Linux ]] || return 0
+  psi=$(cat /proc/pressure/io 2>/dev/null) || return 0
+  pct=$(crew_io_full_avg60 <<<"$psi") || {
+    fail "cannot parse /proc/pressure/io: ${psi//$'\n'/ }"
+    return
+  }
+  less "$io_full_pct" "$pct" || return 0
+  if out=$(timeout 10 ps -eo stat=,comm= 2>/dev/null); then
+    summary=$(crew_dstate_summary <<<"$out")
+  else
+    summary=unknown
+  fi
+  printf 'io %s%% full over 60 s (D state: %s)\n' "$pct" "$summary"
+}
+
 if number CREW_DISK_MIN_GB "$disk_min"; then
   paths=("$@")
   if main=$(crew_main); then paths+=("$main"); fi
@@ -127,4 +151,5 @@ if number CREW_DISK_MIN_GB "$disk_min"; then
 fi
 if number CREW_MEM_MIN_MB "$mem_min"; then probe_memory; fi
 if number CREW_LOAD_PER_CPU "$load_per_cpu"; then probe_load; fi
+if number CREW_IO_FULL_PCT "$io_full_pct"; then probe_io; fi
 exit "$failed"
