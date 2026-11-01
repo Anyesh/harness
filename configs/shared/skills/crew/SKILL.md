@@ -38,7 +38,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 
 ## Files you own
 
-- `board.tsv`: tab-separated `id status owner branch into updated deliverable deps`, no header, `status` one of `open|assigned|done|blocked`, `updated` in epoch seconds, `owner` the worker's agent name, `branch` `w/<id>` and the optional `deps` the comma-separated ids of items that must be `done` first. Only you edit it, with your file tools.
+- `board.tsv`: tab-separated `id status owner branch into updated deliverable deps`, no header, `status` one of `open|assigned|done|blocked`, `updated` in epoch seconds, `owner` the worker's agent name, `branch` `w/<id>` and the optional `deps` the comma-separated ids of items that must be `done` first. Only you edit it, and only through `crew-board`: `add <id> <into> <deliverable> [deps]` writes an open row, `set <id> field=value...` changes `status`, `owner`, `into`, `deliverable`, `deps` or `updated` (stamped now unless given), and `show` prints it. Give each `crew-board` call its own Bash call, because zsh drops a whole command line on a parse error and an edit bundled with other commands can silently not happen.
 - `rulings.md`: timestamped decisions, the done bar, and every worker number used with its profile.
 - `brief.md`: what workers in this repo need beyond `references/worker.md`, such as test commands, build paths that must not depend on the checkout location and what not to touch, with the lessons from reflection under `## Lessons`.
 - `check`: an executable gate that `crew-merge` runs in a temporary merge of the item into its target. Write it before the first assignment.
@@ -79,7 +79,7 @@ To spawn one worker:
    - Anything else, such as a login or billing prompt, means you close the tab and tell the user.
 
    If `herdr agent list` then shows the pane with an empty `.name // ""`, rename it.
-5. Only now set the item's board row to `assigned`, with this owner and `updated` set to now.
+5. Only now run `crew-board set <id> status=assigned owner=$slug-wN`, which also sets `updated` to now.
 6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. Say that the user asked for workflows only when they did.
 
 Address workers only by name: `send-keys` and `agent prompt` take the name. To close a worker's tab, take the `tab_id` of the `herdr tab list` entry labelled `$slug-wN` at that moment, and close nothing unless exactly one tab carries that label, noting it in `rulings.md` instead.
@@ -92,7 +92,7 @@ Run `crew-sweep` with `run_in_background` (it waits up to 900 seconds for an ite
 - `ALL-DONE`: assign the next open work if there is any, otherwise close out.
 - `ERROR <step>: <message>`: a crew-role or herdr call failed and the sweep retried it; if the sweep exited after repeated errors, tell the user what failed and start it again.
 - `CHANGED <path>` or `REMOVED <path>`: read that file. `TIMEOUT` means nothing changed during the wait.
-- A changed `report.md`: answer a `question` with a `[crew]` prompt and set the row's `updated` to now, so the sweep watches that worker again; for `done` with a `merged` file, mark the row `done`, assign in the same turn what it unblocks, and give the worker its next item or close its tab; for `blocked`, mark the row `blocked` and log the reason; replace a `rate-limited` worker.
+- A changed `report.md`: answer a `question` with a `[crew]` prompt and run `crew-board set <id>`, which sets `updated` to now, so the sweep watches that worker again; for `done` with a `merged` file, mark the row `done`, assign in the same turn what it unblocks, and give the worker its next item or close its tab; for `blocked`, mark the row `blocked` and log the reason; replace a `rate-limited` worker.
 - `READY <id>`: an open item whose deps are all `done`. Assign READY items while a profile has room before you start the sweep again.
 - `DEPS <id> <problem>`: an open item that can never start, because a dep `names unknown` id, it `waits on blocked` item, `is in a cycle` or `waits on stuck` item. Fix the order on the board or mark the row `blocked`, logging in `rulings.md` which dep blocked it; for `waits on stuck`, fix the stuck dep's own DEPS line instead. When a dep you logged as a cause can finish again (reopened, added to the board or its order fixed), reopen the rows you blocked because of it.
 - `GONE <name>`: its Claude exited or its pane closed (herdr drops a name 10 to 15 seconds after exit). Close its tab by label, then give the item to a fresh worker that takes over the same worktree.
