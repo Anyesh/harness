@@ -43,7 +43,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 
 ## Heavy slot
 
-On a machine that cannot run a Docker stack, a browser check and the merge gate at once, write `1` to `$crew/heavy-slots` before the first assignment. `crew-heavy` then keeps one machine-wide slot: workers hold it for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs, and `crew-merge` holds it as `merge-<id>` while `check` runs, waiting up to three hours for it (`CREW_HEAVY_MERGE_WAIT` in seconds). Use `crew-heavy status` to see who holds it, and never run `acquire` from your own shell to test it, because you would queue behind the workers and then take the slot from the real queue.
+On a machine that cannot run a Docker stack, a browser check and the merge gate at once, write `1` to `$crew/heavy-slots` before the first assignment. `crew-heavy` then keeps one machine-wide slot: workers hold it for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs, and `crew-merge` holds it as `merge-<id>` while `check` runs, waiting up to three hours for it (`CREW_HEAVY_MERGE_WAIT` in seconds). Use `crew-heavy status` to see who holds it, and never run `acquire` from your own shell to test it, because you would queue behind the workers and then take the slot from the real queue. Waiters get the slot first come, first served: each holds a ticket in `$crew/heavy.queue` while it waits, a dead waiter's ticket is dropped, and `status` lists live waiters in order on a `waiting:` line.
 
 ## Workers
 
