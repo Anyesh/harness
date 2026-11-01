@@ -119,6 +119,8 @@ def folder_block(rel_folder, heading_slug, level):
     own_index = os.path.join(folder_abs, "index.md")
     fields, body = frontmatter(read(own_index)) if os.path.isfile(own_index) else ({}, "")
     pages = pages_under(folder_abs)
+    if not pages:
+        return None
     stems = {page[:-3] for page in pages}
     lines, listed = [], set()
 
@@ -165,10 +167,12 @@ projects_dir = os.path.join(wiki, "projects")
 if os.path.isdir(projects_dir):
     for slug in sorted(os.listdir(projects_dir)):
         if os.path.isdir(os.path.join(projects_dir, slug)) and not slug.startswith("."):
-            out += folder_block(os.path.join("projects", slug), slug, 3)
+            out += folder_block(os.path.join("projects", slug), slug, 3) or []
 for folder, heading in SECTIONS:
     if os.path.isdir(os.path.join(wiki, folder)):
-        out += [f"## {heading}", ""] + folder_block(folder, folder, 2)
+        block = folder_block(folder, folder, 2)
+        if block is not None:
+            out += [f"## {heading}", ""] + block
 
 indexed = {"projects"} | {folder for folder, _ in SECTIONS}
 other = []

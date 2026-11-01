@@ -29,7 +29,7 @@ build() { bash "$BUILD" "$@"; }
 
 echo ""
 
-mkdir -p "$W/projects/alpha/plans" "$W/projects/beta" "$W/projects/gamma" "$W/concepts"
+mkdir -p "$W/projects/alpha/plans" "$W/projects/beta" "$W/projects/gamma" "$W/concepts" "$W/synthesis"
 printf '## Projects\n\n### alpha: hand built\n' >"$W/index.md"
 build "$V"
 assert "a hand-built index without the marker is never replaced" \
@@ -100,7 +100,8 @@ assert "a bare wikilink lists only the page it resolves to" \
 assert "a loose file directly under projects/ is still listed" 'grep -qF "(projects/loose.md)" <<<"$OUT"'
 assert "a folder without an index gets a stub with its pages" \
   'grep -q "^### beta$" <<<"$OUT" && grep -qF "(projects/beta/devlog.md)" <<<"$OUT"'
-assert "an empty folder still gets a heading" 'grep -q "^### gamma$" <<<"$OUT"'
+assert "an empty project folder gets no heading, since empty folders do not sync" '! grep -q "^### gamma" <<<"$OUT"'
+assert "an empty section folder gets no heading" '! grep -q "^## Syntheses" <<<"$OUT"'
 assert "concepts come from their own index" 'grep -qF "[Idea](concepts/idea.md)" <<<"$OUT"'
 assert "concepts sit under the Concepts heading" \
   '[ "$(grep -n "^## Concepts" <<<"$OUT" | cut -d: -f1)" -lt "$(grep -n "concepts/idea.md" <<<"$OUT" | cut -d: -f1)" ]'
