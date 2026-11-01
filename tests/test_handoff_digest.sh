@@ -38,7 +38,8 @@ export CLAUDE_PID=4242
 gen_transcript() {
   local out="$1" turns="$2" pad="$3" sid="$4"
   awk -v n="$turns" -v pad="$pad" -v cwd="$PROJECT" -v sid="$sid" 'BEGIN {
-    blob = sprintf("%*s", pad, ""); gsub(/ /, "x", blob)
+    # mawk caps sprintf output at 8192 bytes, so the padding is built by appending.
+    blob = ""; while (length(blob) < pad) blob = blob "x"
     for (i = 1; i <= n; i++) {
       printf "{\"type\":\"attachment\",\"sessionId\":\"%s\",\"cwd\":\"%s\",\"attachment\":{\"type\":\"skill\",\"content\":\"ATTACHSECRET %s\"}}\n", sid, cwd, blob
       printf "{\"type\":\"user\",\"isSidechain\":false,\"sessionId\":\"%s\",\"cwd\":\"%s\",\"message\":{\"role\":\"user\",\"content\":\"prompt number %d %s\"}}\n", sid, cwd, i, substr(blob, 1, 300)
@@ -92,7 +93,7 @@ assert "the newest turn is kept even when it exceeds the budget" \
 
 BIG="$TMP_DIR/projects/enc/big-sid.jsonl"
 gen_transcript "$BIG" 850 30000 big-sid
-BIG_MB=$(( $(stat -c %s "$BIG") / 1048576 ))
+BIG_MB=$(( $(wc -c <"$BIG") / 1048576 ))
 START=$(date +%s.%N)
 "$DIGEST" "$BIG" >/dev/null
 END=$(date +%s.%N)
