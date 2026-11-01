@@ -38,6 +38,10 @@ start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
 mkdir -p "$item"
 printf 'pid %s\nstart %s\ntip %s\n' "$$" "$start" "$tip" >"$item/merging"
 
+if [[ -f $crew/check ]] && head -n 1 "$crew/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
+  syntax=$(bash -n "$crew/check" 2>&1) || die "check at $crew/check has a syntax error: $syntax"
+fi
+
 exec {lock}>"$common/crew-merge.lock"
 flock -w 1800 "$lock" || die "merge queue busy"
 g worktree prune

@@ -333,6 +333,26 @@ done
 set_check 'exit 0'
 command rm "$CREW/heavy-slots"
 
+new_item 24
+(
+  exec {fd}>"$LOCK"
+  flock "$fd"
+  exec sleep 30
+) &
+echo $! >"$BG_PID_FILE"
+until ! flock -n "$LOCK" true; do sleep 0.1; done
+for shebang in '/usr/bin/env bash' /bin/sh; do
+  printf '#!%s\nif then\n' "$shebang" >"$CREW/check"
+  t0=$SECONDS
+  refuses "a $shebang check with a syntax error" 24 "syntax error"
+  assert "a $shebang check with a syntax error fails without waiting for the merge lock" '((SECONDS - t0 < 10))'
+done
+kill "$(cat "$BG_PID_FILE")"
+: >"$BG_PID_FILE"
+printf '#!/usr/bin/env false\nif then\n' >"$CREW/check"
+refuses "a check in another language without a bash syntax check" 24 "check failed"
+set_check 'exit 0'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
