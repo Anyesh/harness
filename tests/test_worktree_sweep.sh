@@ -20,7 +20,7 @@ assert() {
   fi
 }
 
-TMP_DIR=$(mktemp -d)
+TMP_DIR=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
