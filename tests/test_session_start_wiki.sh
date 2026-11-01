@@ -113,8 +113,10 @@ assert "no wiki-sync install: no status line" '! grep -q "WIKI-SYNC" <<<"$OUT"'
 mkdir -p "$WS/state" "$TMP_DIR/syncwiki"
 touch "$WS/stamp"
 printf 'WIKI_SYNC_VAULT=%q\nWIKI_SYNC_DIR=%q\n' "$TMP_DIR" "$TMP_DIR/syncwiki" >"$WS/env"
+WS_LOGS="journalctl --user -u wiki-sync"
+[[ $(uname -s) == Darwin ]] && WS_LOGS="~/Library/Logs/wiki-sync.log"
 OUT=$(run_hook)
-assert "installed without health.json: not running" 'grep -q "WIKI-SYNC: not running (no health.json)" <<<"$OUT" && grep -q "journalctl --user -u wiki-sync" <<<"$OUT"'
+assert "installed without health.json: not running" 'grep -q "WIKI-SYNC: not running (no health.json)" <<<"$OUT" && grep -qF "Logs: $WS_LOGS" <<<"$OUT"'
 ws_health .
 OUT=$(run_hook)
 assert "healthy service: no status line" '! grep -q "WIKI-SYNC" <<<"$OUT"'

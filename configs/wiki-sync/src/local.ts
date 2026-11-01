@@ -173,6 +173,12 @@ export class LocalStore {
     return toStat(await Deno.stat(this.abs(path)));
   }
 
+  async rename(from: string, to: string): Promise<LocalStat> {
+    await this.requireRoot();
+    await Deno.rename(this.abs(from), this.abs(to));
+    return toStat(await Deno.stat(this.abs(to)));
+  }
+
   async remove(path: string): Promise<void> {
     await this.requireRoot();
     if (!(await this.exists(path))) return;

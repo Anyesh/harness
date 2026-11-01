@@ -4,6 +4,9 @@ import { LocalStore } from "./local.ts";
 import { MemoryRemote } from "./memory_remote.ts";
 import { copyName, winnerOf } from "./reconcile.ts";
 import { Blocked, type BlockReason, type PauseWindow, Syncer } from "./sync.ts";
+import { tempDirFoldsCase } from "./testing.ts";
+
+const foldsCase = await tempDirFoldsCase();
 
 const CONFIG = {
   quietMs: 30,
@@ -462,7 +465,7 @@ Deno.test("while paused nothing is written; afterwards local edits push and stal
   }
 });
 
-Deno.test("a case collision is held and neither file is overwritten", async () => {
+Deno.test("a case collision is held and neither file is overwritten", { ignore: foldsCase }, async () => {
   const r = await rig();
   await write(r, "wiki/foo.md", "lower");
   await r.start();

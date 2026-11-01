@@ -8,8 +8,10 @@
 # Exit status: 0 done, 1 refused or failed, 2 usage, 3 another run is merging
 # the item.
 set -euo pipefail
+bin=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # shellcheck source=crew-lib.sh
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+. "$bin/crew-lib.sh"
+heavy=$bin/crew-heavy
 
 die() {
   printf 'crew-merge: %s\n' "$*" >&2
@@ -125,6 +127,7 @@ elif [[ $1 == --settle ]]; then
 fi
 
 id=$1
+heavy_slots=$(crew_heavy_slots "$crew") || die "$crew/heavy-slots must contain 1, the only slot count supported"
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
 mkdir -p "$runs"
@@ -135,6 +138,10 @@ board_row || die "item $id is not on the board"
 tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
 start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
 mkdir -p "$item"
+
+if [[ -f $crew/check ]] && head -n 1 "$crew/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
+  syntax=$(bash -n "$crew/check" 2>&1) || die "check at $crew/check has a syntax error: $syntax"
+fi
 
 lock_marker
 if state=$(crew_merge_state "$item/merging"); then
@@ -147,9 +154,16 @@ fi
 tmp=
 wrote_marker=
 queue_wait=
+heavy_held=
+heavy_release() {
+  [[ -n $heavy_held ]] || return 0
+  heavy_held=
+  "$heavy" release "merge-$id" >&2 || echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
+}
 # Removes our own marker unless the fast-forward began; a marker with a merged
 # line stays for --settle.
 cleanup() {
+  heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
   if [[ -n $wrote_marker && -f $item/merging ]] &&
     [[ $(awk '$1 == "pid" {v = $2} END {print v}' "$item/merging") == "$$" ]] &&
@@ -219,8 +233,20 @@ unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
 for v in $(compgen -e); do
   if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
 done
+# heavy_held is set before acquire returns, so a HUP or TERM that lands as the
+# slot is taken still releases it; release refuses a slot someone else holds.
+if ((heavy_slots)); then
+  heavy_held=1
+  "$heavy" acquire "merge-$id" "merge gate" "${CREW_HEAVY_MERGE_WAIT:-10800}" {lock}>&- || {
+    heavy_held=
+    die "no heavy slot for the merge gate; $into unchanged"
+  }
+fi
 log=$runs/check-$id.log
-if ! (cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&-; then
+check_rc=0
+(cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&- || check_rc=$?
+heavy_release
+if ((check_rc)); then
   tail -n 20 "$log" >&2
   die "check failed on $branch merged into $into; $into unchanged (log: $log)"
 fi

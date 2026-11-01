@@ -1,5 +1,8 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { isGenerated, isIgnoredPath, LocalStore, RootMissing } from "./local.ts";
+import { tempDirFoldsCase } from "./testing.ts";
+
+const foldsCase = await tempDirFoldsCase();
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
@@ -30,13 +33,21 @@ Deno.test("read hashes the file and reuses the hash when the stat matches", asyn
   assertEquals((await store.read("wiki/missing.md")).kind, "absent");
 });
 
-Deno.test("existence uses exact names, and case variants are listed", async () => {
+Deno.test("existence uses exact names, and case variants are listed", { ignore: foldsCase }, async () => {
   const { root, store } = await vault();
   await Deno.writeTextFile(`${root}/wiki/foo.md`, "a");
   await Deno.writeTextFile(`${root}/wiki/Foo.md`, "b");
   assertEquals((await store.caseVariants("wiki/FOO.md")).sort(), ["wiki/Foo.md", "wiki/foo.md"]);
   assertEquals(await store.exists("wiki/FOO.md"), false);
   assertEquals(await store.exists("wiki/Foo.md"), true);
+});
+
+Deno.test("a case-only rename changes the listed name and returns the new stat", async () => {
+  const { root, store } = await vault();
+  await Deno.writeTextFile(`${root}/wiki/cr.md`, "a");
+  const stat = await store.rename("wiki/cr.md", "wiki/Cr.md");
+  assertEquals(await store.caseVariants("wiki/cr.md"), ["wiki/Cr.md"]);
+  assertEquals(stat, await store.stat("wiki/Cr.md"));
 });
 
 Deno.test("walk skips dotfiles, dot-dirs and temp files", async () => {

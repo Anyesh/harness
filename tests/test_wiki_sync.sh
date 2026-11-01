@@ -26,7 +26,8 @@ trap 'rm -rf "$TMP"' EXIT
 PINNED=$(sed -n 's/^WIKI_SYNC_DENO_VERSION=//p' "$REPO_ROOT/configs/wiki-sync/pins.env")
 
 # Args: home, "work" for a work machine. Builds a fake HOME with a vault, the
-# plugin's data.json, a pre-installed fake Deno and stubs that log their argv.
+# plugin's data.json, a pre-installed fake Deno, stubs that log their argv and
+# a password database that names it the account home.
 new_home() {
   local home="$1" mode="${2:-}" tool
   mkdir -p "$home/bin" "$home/vault/wiki/projects" "$home/vault/.obsidian/plugins/obsidian-livesync"
@@ -52,6 +53,9 @@ esac
 EOF
     chmod +x "$home/bin/$tool"
   done
+  printf '#!/bin/sh\necho "NFSHomeDirectory: %s"\n' "$home" >"$home/bin/dscl"
+  printf '#!/bin/sh\necho "me:*:501:20:Me:%s:/bin/sh"\n' "$home" >"$home/bin/getent"
+  chmod +x "$home/bin/dscl" "$home/bin/getent"
   cat >"$home/bin/uname" <<EOF
 #!/bin/sh
 case "\$1" in -s) echo "\${FAKE_OS:-Linux}" ;; -m) echo x86_64 ;; *) echo "\${FAKE_OS:-Linux}" ;; esac
@@ -152,7 +156,7 @@ assert "linux: linger enabled" 'grep -q "loginctl enable-linger" "$H/calls.log"'
 assert "linux: no launchctl calls" '! grep -q launchctl "$H/calls.log"'
 assert "linux: first start took a snapshot of the wiki" 'ls "$INSTALL"/snapshots/first-start-*.tar.gz >/dev/null 2>&1 && tar -tzf "$INSTALL"/snapshots/first-start-*.tar.gz | grep -q "wiki/projects/a.md"'
 assert "linux: source staged without tests, env records the vault and wiki dir" \
-  '[[ -f $INSTALL/src/main.ts && ! -e $INSTALL/src/sync.test.ts && -x $INSTALL/run.sh ]] && grep -q "WIKI_SYNC_DIR=$H/vault/wiki" "$INSTALL/env"'
+  '[[ -f $INSTALL/src/main.ts && ! -e $INSTALL/src/sync.test.ts && ! -e $INSTALL/src/testing.ts && -x $INSTALL/run.sh ]] && grep -q "WIKI_SYNC_DIR=$H/vault/wiki" "$INSTALL/env"'
 assert "linux: dependencies cached with a frozen lockfile" 'grep -q "deno install --frozen --entrypoint main.ts" "$H/calls.log"'
 assert "linux: stamp written" '[[ -s $INSTALL/stamp ]]'
 

@@ -642,11 +642,12 @@ export class Syncer {
           const bytes = body ? body.bytes : await (read as FileRead).bytes();
           const mtime = body ? body.content.mtime : (read as FileRead).stat.mtime;
           await this.save({ ...rec, incoming: next.synced ?? undefined });
-          const stat = await this.d.local.write(target, bytes, mtime);
+          let stat = await this.d.local.write(target, bytes, mtime);
           if (target !== localPath && (await this.d.local.exists(localPath))) {
             // A case-insensitive volume can keep the old name on the file just written.
             const old = await this.d.local.stat(localPath);
             if (old && old.ino !== stat.ino) await this.d.local.remove(localPath);
+            else if (old) stat = await this.d.local.rename(localPath, target);
           }
           const hash = body ? body.content.hash : (read as FileRead).hash;
           const generated = body ? body.content.generated : (read as FileRead).generated;

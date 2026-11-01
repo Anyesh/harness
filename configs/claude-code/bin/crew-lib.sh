@@ -231,6 +231,19 @@ crew_dir() {
   printf '%s/.claude/crew\n' "$main"
 }
 
+# Heavy slots the crew in dir $1 enables: 0 without a heavy-slots file. Only one
+# slot is supported, so any content other than 1 fails with no output.
+crew_heavy_slots() {
+  local n
+  [[ -e $1/heavy-slots ]] || {
+    echo 0
+    return 0
+  }
+  n=$(tr -d '[:space:]' <"$1/heavy-slots") || return 1
+  [[ $n == 1 ]] || return 1
+  echo "$n"
+}
+
 # herdr agent names must match [a-z][a-z0-9_-]{0,31}; 21 + 1 + 4 leaves room
 # for the longest suffix, -old99.
 crew_slug() {
