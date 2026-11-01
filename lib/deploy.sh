@@ -37,11 +37,17 @@ deploy_file() {
   local existed=false
   [[ -e "$dest" ]] && existed=true
   [[ "$NO_BACKUP" == "false" ]] && backup_if_exists "$dest"
-  mkdir -p "$(dirname "$dest")"
-  cp "$candidate" "$dest"
+  local target="$dest" tmp
+  [[ -L "$dest" ]] && target=$(readlink -f "$dest")
+  mkdir -p "$(dirname "$target")"
+  # WHY: bash reads a running script as it goes, so overwriting a crew tool in
+  # place while a crew runs it corrupts that run; a rename leaves it the old inode.
+  tmp=$(mktemp "$target.XXXXXX")
+  cp "$candidate" "$tmp"
   if [[ "$mode" == "executable" ]]; then
-    chmod +x "$dest" 2>/dev/null || true
+    chmod +x "$tmp"
   fi
+  mv -f "$tmp" "$target"
   manifest_add "$dest" "$manifest_source" "$templated"
   if [[ "$existed" == "true" ]]; then
     log_update "updated: $label"
