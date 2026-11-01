@@ -184,8 +184,6 @@ crew_read_thresholds() {
   done <"$1"
 }
 
-# The raw value of a known threshold key: a non-empty environment value, else
-# the file's, else empty.
 crew_threshold_raw() {
   local v=
   [[ " ${crew_threshold_keys[*]} " == *" $1 "* ]] || return 1
