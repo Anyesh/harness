@@ -329,7 +329,7 @@ function decide(input: ReconcileInput): Plan {
     if (st.recent.some((r) => r.hash === localHash)) {
       stale = true;
     } else {
-      const history = [...new Set(leaves.flatMap((l) => anc.get(l.rev)!))];
+      const history = [...new Set(leaves.flatMap((l) => anc.get(l.rev)!.slice(0, HISTORY_LIMIT)))];
       want(history);
       stale = history.some((r) => {
         const c = input.content.get(r);

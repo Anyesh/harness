@@ -1,7 +1,8 @@
-import { assertEquals, assertObjectMatch } from "@std/assert";
+import { assert, assertEquals, assertObjectMatch } from "@std/assert";
 import {
   copyName,
   emptyState,
+  HISTORY_LIMIT,
   type LeafInfo,
   type LocalVersion,
   type PathState,
@@ -552,6 +553,21 @@ Deno.test("a stale rewrite made while paused is not pushed", () => {
   assertEquals(p.remote, undefined);
   assertEquals(p.local, { kind: "write", rev: "4-d" });
   assertEquals(p.copies, []);
+});
+
+Deno.test("the stale check reads at most HISTORY_LIMIT ancestors of a long history", () => {
+  const revs = Array.from({ length: 300 }, (_, i) => `${300 - i}-r${300 - i}`);
+  const res = reconcile({
+    path: PATH,
+    state: state({ synced: synced(revs[0], "TOP", revs.slice(1)) }),
+    local: file("OLD", NOW, { duringPause: true }),
+    leaves: [leaf(revs[0], revs.slice(1))],
+    content: content({ [revs[0]]: "TOP" }),
+    now: NOW,
+  });
+  if (res.kind !== "need") throw new Error(`expected need, got ${res.kind}`);
+  assert(res.revs.length <= HISTORY_LIMIT, `asked for ${res.revs.length} revisions`);
+  assert(!res.revs.includes("1-r1"));
 });
 
 Deno.test("an unreadable live leaf is reported rather than guessed at", () => {
