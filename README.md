@@ -36,9 +36,9 @@ For a machine that should get the hooks, skills, commands and rules but neither 
 curl -fsSL https://raw.githubusercontent.com/anyesh/harness/main/install.sh | bash -s -- --no-memory
 ```
 
-`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain, wiki and wiki-sync modules (no cargo build, daemon, sync timer, wiki sync service or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands and the `WIKI_VAULT` env entry. `--only second-brain`, `--only wiki` and `--only wiki-sync` cannot be combined with it.
+`HARNESS_NO_MEMORY=1` does the same and also survives the bootstrap re-exec. A lite install skips the second-brain, wiki and wiki-sync modules (no cargo build, sync timer, wiki sync service or MCP registration), the memory hooks, the two memory rules, the `wiki` skill, the `devlog`, `plan` and `decision` commands and the `WIKI_VAULT` env entry. `--only second-brain`, `--only wiki` and `--only wiki-sync` cannot be combined with it.
 
-Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain daemon and sync timer (systemd units or launch agents), the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
+Lite mode is for machines that never had the full install. Switching from full to lite does not undo the earlier install: the second-brain service `sb setup` installed, the sync timer (a systemd unit or launch agent), the `claude mcp add` entry in `~/.claude.json`, and the MCP entries in the Codex, Cursor and opencode configs stay until removed by hand, because `uninstall` only restores files the manifest tracks. Switching from lite to full just works.
 
 ### Work machines
 
@@ -199,10 +199,11 @@ herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               running herdr server. godview (our own, prefix+alt+o) shows
               every agent with its subagents in one tab; it follows main
               instead of a pinned commit, so each install updates it.
-second-brain  second-brain daemon + MCP server registration, and the
-              30-minute peer sync (sb-sync.sh); both run as systemd user
-              units, or on macOS as launch agents com.harness.second-brain
-              and com.harness.sb-sync logging to ~/Library/Logs
+second-brain  latest second-brain binaries (cargo), MCP server
+              registration, and the 30-minute peer sync (sb-sync.sh) as a
+              systemd user timer, or on macOS the launch agent
+              com.harness.sb-sync logging to ~/Library/Logs. The API service
+              is second-brain's own: run `sb setup` once (harness says so)
 wiki          Obsidian wiki vault init (Karpathy pattern, per-project)
 wiki-sync     Headless Self-hosted LiveSync for the agent wiki folder: a
               Deno daemon on commonlib (Deno sha256-pinned, into

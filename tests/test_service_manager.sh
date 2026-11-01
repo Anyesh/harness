@@ -67,7 +67,6 @@ module() {
 }
 
 service_step() {
-  module "$1" second_brain_daemon "$1/.cargo/bin/second-brain-api"
   module "$1" second_brain_sync_timer
   module "$1" wiki_sync_install
 }
@@ -109,15 +108,16 @@ for os in Linux Darwin; do
   echo "=== $os: HOME is the account home ==="
   H="$TMP/account-$os"
   new_home "$H" "$H"
-  out=$(FAKE_OS=$os module "$H" second_brain_daemon "$H/.cargo/bin/second-brain-api" 2>&1)
-  out+=$(FAKE_OS=$os module "$H" second_brain_sync_timer 2>&1)
+  out=$(FAKE_OS=$os module "$H" second_brain_sync_timer 2>&1)
   if [[ $os == Linux ]]; then
-    assert "$os: daemon and timer loaded" \
-      'grep -q "systemctl --user start second-brain.service" "$H/calls.log" && grep -q "systemctl --user enable --now sb-sync.timer" "$H/calls.log"'
+    assert "$os: sync timer loaded and linger enabled" \
+      'grep -q "systemctl --user enable --now sb-sync.timer" "$H/calls.log" && grep -q "loginctl enable-linger" "$H/calls.log"'
   else
-    assert "$os: daemon and sync agents bootstrapped" \
-      'grep -q "launchctl bootstrap gui/[0-9]* $H/Library/LaunchAgents/com.harness.second-brain.plist" "$H/calls.log" && grep -q "launchctl bootstrap gui/[0-9]* $H/Library/LaunchAgents/com.harness.sb-sync.plist" "$H/calls.log"'
+    assert "$os: sync agent bootstrapped" \
+      'grep -q "launchctl bootstrap gui/[0-9]* $H/Library/LaunchAgents/com.harness.sb-sync.plist" "$H/calls.log"'
   fi
+  assert "$os: no api daemon unit or agent" \
+    '! grep -qE "second-brain\.service|com\.harness\.second-brain\.plist" "$H/calls.log" && [[ ! -e $H/.config/systemd/user/second-brain.service && ! -e $H/Library/LaunchAgents/com.harness.second-brain.plist ]]'
 done
 
 echo ""

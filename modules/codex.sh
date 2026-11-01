@@ -57,22 +57,22 @@ codex_deploy_config() {
 codex_mcp() {
   local dest="$CODEX_CONFIG_DIR/config.toml"
 
-  local sb_mcp="" sb_api="" drop=""
+  local sb_mcp="" drop=""
   if profile_skips_mcp_server second-brain; then
     profile_work && drop=second-brain
   else
     declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
     second_brain_find_binaries
-    sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+    sb_mcp="$SB_MCP_BIN"
   fi
   local web_strip_path="$HOME/.harness/tools/web-strip/index.js"
 
   local tmp_out
   tmp_out=$(mktemp)
-  if ! python3 - "$dest" "$web_strip_path" "$sb_mcp" "$sb_api" "$tmp_out" "$drop" <<'PYEOF'
+  if ! python3 - "$dest" "$web_strip_path" "$sb_mcp" "$tmp_out" "$drop" <<'PYEOF'
 import re, sys, tomllib
 
-dest_path, web_strip_path, sb_mcp, sb_api, out_path, drop = sys.argv[1:7]
+dest_path, web_strip_path, sb_mcp, out_path, drop = sys.argv[1:6]
 
 def toml_str(s):
     # Minimal TOML basic-string escaper: backslash and double-quote are the
@@ -110,10 +110,7 @@ if "markitdown" not in existing:
     )
 
 if sb_mcp and "second-brain" not in existing:
-    env_line = 'env = { SECOND_BRAIN_API = "http://127.0.0.1:7200"'
-    if sb_api:
-        env_line += f', SECOND_BRAIN_DAEMON_BIN = "{toml_str(sb_api)}"'
-    env_line += ' }\n'
+    env_line = 'env = { SECOND_BRAIN_API = "http://127.0.0.1:7200" }\n'
     blocks.append(f'[mcp_servers.second-brain]\ncommand = "{toml_str(sb_mcp)}"\n{env_line}')
 
 content = raw.decode("utf-8") if raw else ""

@@ -3,10 +3,12 @@
 source "$REPO_ROOT/lib/launchd.sh"
 source "$REPO_ROOT/lib/service_manager.sh"
 
+SECOND_BRAIN_CRATES=(second-brain-cli second-brain-mcp second-brain-api)
+SECOND_BRAIN_UPDATED=false
+
 second_brain_check() {
     if ! command -v sb &>/dev/null; then
         log_info "second-brain binaries not found (will attempt install)"
-        log_info "  Manual install: cargo install second-brain-cli"
         if ! command -v cargo &>/dev/null; then
             log_info "  Install Rust first: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
         fi
@@ -14,69 +16,58 @@ second_brain_check() {
     return 0
 }
 
+# Plain `cargo install` upgrades a crate whenever crates.io has a newer
+# release, so every run lands the latest. One call per crate: a single
+# multi-crate call can resolve the later crates against a stale index.
 second_brain_binaries() {
-  local binaries=("second-brain-api" "second-brain-mcp" "sb")
-  local all_present=true
-
-  for bin in "${binaries[@]}"; do
-    if ! command -v "$bin" &>/dev/null; then
-      all_present=false
-      break
-    fi
-  done
-
-  if [[ "$all_present" == "true" && "$FORCE" != "true" ]]; then
-    log_skip "second-brain" "all binaries present"
-    return
-  fi
-
+  SECOND_BRAIN_UPDATED=false
   if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would install second-brain via cargo (crates.io, latest)"
+    log_info "[dry-run] would install or upgrade ${SECOND_BRAIN_CRATES[*]} from crates.io"
     return
   fi
 
   if ! command -v cargo &>/dev/null; then
     log_warn "cargo not found, cannot install second-brain"
-    log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+    log_warn "install Rust from https://rustup.rs, then rerun $REPO_ROOT/install.sh --only second-brain"
     return 1
   fi
 
-  local cargo_flags=()
+  local cargo_flags=() failed=() crate before build_log
   if [[ "$FORCE" == "true" ]]; then
     cargo_flags+=(--force)
   fi
-  log_info "installing second-brain from crates.io..."
-
-  local build_log
+  before=$(cargo install --list 2>/dev/null || true)
   build_log=$(mktemp)
-  local pkg all_ok=true
-  for pkg in second-brain-cli second-brain-mcp second-brain-api; do
-    if ! cargo install "${cargo_flags[@]}" "$pkg" 2>&1 | tee -a "$build_log" | tail -3; then
-      all_ok=false
-      break
-    fi
+  for crate in "${SECOND_BRAIN_CRATES[@]}"; do
+    log_info "second-brain: installing the latest $crate..."
+    cargo install ${cargo_flags[@]+"${cargo_flags[@]}"} "$crate" >>"$build_log" 2>&1 || failed+=("$crate")
   done
+  if [[ "$(cargo install --list 2>/dev/null || true)" != "$before" ]]; then
+    SECOND_BRAIN_UPDATED=true
+  fi
 
-  if [[ "$all_ok" == "true" ]] && command -v sb &>/dev/null; then
-    log_success "second-brain installed (crates.io)"
+  if [[ ${#failed[@]} -eq 0 ]] && command -v sb &>/dev/null; then
+    if [[ "$SECOND_BRAIN_UPDATED" == "true" ]]; then
+      log_success "second-brain: latest release installed"
+    else
+      log_skip "second-brain" "already at the latest release"
+    fi
     rm -f "$build_log"
     return 0
   fi
 
-  log_warn "second-brain install failed:"
-  grep -iE "error|failed|cannot|missing" "$build_log" | tail -10 >&2
+  log_warn "second-brain install failed: ${failed[*]:-sb is not on PATH}"
+  grep -iE "error|failed|cannot|missing" "$build_log" | tail -10 >&2 || true
   rm -f "$build_log"
-  log_warn "run manually: cargo install second-brain-cli second-brain-mcp second-brain-api"
+  log_warn "rerun: $REPO_ROOT/install.sh --only second-brain"
   return 1
 }
 
-# Sets SB_MCP_BIN and SB_API_BIN to the resolved binary paths, or "" when a
-# binary isn't installed. Shared by every module that registers the
-# second-brain MCP server (claude, codex, opencode) so the lookup order
-# lives in exactly one place.
+# Sets SB_MCP_BIN to the resolved second-brain-mcp path, or "" when it isn't
+# installed. Shared by every module that registers the second-brain MCP server
+# (claude, codex, opencode) so the lookup order lives in exactly one place.
 second_brain_find_binaries() {
   SB_MCP_BIN=""
-  SB_API_BIN=""
   local candidate
   for candidate in \
     "$(command -v second-brain-mcp 2>/dev/null)" \
@@ -84,15 +75,6 @@ second_brain_find_binaries() {
     "$HOME/.cargo/bin/second-brain-mcp"; do
     if [[ -n "$candidate" && -x "$candidate" ]]; then
       SB_MCP_BIN="$candidate"
-      break
-    fi
-  done
-  for candidate in \
-    "$(command -v second-brain-api 2>/dev/null)" \
-    "$HOME/.local/bin/second-brain-api" \
-    "$HOME/.cargo/bin/second-brain-api"; do
-    if [[ -n "$candidate" && -x "$candidate" ]]; then
-      SB_API_BIN="$candidate"
       break
     fi
   done
@@ -104,14 +86,12 @@ second_brain_mcp() {
   fi
 
   second_brain_find_binaries
-  local sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+  local sb_mcp="$SB_MCP_BIN"
 
   if [[ -z "$sb_mcp" ]]; then
     log_warn "second-brain-mcp binary not found, skipping MCP registration"
     return
   fi
-
-  second_brain_daemon "$sb_api"
 
   local existing
   existing=$(claude mcp list 2>/dev/null | grep "^second-brain:" || true)
@@ -122,7 +102,6 @@ second_brain_mcp() {
   else
     if claude mcp add -s user "second-brain" \
       -e SECOND_BRAIN_API="http://127.0.0.1:7200" \
-      -e SECOND_BRAIN_DAEMON_BIN="$sb_api" \
       -- "$sb_mcp" 2>/dev/null; then
       log_success "mcp: second-brain registered (binary: $sb_mcp)"
     else
@@ -131,107 +110,19 @@ second_brain_mcp() {
   fi
 }
 
-second_brain_daemon() {
-  local sb_api="${1:-}"
-
-  if [[ -z "$sb_api" ]]; then
-    log_warn "second-brain-api binary not found, skipping daemon setup"
-    return
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[dry-run] would install second-brain daemon service"
-    return
-  fi
-
-  if [[ "$(uname -s)" == Darwin ]]; then
-    second_brain_daemon_darwin "$sb_api"
-  else
-    second_brain_daemon_linux "$sb_api"
+# The API service belongs to second-brain's own `sb setup`, which writes
+# service.json; harness only points at it.
+second_brain_service_hint() {
+  if [[ ! -f "$HOME/.second-brain/service.json" ]]; then
+    log_info "second-brain: run sb setup to install the second-brain service"
+  elif [[ "$SECOND_BRAIN_UPDATED" == "true" ]]; then
+    log_warn "second-brain: run sb restart to load the new version"
   fi
 }
 
-second_brain_started_marker() {
-  printf '%s\n' "$HOME/.local/share/harness/second-brain/daemon-started"
-}
-
-# WHY: cargo install --force replaces the binary on disk but the running
-# process keeps its old copy open until restarted, so a newer release
-# would otherwise silently keep serving the previous version with no
-# error anywhere.
-second_brain_binary_newer() {
-  local marker
-  marker=$(second_brain_started_marker)
-  [[ ! -e "$marker" || "$1" -nt "$marker" ]]
-}
-
-second_brain_mark_started() {
-  local marker
-  marker=$(second_brain_started_marker)
-  mkdir -p "$(dirname "$marker")"
-  touch "$marker"
-}
-
-second_brain_daemon_linux() {
-  local sb_api="$1"
-  local service_dir="$HOME/.config/systemd/user"
-  local service_file="$service_dir/second-brain.service"
-
-  service_manager_owns "$service_file" || return 0
-  mkdir -p "$service_dir"
-
-  cat > "$service_file" <<UNIT
-[Unit]
-Description=Second Brain daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=$sb_api
-Environment=SECOND_BRAIN_DB=$HOME/.second-brain/brain.db
-Environment=SECOND_BRAIN_BIND=127.0.0.1:7200
-Environment=FASTEMBED_CACHE_DIR=$HOME/.second-brain/fastembed
-Restart=on-failure
-RestartSec=5
-TimeoutStartSec=60
-
-[Install]
-WantedBy=default.target
-UNIT
-
-  # WHY: lingering keeps this user's systemd instance (and this service) running
-  # across logout/reboot; without it the daemon looks healthy right up until the
-  # session ends, then silently stops until someone logs back in.
-  if command -v loginctl &>/dev/null; then
-    loginctl enable-linger "$(whoami)" 2>/dev/null || true
-  fi
-
-  if command -v systemctl &>/dev/null; then
-    systemctl --user daemon-reload
-    systemctl --user enable second-brain.service 2>/dev/null || true
-    if systemctl --user is-active --quiet second-brain.service 2>/dev/null; then
-      if second_brain_binary_newer "$sb_api"; then
-        systemctl --user restart second-brain.service 2>/dev/null || true
-        second_brain_mark_started
-        log_success "daemon: second-brain service restarted (binary updated since last start)"
-      else
-        log_skip "daemon: second-brain service" "already running the current binary"
-      fi
-    else
-      systemctl --user start second-brain.service 2>/dev/null || true
-      second_brain_mark_started
-      log_success "daemon: second-brain service installed and started"
-    fi
-  else
-    log_warn "systemctl not found, service file written but not activated"
-  fi
-}
-
-# Args: label, destination, second-brain-api path (daemon agent only).
 second_brain_render_agent() {
-  local label="$1" dest="$2" sb_api="${3:-}"
-  sed -e "s|@HOME@|$HOME|g" -e "s|@SB_API@|$sb_api|g" \
-    "$REPO_ROOT/configs/second-brain/launchd/$label.plist" >"$dest"
+  local label="$1" dest="$2"
+  sed -e "s|@HOME@|$HOME|g" "$REPO_ROOT/configs/second-brain/launchd/$label.plist" >"$dest"
 }
 
 # Succeeds when the agent is loaded from a plist identical to the rendered one.
@@ -239,32 +130,6 @@ second_brain_agent_current() {
   local label="$1" rendered="$2"
   launchctl print "$(launchd_domain)/$label" >/dev/null 2>&1 &&
     cmp -s "$rendered" "$(launchd_agents_dir)/$label.plist"
-}
-
-second_brain_daemon_darwin() {
-  local sb_api="$1" label=com.harness.second-brain rendered
-  service_manager_owns "$(launchd_agents_dir)/$label.plist" || return 0
-  rendered=$(mktemp)
-  second_brain_render_agent "$label" "$rendered" "$sb_api"
-  if second_brain_agent_current "$label" "$rendered"; then
-    rm -f "$rendered"
-    if ! second_brain_binary_newer "$sb_api"; then
-      log_skip "daemon: second-brain agent" "already running the current binary"
-    elif launchctl kickstart -k "$(launchd_domain)/$label"; then
-      second_brain_mark_started
-      log_success "daemon: second-brain agent restarted (binary updated since last start)"
-    else
-      log_warn "daemon: launchctl could not restart $label"
-    fi
-    return
-  fi
-  if launchd_reload_agent "$rendered" "$label"; then
-    second_brain_mark_started
-    log_success "daemon: second-brain agent installed and started"
-  else
-    log_warn "daemon: launchctl could not load $label"
-  fi
-  rm -f "$rendered"
 }
 
 second_brain_sync_timer() {
@@ -306,6 +171,12 @@ second_brain_sync_timer_linux() {
 
   service_manager_owns "$service_dir/sb-sync.timer" || return 0
   mkdir -p "$service_dir"
+
+  # WHY: without lingering the user's systemd instance, and this timer with
+  # it, stops at logout and stays stopped until the next login.
+  if command -v loginctl &>/dev/null; then
+    loginctl enable-linger "$(whoami)" 2>/dev/null || true
+  fi
 
   cat > "$service_dir/sb-sync.service" <<'UNIT'
 [Unit]
@@ -356,6 +227,7 @@ second_brain_sync_agent_darwin() {
 
 second_brain_install() {
   second_brain_binaries
+  second_brain_service_hint
   second_brain_sync_timer
 }
 

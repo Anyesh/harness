@@ -165,7 +165,7 @@ echo ""
 FH="$TMP_DIR/full"
 new_home "$FH" vault
 add_fake_second_brain "$FH"
-harness "$FH" --no-plugins > /dev/null || true
+full_out=$(harness "$FH" --no-plugins) || true
 
 assert "control: memory hooks deployed" '[[ -x "$FH/.claude/hooks/wiki-nudge.sh" && -x "$FH/.claude/hooks/stop-wiki-enforce.sh" && -x "$FH/.claude/hooks/session-end-ingest.sh" && -x "$FH/.claude/hooks/session-start-wiki.sh" ]]'
 assert "control: settings.json registers memory hooks and WIKI_VAULT" 'grep -q stop-wiki-enforce "$FH/.claude/settings.json" && grep -q "WIKI_VAULT\": \"$TMP_DIR/vault\"" "$FH/.claude/settings.json"'
@@ -176,7 +176,8 @@ assert "control: wiki skill and memory commands deployed" '[[ -d "$FH/.claude/sk
 assert "control: cursor rules and hooks carry memory" '[[ -f "$FH/.cursor/rules/second-brain.mdc" && -f "$FH/.cursor/rules/wiki-maintenance.mdc" ]] && grep -q wiki-nudge "$FH/.cursor/hooks.json"'
 assert "control: codex hooks and scripts carry memory" 'grep -q session-start-wiki "$FH/.codex/hooks.json" && [[ -x "$FH/.codex/hooks/session-start-wiki.sh" ]]'
 assert "control: codex and opencode register second-brain" 'grep -q "mcp_servers.second-brain" "$FH/.codex/config.toml" && grep -q second-brain "$FH/.config/opencode/opencode.json" && [[ -f "$FH/.config/opencode/plugins/harness-second-brain.js" ]]'
-assert "control: second-brain daemon path ran" 'grep -qE "^(systemctl --user enable second-brain\.service|launchctl bootstrap gui/[0-9]+ .*/com\.harness\.second-brain\.plist)" <<<"$(calls "$FH")"'
+assert "control: second-brain hints sb setup and installs no daemon" 'grep -q "sb setup" <<<"$full_out" && ! grep -qE "second-brain\.service|com\.harness\.second-brain\.plist" <<<"$(calls "$FH")"'
+assert "control: MCP configs carry no daemon or model cache settings" '! grep -qE "SECOND_BRAIN_DAEMON_BIN|FASTEMBED_CACHE_DIR" "$FH/.claude/.mcp.json" "$FH/.cursor/mcp.json" "$FH/.codex/config.toml" "$FH/.config/opencode/opencode.json"'
 
 echo ""
 echo "=== default output identity ==="

@@ -38,11 +38,11 @@ opencode_mcp() {
     dest="$OPENCODE_CONFIG_DIR/opencode.jsonc"
   fi
 
-  local sb_mcp="" sb_api=""
+  local sb_mcp=""
   if ! profile_skips_mcp_server second-brain; then
     declare -f second_brain_find_binaries >/dev/null 2>&1 || source "$REPO_ROOT/modules/second-brain.sh"
     second_brain_find_binaries
-    sb_mcp="$SB_MCP_BIN" sb_api="$SB_API_BIN"
+    sb_mcp="$SB_MCP_BIN"
   fi
   local web_strip_path="$HOME/.harness/tools/web-strip/index.js"
 
@@ -53,9 +53,7 @@ opencode_mcp() {
     printf '"web-strip":{"type":"local","command":["node","%s"],"enabled":true},' "$web_strip_path"
     printf '"markitdown":{"type":"local","command":["uvx","markitdown-mcp"],"enabled":true}'
     if [[ -n "$sb_mcp" ]]; then
-      printf ',"second-brain":{"type":"local","command":["%s"],"environment":{"SECOND_BRAIN_API":"http://127.0.0.1:7200"' "$sb_mcp"
-      [[ -n "$sb_api" ]] && printf ',"SECOND_BRAIN_DAEMON_BIN":"%s"' "$sb_api"
-      printf '},"enabled":true}'
+      printf ',"second-brain":{"type":"local","command":["%s"],"environment":{"SECOND_BRAIN_API":"http://127.0.0.1:7200"},"enabled":true}' "$sb_mcp"
     fi
     printf '}}'
   } > "$fragment"
