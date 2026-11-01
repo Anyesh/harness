@@ -6,7 +6,8 @@
 # when the dir is already gone, it does nothing. It refuses (exit 1, reason on
 # stderr) unless the text is an absolute path that resolves to a dir whose last
 # component is <id> or w-<id>, which is not /, $HOME, the main checkout, the
-# crew runs dir or a parent of any of them, and is not inside a worktree.
+# crew runs dir or a parent of any of them, and is neither inside a worktree nor
+# holds one.
 set -uo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -45,7 +46,7 @@ worktrees=$(git -C "$main" worktree list --porcelain) || refuse "cannot list wor
 while IFS= read -r line; do
   [[ $line == "worktree "* ]] || continue
   wt=$(resolve "${line#worktree }") || refuse "cannot resolve worktree ${line#worktree }"
-  if [[ $dir == "$wt" || $dir == "$wt"/* ]]; then refuse "$dir is inside worktree $wt"; fi
+  if [[ $dir == "$wt" || $dir == "$wt"/* || $wt == "$dir"/* ]]; then refuse "$dir is, holds or sits inside worktree $wt"; fi
 done <<<"$worktrees"
 
 [[ -e $dir ]] || exit 0

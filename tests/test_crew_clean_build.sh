@@ -110,6 +110,11 @@ build_dir "$REPO" 1 "$TMP/outside-wt/w-1"
 run "$CCB" 1
 assert "a dir inside a worktree outside the main checkout is refused" '[[ $RC -eq 1 && -f $TMP/outside-wt/w-1/debug/out ]] && grep -q "inside worktree $TMP/outside-wt" <<<"$ERR"'
 
+git -C "$REPO" worktree add -q -b w/6 "$TMP/ext/w-6/wt"
+build_dir "$REPO" 6 "$TMP/ext/w-6"
+run "$CCB" 6
+assert "a dir holding a worktree is refused" '[[ $RC -eq 1 && -d $TMP/ext/w-6/wt ]] && grep -q "worktree $TMP/ext/w-6/wt" <<<"$ERR"'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
