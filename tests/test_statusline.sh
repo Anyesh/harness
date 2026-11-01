@@ -20,8 +20,11 @@ assert() {
   fi
 }
 
+unset HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_BIN_PATH
+
 TMP_DIR=$(mktemp -d)
-trap 'command rm -rf "$TMP_DIR"' EXIT
+SLOW_DIR=$(mktemp -d)
+trap 'kill "$(cat "$SLOW_DIR/pid" 2>/dev/null)" 2>/dev/null || true; command rm -rf "$TMP_DIR" "$SLOW_DIR" || true' EXIT
 
 STATE="$TMP_DIR/state"
 SID="sess-1"
@@ -186,6 +189,114 @@ assert "rewriting a usage file prunes nothing" '[[ -e "$USAGE/old.json" && "$(us
 
 out=$(input u-x | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME=/dev/null/nope bash "$STATUSLINE" 2>&1)
 assert "an unwritable state dir still prints the status line and no errors" '[[ "$out" == "$BASE" ]]'
+
+echo ""
+echo "=== herdr sidebar ==="
+echo ""
+
+FAKE_HERDR="$TMP_DIR/fake-herdr"
+cat >"$FAKE_HERDR" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$HERDR_LOG"
+exit "${HERDR_RC:-0}"
+EOF
+SLOW_HERDR="$TMP_DIR/slow-herdr"
+cat >"$SLOW_HERDR" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$HERDR_LOG"
+if [ ! -e "$SLOW_DIR/marker" ]; then
+  : >"$SLOW_DIR/marker"
+  echo $$ >"$SLOW_DIR/pid"
+  exec sleep 5
+fi
+EOF
+FAKE_PATH="$TMP_DIR/fake-path"
+mkdir -p "$FAKE_PATH"
+chmod +x "$FAKE_HERDR" "$SLOW_HERDR"
+ln -s "$FAKE_HERDR" "$FAKE_PATH/herdr"
+
+SET="pane report-metadata p-1 --source harness-statusline --ttl-ms 60000"
+CLEAR="pane report-metadata p-1 --source harness-statusline"
+
+in_pane() {
+  local log=$1 profile=$2
+  shift 2
+  : >"$log"
+  env CLAUDE_PROFILE="$profile" NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_PANE_ID=p-1 \
+    HERDR_BIN_PATH="$FAKE_HERDR" HERDR_LOG="$log" "$@" bash "$STATUSLINE"
+}
+
+wait_calls() {
+  local n=0
+  while (($(wc -l <"$1") < 2 && n < 20)); do
+    sleep 0.1
+    n=$((n + 1))
+  done
+}
+
+call() { sed -n "${2}p" "$1"; }
+
+LOG="$TMP_DIR/default.log"
+: >"$LOG"
+out=$(input side | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_PANE_ID=p-1 \
+  HERDR_BIN_PATH="$FAKE_HERDR" HERDR_LOG="$LOG" bash "$STATUSLINE")
+wait_calls "$LOG"
+assert "publishing to the sidebar leaves the status line unchanged" '[[ "$out" == "$BASE" ]]'
+assert "a pane gets its profile, context and cache hit" \
+  '[[ "$(call "$LOG" 1)" == "$SET --token claude_profile=default --token claude_ctx=⛁ 380k --token claude_cache=◉ 97%" ]]'
+assert "a healthy cache clears the low cache token" '[[ "$(call "$LOG" 2)" == "$CLEAR --clear-token claude_cache_low" ]]'
+
+LOG="$TMP_DIR/low.log"
+input side | jq -c '.context_window.current_usage = {input_tokens: 200000, cache_creation_input_tokens: 80000, cache_read_input_tokens: 100000}' |
+  in_pane "$LOG" default >/dev/null
+wait_calls "$LOG"
+assert "a hit rate under 80% goes to the low cache token" \
+  '[[ "$(call "$LOG" 1)" == "$SET --token claude_profile=default --token claude_ctx=⛁ 380k --token claude_cache_low=◉ 26%" ]]'
+assert "a low hit rate clears the normal cache token" '[[ "$(call "$LOG" 2)" == "$CLEAR --clear-token claude_cache" ]]'
+
+LOG="$TMP_DIR/zero.log"
+input side | jq -c '.context_window.current_usage = {input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0}' |
+  in_pane "$LOG" default >/dev/null
+wait_calls "$LOG"
+assert "no usage yet publishes no cache token" \
+  '[[ "$(call "$LOG" 1)" == "$SET --token claude_profile=default --token claude_ctx=⛁ 380k" ]]'
+assert "no usage yet clears both cache tokens" \
+  '[[ "$(call "$LOG" 2)" == "$CLEAR --clear-token claude_cache --clear-token claude_cache_low" ]]'
+
+LOG="$TMP_DIR/ero.log"
+input side | in_pane "$LOG" ero >/dev/null
+wait_calls "$LOG"
+assert "a profile session shows its profile" '[[ "$(call "$LOG" 1)" == *"--token claude_profile=ero "* ]]'
+
+LOG="$TMP_DIR/stale.log"
+: >"$LOG"
+input side | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_PANE_ID=p-1 \
+  HERDR_BIN_PATH="$TMP_DIR/gone" HERDR_LOG="$LOG" PATH="$FAKE_PATH:$PATH" bash "$STATUSLINE" >/dev/null
+wait_calls "$LOG"
+assert "a stale HERDR_BIN_PATH falls back to herdr on PATH" '[[ "$(call "$LOG" 1)" == "$SET "* ]]'
+
+LOG="$TMP_DIR/fail.log"
+out=$(input side | in_pane "$LOG" default HERDR_RC=1)
+wait_calls "$LOG"
+assert "a failing herdr leaves the status line unchanged" '[[ "$out" == "$BASE" ]]'
+
+LOG="$SLOW_DIR/slow.log"
+: >"$LOG"
+start=$(date +%s)
+out=$(input side | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_PANE_ID=p-1 \
+  HERDR_BIN_PATH="$SLOW_HERDR" HERDR_LOG="$LOG" SLOW_DIR="$SLOW_DIR" bash "$STATUSLINE")
+elapsed=$(($(date +%s) - start))
+assert "a hung herdr does not delay the status line" '((elapsed < 3)) && [[ "$out" == "$BASE" ]]'
+
+LOG="$TMP_DIR/nopane.log"
+: >"$LOG"
+input side | env -u CLAUDE_PROFILE NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_BIN_PATH="$FAKE_HERDR" HERDR_LOG="$LOG" \
+  bash "$STATUSLINE" >/dev/null
+input side | env CLAUDE_PROFILE=sentinel NO_COLOR=1 XDG_STATE_HOME="$STATE" HERDR_PANE_ID=p-1 \
+  HERDR_BIN_PATH="$FAKE_HERDR" HERDR_LOG="$LOG" bash "$STATUSLINE" >/dev/null
+wait_calls "$LOG"
+assert "outside a herdr pane nothing is published" \
+  '[[ "$(wc -l <"$LOG" | tr -d " ")" == 2 && "$(call "$LOG" 1)" == *"claude_profile=sentinel"* ]] && ! grep -q "claude_profile=default" "$LOG"'
 
 echo ""
 echo "statusline: $PASS passed, $FAIL failed"

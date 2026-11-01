@@ -129,6 +129,44 @@ record_usage() {
 # The status line is the product, so a failed usage write stays silent rather than corrupting it.
 [ -n "$SESSION_ID" ] && record_usage 2>/dev/null
 
+sidebar_herdr() {
+    if [ -x "$HERDR_BIN_PATH" ]; then
+        printf '%s\n' "$HERDR_BIN_PATH"
+    else
+        command -v herdr
+    fi
+}
+
+# Fills the $claude_* tokens of this pane's sidebar entry (rows_by_agent.claude in configs/herdr/config.toml).
+report_sidebar() {
+    local herdr=$1 cache_low_pct=80 cache_read total pct
+    local set=(--token "claude_profile=${CLAUDE_PROFILE:-default}" --token "claude_ctx=⛁ ${USED_K}k") clear=()
+    read -r cache_read total < <(echo "$input" | jq -r '(.context_window.current_usage // {}) |
+        [(.cache_read_input_tokens // 0), ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0))] |
+        map(floor) | @tsv')
+    if [ "${total:-0}" -gt 0 ]; then
+        pct=$(( cache_read * 100 / total ))
+        if [ "$pct" -lt "$cache_low_pct" ]; then
+            set+=(--token "claude_cache_low=◉ ${pct}%")
+            clear+=(--clear-token claude_cache)
+        else
+            set+=(--token "claude_cache=◉ ${pct}%")
+            clear+=(--clear-token claude_cache_low)
+        fi
+    else
+        clear+=(--clear-token claude_cache --clear-token claude_cache_low)
+    fi
+    # Separate calls so herdr refusing to clear a never-set token cannot drop the tokens being set.
+    "$herdr" pane report-metadata "$HERDR_PANE_ID" --source harness-statusline --ttl-ms 60000 "${set[@]}"
+    "$herdr" pane report-metadata "$HERDR_PANE_ID" --source harness-statusline "${clear[@]}"
+}
+
+if [ -n "$HERDR_PANE_ID" ]; then
+    HERDR=$(sidebar_herdr)
+    # Detached so a hung herdr socket never delays the status line.
+    [ -n "$HERDR" ] && { report_sidebar "$HERDR" </dev/null >/dev/null 2>&1 & disown; }
+fi
+
 # Mods write one segment file per session (see configs/claude-code/mods); the
 # order here is fixed so segments do not jump around, and a file untouched for
 # 10 minutes is skipped because a crashed session never empties its own.
