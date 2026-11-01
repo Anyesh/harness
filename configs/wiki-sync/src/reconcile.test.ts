@@ -555,13 +555,16 @@ Deno.test("a stale rewrite made while paused is not pushed", () => {
   assertEquals(p.copies, []);
 });
 
-Deno.test("the stale check reads at most HISTORY_LIMIT ancestors of a long history", () => {
+Deno.test("the stale check reads at most HISTORY_LIMIT revisions of a long history with deleted branches", () => {
   const revs = Array.from({ length: 300 }, (_, i) => `${300 - i}-r${300 - i}`);
   const res = reconcile({
     path: PATH,
     state: state({ synced: synced(revs[0], "TOP", revs.slice(1)) }),
     local: file("OLD", NOW, { duringPause: true }),
-    leaves: [leaf(revs[0], revs.slice(1))],
+    leaves: [
+      leaf(revs[0], revs.slice(1)),
+      ...[2, 48, 106, 238].map((g) => leaf(`${g}-d${g}`, revs.slice(300 - g + 1), { hardDeleted: true })),
+    ],
     content: content({ [revs[0]]: "TOP" }),
     now: NOW,
   });
