@@ -15,7 +15,7 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 - Your item's deliverable, its `spec.md` when the brief names one, and the stop point replace plan approval and `.scope.md`; build to the spec, which holds the plan's decisions and edge cases for your item. Never enter plan mode or call `AskUserQuestion`; a hook denies both. Leave the wiki, the devlog and `remember` to the lead.
 - Keep scope notes in `$crew/items/<id>/notes.md`, and append a dated line there at each milestone: test red, fix green, review requested, a review that is not green with its main finding, and a failed merge gate with its reason. The lead reads it to tell a stuck item from a slow one and to learn from failures. Before a command you expect to run longer than about 20 minutes, append a dated line naming it and how long you expect it to take.
 - Write the failing test first, then the fix. Use subagents for broad reading and for the fresh review.
-- When the item has independent parts (disjoint files, no order between them), run them as parallel subagents as `/orchestrate` steps 5 and 6 describe: spawn them in one turn, then consolidate and run the integrated tests yourself. Decide yourself wherever it says to ask the user, and skip its escalation to a bigger model. The subagents share your worktree, given its absolute path, and each edits only its own files; you run the tests and make the commits, since parallel commits in one worktree fail on `index.lock`. Parts that overlap stay with you, done in sequence.
+- When the item has independent parts (disjoint files, no order between them) that fit in this session, run them as parallel subagents as `/orchestrate` steps 5 and 6 describe: spawn them in one turn, then consolidate and run the integrated tests yourself. Decide yourself wherever it says to ask the user, and skip its escalation to a bigger model. The subagents share your worktree, given its absolute path, and each edits only its own files; you run the tests and make the commits, since parallel commits in one worktree fail on `index.lock`. Parts that overlap stay with you, done in sequence. Parts that each need a session of their own get a `question` report with a proposed split (the parts, the files each touches, their order) before you build them; the lead turns them into new items.
 - Use the Workflow tool only when your brief says the user asked for workflows.
 - Every subagent prompt gives the absolute path of `$crew/brief.md` (subagents have no `$crew`) and tells the subagent to follow its `## Lessons` lines.
 - Stop at the stop point and report, even if more looks easy.
@@ -26,7 +26,11 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 
 ## Reporting
 
-Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked` or `rate-limited`, with the reset time Claude showed), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved, and any preference of the user's you learned, so the lead can save it. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
+Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked`, `handoff` or `rate-limited`, with the reset time Claude showed), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved, and any preference of the user's you learned, so the lead can save it. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
+
+## Handoff
+
+On a `[crew] hand off now` prompt (your profile or your context is near its limit), stop at a safe point: no half-written file and no merge running. Let background commands finish or stop them. Write `$crew/items/<id>/handoff.md` with what is done, what is next, open review findings, and which commands ran and where their logs are. Leave the worktree as it is, uncommitted changes included, report `status: handoff`, and stop. A worker that takes over an item reads its `handoff.md` first.
 
 ## Landing
 
