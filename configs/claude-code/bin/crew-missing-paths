@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Usage: crew-missing-paths [crew-dir]   (default: the repo's crew dir)
+#
+# Prints `missing: <path>` once for each absolute path named in the crew's
+# helper files and item specs that does not exist, and exits 0. It reads every
+# regular file at the top of the crew dir except board.tsv*, rulings.md,
+# reflections.md, plan.md (it names files the work will create), watch-paths
+# (it may name dirs not built yet), lead, dagr-run, dagr.log and dot files,
+# plus each items/*/spec.md; binary files are skipped.
+#
+# A path counts when it starts a line or follows a character that cannot sit
+# inside a path, URL, $var/..., ~/... or w/1, or follows `:-` as in
+# ${VAR:-/path}. Trailing dots are dropped. A path running into $, *, { or < is
+# cut back to its last /, so the fixed part before an expansion is checked.
+# Only paths whose first component exists are reported, which leaves out API
+# routes such as /health and deliberate dead paths such as /nonexistent/x.
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+if (($#)); then
+  crew=$1
+else
+  crew=$(crew_dir) || {
+    echo "crew-missing-paths: not inside a git repo; pass the crew dir" >&2
+    exit 2
+  }
+fi
+[[ -d $crew ]] || {
+  echo "crew-missing-paths: no crew dir at $crew" >&2
+  exit 2
+}
+
+files=()
+while IFS= read -r f; do
+  case ${f##*/} in
+  .* | board.tsv* | rulings.md | reflections.md | plan.md | watch-paths | lead | dagr-run | dagr.log) ;;
+  *) files+=("$f") ;;
+  esac
+done < <(find "$crew" -mindepth 1 -maxdepth 1 -type f)
+if [[ -d $crew/items ]]; then
+  while IFS= read -r f; do files+=("$f"); done < <(find "$crew/items" -mindepth 2 -maxdepth 2 -type f -name spec.md)
+fi
+((${#files[@]})) || exit 0
+
+grep -IohE '(^|[^[:alnum:]_.~:/-]|:-)/[[:alnum:]_.~/-]+[$*{<]?' -- "${files[@]}" |
+  sed -E 's|^[^/]*||; s|/[^/]*[$*{<]$|/|; s|[.]+$||' | LC_ALL=C sort -u |
+  while IFS= read -r p; do
+    first=${p#/}
+    first=/${first%%/*}
+    if [[ -e $first && ! -e $p ]]; then printf 'missing: %s\n' "$p"; fi
+  done
+exit 0
