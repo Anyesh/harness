@@ -267,6 +267,8 @@ mkdir -p "$CREW/items"
   row 6 open '' "$U" 'sixth item'
   row 7 blocked x-w7 "$U" 'seventh item' 8
   row 8 blocked x-w8 "$U" 'eighth item' 7
+  row 9 blocked x-w9 "$U" 'ninth item' '1, 99'
+  row 10 blocked x-w10 "$U" 'tenth item' 7,1,8
 } >"$CREW/board.tsv"
 agents
 run_dagr
@@ -275,6 +277,9 @@ assert "the deps column does not leak into the title" '[[ $(tq 2 .title) == "sec
 assert "unknown ids and rows with an unknown status are dropped from deps" '[[ $(tq 4 ".deps | join(\",\")") == 2 ]]'
 assert "a row without deps has no deps field" '[[ $(tq 6 "has(\"deps\")") == false && $(tq 1 "has(\"deps\")") == false ]]'
 assert "a blocked row drops its deps, so blocking a cycle publishes" '[[ $RC -eq 0 && $(tq 7 "has(\"deps\")") == false && $(tq 8 "has(\"deps\")") == false ]]'
+assert "a blocked row with a blocked dep waits on that dep, not the user" '[[ $(tq 7 .unblock) == 8 && $(tq 8 .unblock) == 7 ]]'
+assert "a blocked row whose deps are not blocked waits on the user" '[[ $(tq 9 .unblock) == user ]]'
+assert "every blocked dep is named" '[[ $(tq 10 .unblock) == "7, 8" && $(tq 10 "has(\"deps\")") == false ]]'
 assert "the real dagr check finds no errors with deps" 'real_check "$RUN"'
 
 echo "failures"

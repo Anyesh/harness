@@ -70,8 +70,6 @@ key_value() {
   awk -v k="$2" '$1 == k {v = $2} END {print v}' "$1"
 }
 
-# A blocked row keeps no deps, so blocking the rows of a cycle, as the lead
-# answers DEPS, ends dagr's E122 instead of failing every publish.
 item_facts() {
   local id=$1 status=$2 owner=$3 updated=$4 title=$5 deps=$6
   local item="$crew/items/$id" attempts='[]' report=null merged=null rs
@@ -94,7 +92,7 @@ item_facts() {
     --arg updated "$updated" --argjson attempts "$attempts" --argjson report "$report" --argjson merged "$merged" \
     '{id: $id, status: $status, owner: (if $owner == "" then null else $owner end),
       title: (if $title == "" then "item \($id)" else $title end),
-      deps: (if $status == "blocked" then [] else $deps | split(",") end),
+      deps: ($deps | split(",")),
       updated: (if $updated == "" then null else ($updated | tonumber) end),
       attempts: $attempts, report: $report, merged: $merged}'
 }
@@ -105,7 +103,7 @@ def iso: todate;
 def clean: with_entries(select(.value != null));
 def later($a; $b): if $b == null or $a > $b then $a else $b end;
 
-def task($ids):
+def task($ids; $blocked):
   . as $f
   | (if $f.status == "open" then []
      elif ($f.attempts | length) > 0 then $f.attempts
@@ -142,20 +140,25 @@ def task($ids):
                      queued_input: 0}}
        end
      | clean] as $attempts
+  | ($f.deps | map(select(. as $d | $ids | index([$d])))) as $known
+  | ($known | map(select(. as $d | $blocked | index([$d])))) as $waits
   | (if $f.status == "open" then {state: "queued"}
      elif $done then {state: "done"}
-     elif $f.status == "blocked" then {state: "blocked", unblock: "user"}
+     elif $f.status == "blocked" then {state: "blocked", unblock: (if $waits == [] then "user" else $waits | join(", ") end)}
      elif $n == 0 then {state: "queued"}
      elif $rs == "question" or $rs == "blocked" or $last == "lost" then {state: "blocked", unblock: "lead"}
      else {state: "working"} end) as $state
-  | ($f.deps | map(select(. as $d | $ids | index([$d]))) | if length > 0 then . else null end) as $deps
+  | (if $f.status == "blocked" or $known == [] then null else $known end) as $deps
   | {id: $f.id, title: $f.title, kind: "impl", owner: $f.owner, deps: $deps} + $state + {attempts: $attempts}
   | clean;
 
+# A blocked row keeps no deps, so blocking the rows of a cycle, as the lead
+# answers DEPS, ends the E122 cycle error instead of failing every publish.
+# It waits on its blocked deps, and on the user only when it has none.
 {dagr: 3,
  run: {id: $run_id, title: "crew \($repo)", started_at: $run_started, orchestrator: {pane: $lead_pane}},
  generated_at: ($now | iso),
- tasks: (map(.id) as $ids | map(task($ids)))}
+ tasks: (map(.id) as $ids | map(select(.status == "blocked") | .id) as $blocked | map(task($ids; $blocked)))}
 '
 
 find_dagr || exit 0
