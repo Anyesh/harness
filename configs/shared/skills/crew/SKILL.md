@@ -27,8 +27,8 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
    - A reboot or reset can rename the host, drop profiles and empty temp dirs, so re-derive both from the live host. Read the pool again from `claude-profile names` and log in `rulings.md` each worker whose profile is gone, so you replace it. Then check every absolute path the crew files name, and fix or recreate each one this prints before you assign work:
 
      ```bash
-     grep -ohE '(^|[^[:alnum:]_.~:/-])/[[:alnum:]_.~/-]+' "$crew"/{check,sweep-check,brief.md,lead-notes.md} "$crew"/items/*/spec.md 2>/dev/null |
-       sed -E 's|^[^/]||; s|[.]+$||' | sort -u | while read -r p; do [[ -e $p ]] || echo "missing: $p"; done
+     { cat "$crew"/{check,sweep-check,brief.md,lead-notes.md}; find "$crew/items" -name spec.md -exec cat {} +; } 2>/dev/null |
+       grep -oE '(^|[^[:alnum:]_.~:/-])/[[:alnum:]_.~/-]+' | sed -E 's|^[^/]||; s|[.]+$||' | sort -u | while read -r p; do [[ -e $p ]] || echo "missing: $p"; done
      ```
 
    - Run `crew-merge --status`, and `crew-merge --settle <id>` for each `CUT` or `STALE` line it prints. Then mark `done` every item with a `merged` file, and re-read reports you have not acted on.
