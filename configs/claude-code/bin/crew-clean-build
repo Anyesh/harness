@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Usage: crew-clean-build <id>
+#
+# Deletes the build output dir named on the first line of
+# $crew/items/<id>/build-dir and prints `removed <dir>`; without that file, or
+# when the dir is already gone, it does nothing. It refuses (exit 1, reason on
+# stderr) unless the text is an absolute path that resolves to a dir whose last
+# component is <id> or w-<id>, which is not /, $HOME, the main checkout, the
+# crew runs dir or a parent of any of them, and is not inside a worktree.
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+refuse() {
+  printf 'crew-clean-build: %s\n' "$*" >&2
+  exit 1
+}
+
+id=${1:-}
+[[ $id =~ ^[A-Za-z0-9_-]+$ ]] || refuse "usage: crew-clean-build <id>"
+main=$(crew_main) || refuse "not inside a git repo"
+crew=$(crew_dir) || refuse "not inside a git repo"
+file=$crew/items/$id/build-dir
+[[ -f $file ]] || exit 0
+IFS= read -r raw <"$file" || [[ -n $raw ]] || refuse "$file is empty"
+
+# realpath -m would turn a relative path into one under the current dir.
+[[ $raw == /* ]] || refuse "build-dir is not absolute: $raw"
+resolve() { realpath -m -- "$1"; }
+dir=$(resolve "$raw") || refuse "cannot resolve $raw"
+[[ ${dir##*/} == "$id" || ${dir##*/} == "w-$id" ]] || refuse "$dir: its last component is not $id or w-$id"
+[[ $dir != / ]] || refuse "refusing /"
+
+protect() {
+  local p
+  p=$(resolve "$2") || refuse "cannot resolve $1 $2"
+  if [[ $p == "$dir" || $p == "$dir"/* ]]; then refuse "$dir is $1 ($p) or a parent of it"; fi
+}
+protect home "$HOME"
+protect "the main checkout" "$main"
+protect "the runs dir" "${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}"
+
+worktrees=$(git -C "$main" worktree list --porcelain) || refuse "cannot list worktrees of $main"
+while IFS= read -r line; do
+  [[ $line == "worktree "* ]] || continue
+  wt=$(resolve "${line#worktree }") || refuse "cannot resolve worktree ${line#worktree }"
+  if [[ $dir == "$wt" || $dir == "$wt"/* ]]; then refuse "$dir is inside worktree $wt"; fi
+done <<<"$worktrees"
+
+[[ -e $dir ]] || exit 0
+rm -rf -- "$dir" || refuse "could not remove all of $dir"
+printf 'removed %s\n' "$dir"

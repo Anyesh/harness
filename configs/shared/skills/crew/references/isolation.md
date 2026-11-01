@@ -4,7 +4,7 @@ Read when writing `brief.md` or `check` for a repo whose builds would share an o
 
 ## Build output
 
-- Give each worktree its own build output dir and the merge gate (`check`) one more, never shared. Build tools key incremental state on paths and mtimes; cargo names path crates the same in every worktree, so one shared `CARGO_TARGET_DIR` runs tests against another branch's build.
+- Give each worktree its own build output dir and the merge gate (`check`) one more, never shared. Build tools key incremental state on paths and mtimes; cargo names path crates the same in every worktree, so one shared `CARGO_TARGET_DIR` runs tests against another branch's build. End each worktree's dir in the item id or `w-<id>` and write it to `items/<id>/build-dir`, because `crew-clean-build` deletes only such a dir, at landing.
 - Keep these dirs under one parent, list it in `watch-paths`, and build with smaller debug info (for cargo, `CARGO_PROFILE_DEV_DEBUG=line-tables-only`) so they all fit on the disk.
 - To cap parallel builds, take one of a small number of slot locks in the build wrapper (a `flock` file per slot, using the first free one) instead of one exclusive lock that serializes every worker.
 

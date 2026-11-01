@@ -40,6 +40,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 - `watch-paths`: optional, one absolute path per line (build output dirs, caches) whose disk `crew-resources` checks besides the main checkout and the runs dir; a path that does not exist yet is checked at its nearest existing parent.
 - `thresholds`: optional `KEY=value` lines for `CREW_DISK_MIN_GB`, `CREW_MEM_MIN_MB`, `CREW_LOAD_PER_CPU` and `CREW_IO_FULL_PCT`, which `crew-resources` reads on every sweep, so a resumed lead keeps them; a non-empty environment variable overrides a line.
 - `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
+- `items/<id>/build-dir`: when the repo gives items their own build output dirs, the item's resolved absolute dir (no template), whose last component is the id or `w-<id>`. `crew-clean-build <id>` deletes that dir when the item lands.
 - `lead-notes.md`: rules for you from reflection, and `## Proposed /crew changes` for every crew in any repo.
 - `reflections.md`: one dated line per reflection round (`references/reflect.md`).
 
@@ -77,8 +78,8 @@ To spawn one worker:
    - Anything else, such as a login or billing prompt, means you close the tab and tell the user.
 
    If `herdr agent list` then shows the pane with an empty `.name // ""`, rename it.
-5. Only now run `crew-board set <id> status=assigned owner=$slug-wN`, which also sets `updated` to now.
-6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. For a new item write "create your worktree at `$main/.claude/worktrees/w-<id>`", because "your worktree is <path>" reads as an existing one, which `references/worker.md` has the worker report as blocked. Say that the user asked for workflows only when they did.
+5. Only now run `crew-board set <id> status=assigned owner=$slug-wN`, which also sets `updated` to now. If the repo gives items their own build output dirs, write the item's dir to `items/<id>/build-dir`.
+6. Brief it in one prompt starting with `[crew] `, the prefix cache-guard lets through a cold cache. Name `references/worker.md` in this skill, `$crew/brief.md`, the item id, its deliverable, its `$crew/items/<id>/spec.md` if intake wrote one, its `$crew/items/<id>/build-dir` if you wrote one, its stop point (by default landed for an item from a plan, otherwise the mechanism and a red test, before any fix), the target branch, and for a replacement the existing worktree it takes over. For a new item write "create your worktree at `$main/.claude/worktrees/w-<id>`", because "your worktree is <path>" reads as an existing one, which `references/worker.md` has the worker report as blocked. Say that the user asked for workflows only when they did.
 
 Address workers only by name: `send-keys` and `agent prompt` take the name. To close a worker's tab, take the `tab_id` of the `herdr tab list` entry labelled `$slug-wN` at that moment, and close nothing unless exactly one tab carries that label, noting it in `rulings.md` instead.
 
@@ -90,7 +91,7 @@ Run `crew-sweep` with `run_in_background` (it waits up to 900 seconds for an ite
 - `ALL-DONE`: assign the next open work if there is any, otherwise close out.
 - `ERROR <step>: <message>`: a crew-role or herdr call failed and the sweep retried it; if the sweep exited after repeated errors, tell the user what failed and start it again.
 - `CHANGED <path>` or `REMOVED <path>`: read that file. `TIMEOUT` means nothing changed during the wait.
-- A changed `report.md`: answer a `question` with a `[crew]` prompt and run `crew-board set <id>`, which sets `updated` to now, so the sweep watches that worker again; for `done` with a `merged` file, mark the row `done`, assign in the same turn what it unblocks, and give the worker its next item or close its tab; for `blocked`, mark the row `blocked` and log the reason; handle `rate-limited` as a usage limit under `IDLE`.
+- A changed `report.md`: answer a `question` with a `[crew]` prompt and run `crew-board set <id>`, which sets `updated` to now, so the sweep watches that worker again; for `done` with a `merged` file, mark the row `done`, assign in the same turn what it unblocks, and give the worker its next item or close its tab. A `crew-clean-build` refusal depends only on the path, so rerunning it refuses again: for a `done` report that names a leftover build dir, correct `items/<id>/build-dir` and rerun it, or delete the dir yourself under the `RESOURCE` rule below (nothing `RUNNING` or `QUEUED`, no worker building there). For `blocked`, mark the row `blocked` and log the reason; handle `rate-limited` as a usage limit under `IDLE`.
 - `READY <id>`: an open item whose deps are all `done`. Assign READY items while a profile has room before you start the sweep again.
 - `DEPS <id> <problem>`: an open item that can never start, because a dep `names unknown` id, it `waits on blocked` item, `is in a cycle` or `waits on stuck` item. Fix the order on the board or mark the row `blocked`, logging in `rulings.md` which dep blocked it; for `waits on stuck`, fix the stuck dep's own DEPS line instead. When a dep you logged as a cause can finish again (reopened, added to the board or its order fixed), reopen the rows you blocked because of it.
 - `GONE <name>`: its Claude exited or its pane closed (herdr drops a name 10 to 15 seconds after exit). Close its tab by label, then give the item to a fresh worker that takes over the same worktree.
@@ -118,7 +119,7 @@ When the user says to stop the crew, close every worker tab (waiting for any `ME
 ## Close-out
 
 1. Run a last reflection round with `references/reflect.md`, saving user preferences and cross-crew gotchas to project memory as it says, then delete `$crew/lead`, which also ends the question guard for you.
-2. For every `w/<id>` whose tip is already in its target, run `git -C "$main" worktree remove <path>` and then `git -C "$main" branch -d w/<id>`, never with `--force`, and list any that refuse.
+2. For every `w/<id>` whose tip is already in its target, run `git -C "$main" worktree remove <path>` and then `git -C "$main" branch -d w/<id>`, never with `--force`, then `crew-clean-build <id>`, and list any that refuse.
 3. Write one devlog entry for the crew's outcomes.
 4. Tell the user the list under `## Proposed /crew changes` in `lead-notes.md`, then remove the entries you told, so the next crew does not repeat them.
 5. For each `blocked` item, tell the user the branch it is left on if that branch still exists, and `.git/worktree-salvage/` if the SessionStart worktree sweep salvaged its worktree. That sweep may remove a worktree after a day idle but keeps unlanded branches.
