@@ -116,15 +116,20 @@ export function isLastKey(key: string): boolean {
 }
 
 // Keys stay after the session ends, because /resume and --continue can bring any session back.
-export function pruneLastKeys(entries: readonly (readonly [string, unknown])[]): string[] {
+export function pruneLastKeys(entries: readonly (readonly [string, unknown])[], keptKey?: string): string[] {
   const valid: [string, number][] = []
   const malformed: string[] = []
+  let room = LAST_KEYS_KEPT
   for (const [key, value] of entries) {
+    if (key === keptKey) {
+      room -= 1
+      continue
+    }
     const record = asStepRecord(value)
     if (record) valid.push([key, record.at])
     else malformed.push(key)
   }
-  const old = valid.sort((a, b) => b[1] - a[1]).slice(LAST_KEYS_KEPT)
+  const old = valid.sort((a, b) => b[1] - a[1]).slice(room)
   return [...malformed, ...old.map(([key]) => key)]
 }
 

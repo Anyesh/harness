@@ -195,6 +195,11 @@ describe('last response keys', () => {
     expect(pruneLastKeys(entries.slice(0, 50))).toEqual([])
     expect(pruneLastKeys([[lastKey('bad'), 'junk']])).toEqual(['last:bad'])
   })
+
+  test('pruneLastKeys never drops the kept key, however old', () => {
+    const entries: [string, unknown][] = Array.from({ length: 51 }, (_, i) => [lastKey(`s${i}`), { at: i, ctx: 1, model: OPUS }])
+    expect(pruneLastKeys(entries, lastKey('s0'))).toEqual(['last:s1'])
+  })
 })
 
 describe('isCrewPrompt', () => {

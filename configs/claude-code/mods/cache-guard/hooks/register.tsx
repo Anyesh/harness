@@ -77,7 +77,7 @@ async function currentLast($: EngineInterface): Promise<LastResponse | null> {
 async function pruneLast($: EngineInterface): Promise<void> {
   const keys = (await $.store.keys()).filter(isLastKey)
   const entries = await Promise.all(keys.map(async key => [key, await $.store.get(key)] as const))
-  for (const key of pruneLastKeys(entries)) await $.store.delete(key)
+  for (const key of pruneLastKeys(entries, lastKey(await $.session.id()))) await $.store.delete(key)
 }
 
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {

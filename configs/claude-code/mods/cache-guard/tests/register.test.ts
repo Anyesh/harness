@@ -531,6 +531,15 @@ describe('last response per session', () => {
     expect(kept).not.toContain('last:s1')
     expect(w.stored.ttl).toEqual({ warmMaxMs: 1, coldMinMs: null })
   })
+
+  test('session start never prunes the session being resumed', async ($, on) => {
+    const w = world(on)
+    w.stored['last:sess-1'] = { at: -1, ctx: 1, model: OPUS }
+    for (let i = 0; i < 50; i++) w.stored[`last:s${i}`] = { at: i, ctx: 1, model: OPUS }
+    await start($, on)
+    expect(w.stored['last:sess-1']).toBeDefined()
+    expect(w.stored['last:s0']).toBeUndefined()
+  })
 })
 
 describe('misses', () => {
