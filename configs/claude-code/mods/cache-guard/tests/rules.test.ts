@@ -20,6 +20,7 @@ import {
   priceFor,
   segmentFile,
   segmentFor,
+  STEP_HANDOFF,
 } from '../hooks/rules'
 import type { AgentTrack, LastResponse, ListedAgent } from '../types'
 
@@ -192,6 +193,13 @@ describe('gateQuestion', () => {
 describe('handoffPrompt', () => {
   test('puts one continuation line above the typed text', () => {
     expect(handoffPrompt('fix the tests')).toBe("Continue from the previous session's handoff digest.\n\nfix the tests")
+  })
+
+  test('the step handoff says the last answer was never sent', () => {
+    expect(STEP_HANDOFF).toBe(
+      "Continue from the previous session's handoff digest.\n\n" +
+        'The last answer or approval in that session was recorded but never sent to the model.',
+    )
   })
 })
 

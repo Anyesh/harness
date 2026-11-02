@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, Register, Timer, TurnUsage } from 'claude-code'
+import type { AgentInfo, EngineInterface, Register, Timer, TurnStepInput, TurnStepResult, TurnUsage } from 'claude-code'
 
 import {
   agentAlerts,
@@ -20,6 +20,8 @@ import {
   pruneTracks,
   segmentFile,
   segmentFor,
+  STEP_HANDOFF,
+  STOP_NOTICE,
 } from './rules'
 
 const last = atom({ plugin: 'cache-guard', key: 'last' } as const, null)
@@ -31,7 +33,9 @@ const dismissed = atom({ plugin: 'cache-guard', key: 'dismissed' } as const, [])
 const SEND = 'Send anyway'
 const CLEAR = 'Clear and hand off'
 const DRAFT = 'Keep as draft'
+const STOP = 'Stop here'
 const SEGMENT_EVERY_MS = 30_000
+const CREW_TURNS_KEPT = 8
 
 type Config = { defaultTtlMs: number; agentTtlMs: number; gateUsd: number }
 
@@ -148,15 +152,54 @@ async function observeAgent(
   $.ui.toast(agentMissToast(type, miss))
 }
 
-async function clearThenRestore($: EngineInterface, text: string): Promise<void> {
+async function clearThenRestore($: EngineInterface, handoff: string, unclearedText?: string): Promise<void> {
   try {
     await $.command.run({ command: 'clear' })
   } catch (err) {
     $.ui.toast(`Could not clear (${String(err)}); run /clear yourself.`)
-    await $.prompt.fill({ text })
+    if (unclearedText !== undefined) await $.prompt.fill({ text: unclearedText })
     return
   }
-  await $.prompt.fill({ text: handoffPrompt(text) })
+  await $.prompt.fill({ text: handoff })
+}
+
+// Null when the cache is warm or re-writing it costs less than the option allows.
+async function coldChoice($: EngineInterface, config: Config, options: readonly string[]): Promise<string | null> {
+  const gate = gateDecision(
+    await read($, last),
+    await liveContext($),
+    await $.clock.now(),
+    await ttlMs($, config),
+    config.gateUsd,
+  )
+  if (!gate) return null
+  return $.ui.ask(gateQuestion(gate), { header: 'Cold cache', options }).catch((err: unknown) => {
+    $.ui.log(`cache-guard: cold cache question unanswered (${String(err)}), sending`, { to: 'debug' })
+    return SEND
+  })
+}
+
+type Waits = { waited: boolean; crewTurns: string[] }
+
+// Step 0 is left to the submit gate, which knows the prompt's origin and attachments.
+// Fails open like the submit gate: a broken guard must never hold a turn.
+async function stepChoice($: EngineInterface, config: Config, waits: Waits, e: TurnStepInput): Promise<string | null> {
+  const afterWait = waits.waited
+  waits.waited = false
+  if (!afterWait || e.index === 0 || waits.crewTurns.includes(e.turnId)) return null
+  try {
+    return await coldChoice($, config, [SEND, CLEAR, STOP])
+  } catch (err) {
+    $.ui.log(`cache-guard: step gate failed (${String(err)}), sending`, { to: 'debug' })
+    return null
+  } finally {
+    // The question itself goes through tool.check, and must not mark the step after it.
+    waits.waited = false
+  }
+}
+
+function unsent(e: TurnStepInput): TurnStepResult {
+  return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
 }
 
 export const register: Register = (on, options) => {
@@ -166,6 +209,7 @@ export const register: Register = (on, options) => {
     gateUsd: Number(options.gateUsd ?? 1),
   }
   let ticker: Timer | undefined
+  const waits: Waits = { waited: false, crewTurns: [] }
 
   on('session.start', async ($, e, next) => {
     const stored = asMisses(await $.store.get('misses'))
@@ -188,9 +232,38 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Per-step usage, because turn.complete sums every request of the turn and a
-  // cold first request would hide behind the warm reads of the steps after it.
+  // Only the model's own main-loop call that a person must answer marks a wait; a query carries no call id.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (e.tool_use_id !== undefined && e.agentId === undefined && e.approver === 'person' && verdict.decision === 'ask') {
+      waits.waited = true
+    }
+    return verdict
+  })
+
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined && isCrewPrompt(e.text)) {
+      waits.crewTurns.push(e.turnId)
+      waits.crewTurns.splice(0, waits.crewTurns.length - CREW_TURNS_KEPT)
+    }
+    return next(e)
+  })
+
   on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) {
+      const choice = await stepChoice($, config, waits, e)
+      if (choice === STOP) {
+        $.ui.toast(STOP_NOTICE)
+        return unsent(e)
+      }
+      if (choice === CLEAR) {
+        // $.command.run rejects inside a hook the turn waits on, so /clear runs once the step is answered.
+        $.clock.after(0, () => void clearThenRestore($, STEP_HANDOFF))
+        return unsent(e)
+      }
+    }
+    // Per-step usage, because turn.complete sums every request of the turn and a
+    // cold first request would hide behind the warm reads of the steps after it.
     const startedAt = await $.clock.now()
     const response = yield* next(e)
     if (response.usage) {
@@ -215,25 +288,10 @@ export const register: Register = (on, options) => {
     if (e.origin.kind !== 'composer' || e.turnId !== undefined || e.attachments || isCrewPrompt(e.text)) {
       return next(e)
     }
-    const gate = gateDecision(
-      await read($, last),
-      await liveContext($),
-      await $.clock.now(),
-      await ttlMs($, config),
-      config.gateUsd,
-    )
-    if (!gate) return next(e)
-
-    const choice = await $.ui
-      .ask(gateQuestion(gate), { header: 'Cold cache', options: [SEND, CLEAR, DRAFT] })
-      .catch((err: unknown) => {
-        $.ui.log(`cache-guard: cold cache question unanswered (${String(err)}), sending`, { to: 'debug' })
-        return SEND
-      })
-
+    const choice = await coldChoice($, config, [SEND, CLEAR, DRAFT])
     if (choice === CLEAR) {
       // $.command.run rejects inside a hook the turn waits on, so /clear runs once the prompt is dropped.
-      $.clock.after(0, () => void clearThenRestore($, e.text))
+      $.clock.after(0, () => void clearThenRestore($, handoffPrompt(e.text), e.text))
       return { drop: 'Clearing; your prompt will be back in the box.' }
     }
     if (choice === DRAFT) {

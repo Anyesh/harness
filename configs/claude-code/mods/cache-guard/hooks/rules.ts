@@ -191,6 +191,12 @@ export function handoffPrompt(text: string): string {
   return `Continue from the previous session's handoff digest.\n\n${text}`
 }
 
+export const STEP_HANDOFF = handoffPrompt(
+  'The last answer or approval in that session was recorded but never sent to the model.',
+)
+
+export const STOP_NOTICE = 'Stopped before sending; the prompt cache is still cold.'
+
 export function missToast(miss: Miss): string {
   return (
     `Cache went cold after ${formatDuration(miss.gapMs)}: ` +

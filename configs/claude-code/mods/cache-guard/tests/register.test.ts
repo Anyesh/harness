@@ -8,8 +8,11 @@ const OPUS = 'claude-opus-5-5'
 const SEND = 'Send anyway'
 const CLEAR = 'Clear and hand off'
 const DRAFT = 'Keep as draft'
+const STOP = 'Stop here'
 const SEGMENT = '/state/harness/status/sess-1/cache-guard.json'
 const HANDOFF_LINE = "Continue from the previous session's handoff digest."
+const STEP_HANDOFF = `${HANDOFF_LINE}\n\nThe last answer or approval in that session was recorded but never sent to the model.`
+const STOP_NOTICE = 'Stopped before sending; the prompt cache is still cold.'
 
 type World = {
   clock: MockClock
@@ -27,6 +30,8 @@ type World = {
   agents: AgentInfo[]
   commands: string[][]
   stored: Record<string, unknown>
+  verdict: 'allow' | 'ask' | 'deny'
+  requests: number
 }
 
 function usage(read: number, write: number): TurnUsage {
@@ -50,13 +55,18 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     agents: [],
     commands: [],
     stored: {},
+    verdict: 'ask',
+    requests: 0,
   }
   on('store.get', (_$, e) => ({ value: w.stored[e.key] }))
   on('store.set', (_$, e) => {
     w.stored[e.key] = JSON.parse(JSON.stringify(e.value))
     return { value: undefined }
   })
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('tool.check', (_$, e) => ({ decision: e.tool === 'AskUserQuestion' ? 'allow' : w.verdict }))
   on('turn.step', async function* (_$, e) {
+    w.requests += 1
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: w.usage }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
@@ -110,14 +120,16 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
 }
 
 // The engine's live context is the main thread's last response, so only a main-thread step moves it.
-async function step($: Engine, w: World, u: TurnUsage, agentId?: string) {
+type StepAt = { agentId?: string; index?: number; turnId?: string }
+
+async function step($: Engine, w: World, u: TurnUsage, { agentId, index = 0, turnId = 't' }: StepAt = {}) {
   w.usage = u
-  if (!agentId) w.contextTokens = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
-  const stream = $.turn.step({ turnId: 't', index: 0, model: OPUS, messageCount: 1, ...(agentId ? { agentId } : {}) })
-  for await (const _chunk of stream) {
-    // The stub yields nothing; draining the stream lets its result settle.
-  }
-  await stream.result
+  const stream = $.turn.step({ turnId, index, model: OPUS, messageCount: 1, ...(agentId ? { agentId } : {}) })
+  let read = await stream.next()
+  while (!read.done) read = await stream.next()
+  const result = read.value
+  if (!agentId && result.usage) w.contextTokens = u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+  return result
 }
 
 async function complete($: Engine, agentId?: string) {
@@ -214,6 +226,7 @@ describe('gate', () => {
     await stream.result
     await w.clock.advance(72 * MINUTE)
     await step($, w, usage(0, 380_000))
+    expect(w.asked).toEqual([])
     expect(w.toasts).toEqual(['Cache went cold after 73m: re-wrote 380k tokens (≈ $3.04 at API prices)'])
   })
 
@@ -260,10 +273,170 @@ describe('gate', () => {
 
   test('subagent steps do not gate the main thread', async ($, on) => {
     const w = world(on)
-    await step($, w, usage(0, 380_000), 'agent-1')
+    await step($, w, usage(0, 380_000), { agentId: 'agent-1' })
     await complete($, 'agent-1')
     await w.clock.advance(72 * MINUTE)
     await submit($)
+    expect(w.asked).toEqual([])
+  })
+})
+
+type CheckFields = { approver?: 'person' | 'host' | null; tool_use_id?: string | null; agentId?: string }
+
+// A null field is left out, as the engine leaves out an approver nobody plays or a query's call id.
+async function check($: Engine, fields: CheckFields = {}) {
+  const all: Record<string, unknown> = { tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu1', approver: 'person', ...fields }
+  const input = Object.fromEntries(Object.entries(all).filter(([, value]) => value !== null))
+  return $.tool.check(input as never)
+}
+
+// A step that asked for a tool, a person's answer to it, then the wait before the next step.
+async function waitedOn($: Engine, w: World, idleMinutes: number, fields: CheckFields = {}) {
+  await step($, w, usage(0, 380_000))
+  await check($, fields)
+  await w.clock.advance(idleMinutes * MINUTE)
+}
+
+describe('step gate', () => {
+  test('a step after a person answered and the TTL passed asks once, and Send anyway sends', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72)
+    const result = await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]).toContain('idle 72m')
+    expect(w.requests).toBe(2)
+    expect(result.stopReason).toBe('end_turn')
+  })
+
+  test('does not ask while the cache is warm', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 30)
+    await step($, w, usage(380_000, 0), { index: 1 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('Stop here sends nothing, toasts, and the next step goes through', async ($, on) => {
+    const w = world(on)
+    w.answer = STOP
+    await waitedOn($, w, 72)
+    const result = await step($, w, usage(0, 380_000), { index: 1 })
+    expect(result).toMatchObject({ answer: '', toolUses: [], stopReason: null, usage: null })
+    expect(w.requests).toBe(1)
+    expect(w.toasts).toEqual([STOP_NOTICE])
+    await step($, w, usage(0, 380_000), { index: 2 })
+    expect(w.asked).toHaveLength(1)
+    expect(w.requests).toBe(2)
+  })
+
+  test('after Stop here the next typed prompt still meets the submit gate', async ($, on) => {
+    const w = world(on)
+    w.answer = STOP
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    w.answer = SEND
+    await submit($)
+    expect(w.asked).toHaveLength(2)
+    expect(w.sent).toEqual(['next thing'])
+  })
+
+  test('Clear and hand off sends nothing, runs /clear and fills the step handoff', async ($, on) => {
+    const w = world(on)
+    w.answer = CLEAR
+    await waitedOn($, w, 72)
+    const result = await step($, w, usage(0, 380_000), { index: 1 })
+    expect(result.stopReason).toBeNull()
+    expect(w.requests).toBe(1)
+    expect(w.ran).toEqual([])
+    await w.clock.settle()
+    expect(w.ran).toEqual(['clear'])
+    expect(w.filled).toEqual([STEP_HANDOFF])
+  })
+
+  test('a rejected /clear toasts and fills nothing', async ($, on) => {
+    const w = world(on)
+    w.answer = CLEAR
+    w.clearError = 'busy'
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    await w.clock.settle()
+    expect(w.filled).toEqual([])
+    expect(w.toasts).toHaveLength(1)
+    expect(w.toasts[0]).toMatch(/^Could not clear \(.+\); run \/clear yourself\.$/)
+  })
+
+  test('a dismissed question sends', async ($, on) => {
+    const w = world(on)
+    w.answer = null
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toHaveLength(1)
+    expect(w.requests).toBe(2)
+  })
+
+  test('the first step of a turn is left to the submit gate', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 0, turnId: 't2' })
+    expect(w.asked).toEqual([])
+  })
+
+  test('a step nobody waited on does not ask, however long the tool ran', async ($, on) => {
+    const w = world(on)
+    await step($, w, usage(0, 380_000))
+    await w.clock.advance(72 * MINUTE)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('only a step after the waited one asks', async ($, on) => {
+    const w = world(on)
+    w.answer = STOP
+    await waitedOn($, w, 1)
+    await step($, w, usage(380_000, 0), { index: 1 })
+    await w.clock.advance(72 * MINUTE)
+    await step($, w, usage(0, 380_000), { index: 2 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('an allowed call does not ask', async ($, on) => {
+    const w = world(on)
+    w.verdict = 'allow'
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toEqual([])
+  })
+
+  for (const approver of ['host', null] as const) {
+    test(`an ask answered by ${approver ?? 'nobody'} does not ask`, async ($, on) => {
+      const w = world(on)
+      await waitedOn($, w, 72, { approver })
+      await step($, w, usage(0, 380_000), { index: 1 })
+      expect(w.asked).toEqual([])
+    })
+  }
+
+  test("a subagent's ask or a query without a call id does not ask", async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72, { agentId: 'a1' })
+    await check($, { tool_use_id: null })
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('subagent steps never ask', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { agentId: 'a1', index: 1 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('a [crew] turn passes after a person answered', async ($, on) => {
+    const w = world(on)
+    await $.turn.start({ text: '[crew] read brief.md', turnId: 'crew-1' })
+    await step($, w, usage(0, 380_000), { turnId: 'crew-1' })
+    await check($)
+    await w.clock.advance(72 * MINUTE)
+    await step($, w, usage(0, 380_000), { index: 1, turnId: 'crew-1' })
     expect(w.asked).toEqual([])
   })
 })
@@ -359,7 +532,7 @@ describe('agents', () => {
     const w = world(on)
     await start($, on)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     await complete($, 'a1')
     expect(segment(w)).toMatchObject({ text: 'agents 1', tone: 'normal' })
     w.agents = [agent('a1', 'idle')]
@@ -371,22 +544,22 @@ describe('agents', () => {
     const w = world(on)
     await start($, on)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     w.agents = []
     await w.clock.advance(30_000)
     expect(segment(w)).toBe('')
     await w.clock.advance(9 * MINUTE)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
   })
 
   test('a cold agent step toasts and records the miss', async ($, on) => {
     const w = world(on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
     expect(w.stored.misses).toMatchObject([{ agentId: 'a1', tokens: 120_000 }])
   })
@@ -399,7 +572,7 @@ describe('agents', () => {
     })
     await start($, on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ plugin: 'cache-guard', surface, ...BAND })
@@ -418,7 +591,7 @@ describe('agents', () => {
     on('ui.render', () => ({ type: 'engine' as const, ref: 0 }))
     await start($, on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), 'a1')
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
     const ui = await $.ui.mount({ plugin: 'cache-guard', surface: 'terminal', ...BAND, props: { hasSurvey: true, isWorking: false, maxRows: 10, bodyColumns: 120 } as never })
     expect(await ui.find({ type: 'Text', text: /idle 9m/ })).toBeUndefined()
