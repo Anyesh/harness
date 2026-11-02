@@ -71,7 +71,8 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     return { value: undefined }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
-  on('tool.check', (_$, e) => ({ decision: e.tool === 'AskUserQuestion' ? 'allow' : w.verdict }))
+  // The mod's own question is let through, because the kit refuses an ask nobody can answer.
+  on('tool.check', (_$, _e, next) => ({ decision: next.origin.plugin === 'engine' ? w.verdict : 'allow' }))
   on('turn.step', async function* (_$, e) {
     w.requests += 1
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: w.usage }
@@ -288,11 +289,11 @@ describe('gate', () => {
   })
 })
 
-type CheckFields = { approver?: 'person' | 'host' | null; tool_use_id?: string | null; agentId?: string }
+type CheckFields = { tool?: string; approver?: 'person' | 'host' | null; tool_use_id?: string | null; agentId?: string }
 
 // A null field is left out, as the engine leaves out an approver nobody plays or a query's call id.
 async function check($: Engine, fields: CheckFields = {}) {
-  const all: Record<string, unknown> = { tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu1', approver: 'person', ...fields }
+  const all: Record<string, unknown> = { tool: 'AskUserQuestion', input: {}, tool_use_id: 'tu1', approver: 'person', ...fields }
   const input = Object.fromEntries(Object.entries(all).filter(([, value]) => value !== null))
   return $.tool.check(input as never)
 }
@@ -402,6 +403,20 @@ describe('step gate', () => {
     await step($, w, usage(380_000, 0), { index: 1 })
     await w.clock.advance(72 * MINUTE)
     await step($, w, usage(0, 380_000), { index: 2 })
+    expect(w.asked).toEqual([])
+  })
+
+  test('a plan approval marks a wait like a question', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72, { tool: 'ExitPlanMode' })
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toHaveLength(1)
+  })
+
+  test('a permission prompt does not ask, because an auto-mode classifier may have answered it', async ($, on) => {
+    const w = world(on)
+    await waitedOn($, w, 72, { tool: 'Bash' })
+    await step($, w, usage(0, 380_000), { index: 1 })
     expect(w.asked).toEqual([])
   })
 

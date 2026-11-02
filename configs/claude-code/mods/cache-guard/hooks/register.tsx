@@ -27,6 +27,7 @@ import {
   segmentFile,
   segmentFor,
   STEP_HANDOFF,
+  waitsOnPerson,
   STOP_NOTICE,
 } from './rules'
 
@@ -62,7 +63,7 @@ async function liveContext($: EngineInterface): Promise<number | undefined> {
   return (await $.session.usage()).context.tokens
 }
 
-// The atom outlives neither the process nor a switch to another session, so a miss falls back to the store.
+// The atom holds one session's response and dies with the process, so any other session reads the store.
 async function currentLast($: EngineInterface): Promise<LastResponse | null> {
   const sessionId = await $.session.id()
   const held = await read($, last)
@@ -204,22 +205,19 @@ async function coldChoice($: EngineInterface, config: Config, options: readonly 
   })
 }
 
-type Waits = { waited: boolean; crewTurns: string[] }
+type GateMarks = { waited: boolean; crewTurns: string[] }
 
 // Step 0 is left to the submit gate, which knows the prompt's origin and attachments.
 // Fails open like the submit gate: a broken guard must never hold a turn.
-async function stepChoice($: EngineInterface, config: Config, waits: Waits, e: TurnStepInput): Promise<string | null> {
-  const afterWait = waits.waited
-  waits.waited = false
-  if (!afterWait || e.index === 0 || waits.crewTurns.includes(e.turnId)) return null
+async function stepChoice($: EngineInterface, config: Config, marks: GateMarks, e: TurnStepInput): Promise<string | null> {
+  const afterWait = marks.waited
+  marks.waited = false
+  if (!afterWait || e.index === 0 || marks.crewTurns.includes(e.turnId)) return null
   try {
     return await coldChoice($, config, [SEND, CLEAR, STOP])
   } catch (err) {
     $.ui.log(`cache-guard: step gate failed (${String(err)}), sending`, { to: 'debug' })
     return null
-  } finally {
-    // The question itself goes through tool.check, and must not mark the step after it.
-    waits.waited = false
   }
 }
 
@@ -234,7 +232,7 @@ export const register: Register = (on, options) => {
     gateUsd: Number(options.gateUsd ?? 1),
   }
   let ticker: Timer | undefined
-  const waits: Waits = { waited: false, crewTurns: [] }
+  const marks: GateMarks = { waited: false, crewTurns: [] }
 
   on('session.start', async ($, e, next) => {
     const stored = asMisses(await $.store.get('misses'))
@@ -260,26 +258,23 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // Only the model's own main-loop call that a person must answer marks a wait; a query carries no call id.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (e.tool_use_id !== undefined && e.agentId === undefined && e.approver === 'person' && verdict.decision === 'ask') {
-      waits.waited = true
-    }
+    if (waitsOnPerson(e, verdict, next.origin)) marks.waited = true
     return verdict
   })
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined && isCrewPrompt(e.text)) {
-      waits.crewTurns.push(e.turnId)
-      waits.crewTurns.splice(0, waits.crewTurns.length - CREW_TURNS_KEPT)
+      marks.crewTurns.push(e.turnId)
+      marks.crewTurns.splice(0, marks.crewTurns.length - CREW_TURNS_KEPT)
     }
     return next(e)
   })
 
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
-      const choice = await stepChoice($, config, waits, e)
+      const choice = await stepChoice($, config, marks, e)
       if (choice === STOP) {
         $.ui.toast(STOP_NOTICE)
         return unsent(e)

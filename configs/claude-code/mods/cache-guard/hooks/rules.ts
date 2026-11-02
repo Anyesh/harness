@@ -1,4 +1,4 @@
-import type { ModelUsage, TurnUsage } from 'claude-code'
+import type { ModelUsage, Origin, ToolCheckInput, ToolCheckResult, TurnUsage } from 'claude-code'
 
 import type { AgentTrack, ListedAgent, Miss, StepRecord, TtlBounds } from '../types'
 
@@ -174,6 +174,22 @@ export function gateDecision(
   const rewrite = rewriteUsd(last.model, ctx, ttlMs)
   if (rewrite < gateUsd) return null
   return { idleMs, tokens: ctx, rewriteUsd: rewrite }
+}
+
+// Only these tools always go to the person; any other ask may be answered by an auto-mode classifier,
+// and no mod API tells the two apart or splits the wait from the tool's own run time.
+const PERSON_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+// The model's own main-loop call, raised by the engine; a query carries no call id and a plugin's call names the plugin.
+export function waitsOnPerson(e: ToolCheckInput, verdict: ToolCheckResult, origin: Origin): boolean {
+  return (
+    origin.plugin === 'engine' &&
+    e.tool_use_id !== undefined &&
+    e.agentId === undefined &&
+    PERSON_TOOLS.has(e.tool) &&
+    e.approver === 'person' &&
+    verdict.decision === 'ask'
+  )
 }
 
 export function isCrewPrompt(text: string): boolean {
