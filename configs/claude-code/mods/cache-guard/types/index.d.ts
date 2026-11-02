@@ -1,7 +1,11 @@
-export type LastResponse = {
+export type StepRecord = {
   at: number
   ctx: number
   model: string
+}
+
+export type LastResponse = StepRecord & {
+  sessionId: string
 }
 
 export type TtlBounds = {
@@ -18,7 +22,7 @@ export type Miss = {
   agentId?: string
 }
 
-export type AgentTrack = LastResponse & {
+export type AgentTrack = StepRecord & {
   firstAt: number
 }
 

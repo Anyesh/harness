@@ -32,6 +32,7 @@ type World = {
   stored: Record<string, unknown>
   verdict: 'allow' | 'ask' | 'deny'
   requests: number
+  sessionId: string
 }
 
 function usage(read: number, write: number): TurnUsage {
@@ -57,10 +58,16 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     stored: {},
     verdict: 'ask',
     requests: 0,
+    sessionId: 'sess-1',
   }
   on('store.get', (_$, e) => ({ value: w.stored[e.key] }))
   on('store.set', (_$, e) => {
     w.stored[e.key] = JSON.parse(JSON.stringify(e.value))
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: Object.keys(w.stored) }))
+  on('store.delete', (_$, e) => {
+    delete w.stored[e.key]
     return { value: undefined }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
@@ -104,7 +111,7 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     w.statuses.push(e.text)
     return { value: undefined }
   })
-  on('session.id', () => ({ value: 'sess-1' }))
+  on('session.id', () => ({ value: w.sessionId }))
   on('agent.list', () => ({ value: w.agents }))
   on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('fs.write', (_$, e) => {
@@ -438,6 +445,76 @@ describe('step gate', () => {
     await w.clock.advance(72 * MINUTE)
     await step($, w, usage(0, 380_000), { index: 1, turnId: 'crew-1' })
     expect(w.asked).toEqual([])
+  })
+})
+
+describe('last response per session', () => {
+  const idle = (minutes: number) => ({ at: NOW - minutes * MINUTE, ctx: 380_000, model: OPUS })
+
+  test('each main step stores the last response under its session', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 1)
+    expect(w.stored['last:sess-1']).toEqual({ at: NOW, ctx: 380_000, model: OPUS })
+  })
+
+  test('a stored response gates the first prompt after a restart', async ($, on) => {
+    const w = world(on)
+    w.stored['last:sess-1'] = idle(72)
+    w.contextTokens = 380_000
+    await submit($)
+    expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]).toContain('idle 72m')
+  })
+
+  test('a stored response teaches the TTL across a restart', async ($, on) => {
+    const w = world(on)
+    w.stored['last:sess-1'] = idle(20)
+    await step($, w, usage(380_000, 0))
+    expect(w.stored.ttl).toEqual({ warmMaxMs: 20 * MINUTE, coldMinMs: null })
+  })
+
+  test('resuming another session reads its own response, not the one held in memory', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 1)
+    w.sessionId = 'sess-2'
+    w.stored['last:sess-2'] = idle(100)
+    await submit($)
+    expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]).toContain('idle 101m')
+  })
+
+  test('a session with nothing stored does not gate on the previous session', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 72)
+    w.sessionId = 'sess-2'
+    await submit($)
+    expect(w.asked).toEqual([])
+  })
+
+  test('/clear keeps the cleared session gated for a later /resume', async ($, on) => {
+    const w = world(on)
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
+    await warmed($, w, 1)
+    await $.session.end({ reason: 'clear', sessionId: 'sess-1' } as never)
+    w.sessionId = 'sess-2'
+    await submit($)
+    expect(w.asked).toEqual([])
+    await w.clock.advance(72 * MINUTE)
+    w.sessionId = 'sess-1'
+    await submit($)
+    expect(w.asked).toHaveLength(1)
+  })
+
+  test('session start keeps the 50 newest stored responses and nothing else changes', async ($, on) => {
+    const w = world(on)
+    for (let i = 0; i < 52; i++) w.stored[`last:s${i}`] = { at: i, ctx: 1, model: OPUS }
+    w.stored.ttl = { warmMaxMs: 1, coldMinMs: null }
+    await start($, on)
+    const kept = Object.keys(w.stored).filter(key => key.startsWith('last:'))
+    expect(kept).toHaveLength(50)
+    expect(kept).not.toContain('last:s0')
+    expect(kept).not.toContain('last:s1')
+    expect(w.stored.ttl).toEqual({ warmMaxMs: 1, coldMinMs: null })
   })
 })
 

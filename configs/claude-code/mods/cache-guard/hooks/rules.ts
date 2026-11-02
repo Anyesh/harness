@@ -1,6 +1,6 @@
 import type { ModelUsage, TurnUsage } from 'claude-code'
 
-import type { AgentTrack, LastResponse, ListedAgent, Miss, TtlBounds } from '../types'
+import type { AgentTrack, ListedAgent, Miss, StepRecord, TtlBounds } from '../types'
 
 export const MINUTE = 60_000
 export const MISSES_KEPT = 20
@@ -12,6 +12,8 @@ const MIN_AGENT_ALERT_TOKENS = 50_000
 const LONG_AGENT_MS = 60 * MINUTE
 const MAX_ALERT_ROWS = 3
 const TRACK_KEEP_MS = 24 * 60 * MINUTE
+const LAST_PREFIX = 'last:'
+const LAST_KEYS_KEPT = 50
 
 export type Prices = { input: number; write1h: number; write5m: number; read: number }
 
@@ -96,8 +98,38 @@ export function asMisses(stored: unknown): Miss[] {
     .slice(-MISSES_KEPT)
 }
 
+export function asStepRecord(stored: unknown): StepRecord | null {
+  if (typeof stored !== 'object' || stored === null) return null
+  const { at, ctx, model } = stored as Record<string, unknown>
+  const atMs = finiteOrNull(at)
+  const tokens = finiteOrNull(ctx)
+  if (atMs === null || tokens === null || typeof model !== 'string') return null
+  return { at: atMs, ctx: tokens, model }
+}
+
+export function lastKey(sessionId: string): string {
+  return `${LAST_PREFIX}${sessionId}`
+}
+
+export function isLastKey(key: string): boolean {
+  return key.startsWith(LAST_PREFIX)
+}
+
+// Keys stay after the session ends, because /resume and --continue can bring any session back.
+export function pruneLastKeys(entries: readonly (readonly [string, unknown])[]): string[] {
+  const valid: [string, number][] = []
+  const malformed: string[] = []
+  for (const [key, value] of entries) {
+    const record = asStepRecord(value)
+    if (record) valid.push([key, record.at])
+    else malformed.push(key)
+  }
+  const old = valid.sort((a, b) => b[1] - a[1]).slice(LAST_KEYS_KEPT)
+  return [...malformed, ...old.map(([key]) => key)]
+}
+
 export type StepObservation = {
-  prev: LastResponse | null
+  prev: StepRecord | null
   startedAt: number
   now: number
   usage: TurnUsage
@@ -105,7 +137,7 @@ export type StepObservation = {
   defaultTtlMs: number
 }
 
-export type Observed = { last: LastResponse; bounds: TtlBounds; miss: Miss | null }
+export type Observed = { last: StepRecord; bounds: TtlBounds; miss: Miss | null }
 
 // A response can report zero usage (a trailing empty entry), and keeping it would erase the context the next step is classified against.
 export function observeStep(o: StepObservation): Observed | null {
@@ -130,7 +162,7 @@ export type Gate = { idleMs: number; tokens: number; rewriteUsd: number }
 
 // ctx is the engine's live context size, absent right after a compaction or a clear; last only says when and on which model.
 export function gateDecision(
-  last: LastResponse | null,
+  last: StepRecord | null,
   ctx: number | undefined,
   now: number,
   ttlMs: number,
@@ -166,7 +198,7 @@ export function formatDuration(ms: number): string {
 export type Tone = 'normal' | 'warn'
 export type Segment = { text: string; tone: Tone }
 
-export function segmentFor(last: LastResponse | null, ctx: number | undefined, now: number, ttlMs: number): Segment | null {
+export function segmentFor(last: StepRecord | null, ctx: number | undefined, now: number, ttlMs: number): Segment | null {
   if (!last || ctx === undefined || ctx < MIN_STATUS_CTX) return null
   const left = last.at + ttlMs - now
   if (left > 0) return { text: `cache ${formatDuration(left)}`, tone: 'normal' }

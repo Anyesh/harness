@@ -5,6 +5,7 @@ import {
   agentMissToast,
   agentSegment,
   asBounds,
+  asStepRecord,
   classifyStep,
   effectiveTtl,
   formatUsd,
@@ -14,15 +15,18 @@ import {
   gateQuestion,
   handoffPrompt,
   isCrewPrompt,
+  isLastKey,
+  lastKey,
   learnTtl,
   noBounds,
   observeStep,
   priceFor,
+  pruneLastKeys,
   segmentFile,
   segmentFor,
   STEP_HANDOFF,
 } from '../hooks/rules'
-import type { AgentTrack, LastResponse, ListedAgent } from '../types'
+import type { AgentTrack, ListedAgent, StepRecord } from '../types'
 
 const MINUTE = 60_000
 
@@ -102,7 +106,7 @@ describe('ttl bounds', () => {
 })
 
 describe('observeStep', () => {
-  const prev: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
+  const prev: StepRecord = { at: 0, ctx: 380_000, model: OPUS }
   const base = { prev, bounds: noBounds, defaultTtlMs: 60 * MINUTE }
 
   test('records the context the step was answered over', () => {
@@ -143,7 +147,7 @@ describe('observeStep', () => {
 })
 
 describe('gateDecision', () => {
-  const last: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
+  const last: StepRecord = { at: 0, ctx: 380_000, model: OPUS }
 
   test('stays quiet before the TTL, without a previous response, or without a live context size', () => {
     expect(gateDecision(last, 380_000, 59 * MINUTE, 60 * MINUTE, 1)).toBeNull()
@@ -166,6 +170,30 @@ describe('gateDecision', () => {
   test('stays quiet when the re-write is under the threshold', () => {
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 0)).not.toBeNull()
+  })
+})
+
+describe('last response keys', () => {
+  test('one key per session, told apart from the other stored values', () => {
+    expect(lastKey('sess-1')).toBe('last:sess-1')
+    expect(isLastKey('last:sess-1')).toBe(true)
+    expect(isLastKey('ttl')).toBe(false)
+    expect(isLastKey('misses')).toBe(false)
+  })
+
+  test('asStepRecord keeps a well-formed record and refuses the rest', () => {
+    expect(asStepRecord({ at: 1, ctx: 2, model: OPUS, extra: true })).toEqual({ at: 1, ctx: 2, model: OPUS })
+    expect(asStepRecord(undefined)).toBeNull()
+    expect(asStepRecord({ at: 1, ctx: '2', model: OPUS })).toBeNull()
+    expect(asStepRecord({ at: 1, ctx: 2 })).toBeNull()
+  })
+
+  test('pruneLastKeys keeps the newest 50 and always drops malformed entries', () => {
+    const entries: [string, unknown][] = Array.from({ length: 52 }, (_, i) => [lastKey(`s${i}`), { at: i, ctx: 1, model: OPUS }])
+    expect(pruneLastKeys(entries).sort()).toEqual(['last:s0', 'last:s1'])
+    expect(pruneLastKeys([...entries.slice(2), [lastKey('bad'), 'junk']])).toEqual(['last:bad'])
+    expect(pruneLastKeys(entries.slice(0, 50))).toEqual([])
+    expect(pruneLastKeys([[lastKey('bad'), 'junk']])).toEqual(['last:bad'])
   })
 })
 
@@ -211,7 +239,7 @@ describe('formatUsd', () => {
 })
 
 describe('segmentFor', () => {
-  const last: LastResponse = { at: 0, ctx: 380_000, model: OPUS }
+  const last: StepRecord = { at: 0, ctx: 380_000, model: OPUS }
 
   test('warm shows the time left', () => {
     expect(segmentFor(last, 380_000, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache 42m', tone: 'normal' })

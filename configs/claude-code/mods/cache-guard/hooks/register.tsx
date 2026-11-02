@@ -1,6 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, Register, Timer, TurnStepInput, TurnStepResult, TurnUsage } from 'claude-code'
 
+import type { LastResponse } from '../types'
+
 import {
   agentAlerts,
   agentMissToast,
@@ -9,14 +11,18 @@ import {
   MISSES_KEPT,
   asBounds,
   asMisses,
+  asStepRecord,
   effectiveTtl,
   gateDecision,
   gateQuestion,
   handoffPrompt,
   isCrewPrompt,
+  isLastKey,
   joinSegments,
+  lastKey,
   missToast,
   observeStep,
+  pruneLastKeys,
   pruneTracks,
   segmentFile,
   segmentFor,
@@ -56,10 +62,27 @@ async function liveContext($: EngineInterface): Promise<number | undefined> {
   return (await $.session.usage()).context.tokens
 }
 
+// The atom outlives neither the process nor a switch to another session, so a miss falls back to the store.
+async function currentLast($: EngineInterface): Promise<LastResponse | null> {
+  const sessionId = await $.session.id()
+  const held = await read($, last)
+  if (held?.sessionId === sessionId) return held
+  const stored = asStepRecord(await $.store.get(lastKey(sessionId)))
+  const found = stored ? { ...stored, sessionId } : null
+  await update($, last, () => found)
+  return found
+}
+
+async function pruneLast($: EngineInterface): Promise<void> {
+  const keys = (await $.store.keys()).filter(isLastKey)
+  const entries = await Promise.all(keys.map(async key => [key, await $.store.get(key)] as const))
+  for (const key of pruneLastKeys(entries)) await $.store.delete(key)
+}
+
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {
   const now = await $.clock.now()
   const segment = joinSegments(
-    segmentFor(await read($, last), await liveContext($), now, await ttlMs($, config)),
+    segmentFor(await currentLast($), await liveContext($), now, await ttlMs($, config)),
     agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config)),
   )
   await $.fs.write(await segmentPath($, await $.session.id()), segmentFile(segment, await $.clock.now()))
@@ -106,8 +129,9 @@ async function tick($: EngineInterface, config: Config): Promise<void> {
 }
 
 async function observe($: EngineInterface, config: Config, startedAt: number, usage: TurnUsage): Promise<void> {
+  const sessionId = await $.session.id()
   const seen = observeStep({
-    prev: await read($, last),
+    prev: await currentLast($),
     startedAt,
     now: await $.clock.now(),
     usage,
@@ -115,7 +139,8 @@ async function observe($: EngineInterface, config: Config, startedAt: number, us
     defaultTtlMs: config.defaultTtlMs,
   })
   if (!seen) return
-  await update($, last, () => seen.last)
+  await update($, last, () => ({ ...seen.last, sessionId }))
+  await $.store.set(lastKey(sessionId), seen.last)
   await $.store.set('ttl', seen.bounds)
   const miss = seen.miss
   if (!miss) return
@@ -166,7 +191,7 @@ async function clearThenRestore($: EngineInterface, handoff: string, unclearedTe
 // Null when the cache is warm or re-writing it costs less than the option allows.
 async function coldChoice($: EngineInterface, config: Config, options: readonly string[]): Promise<string | null> {
   const gate = gateDecision(
-    await read($, last),
+    await currentLast($),
     await liveContext($),
     await $.clock.now(),
     await ttlMs($, config),
@@ -214,6 +239,11 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const stored = asMisses(await $.store.get('misses'))
     await update($, misses, () => stored)
+    try {
+      await pruneLast($)
+    } catch (err) {
+      $.ui.log(`cache-guard: could not prune stored responses: ${String(err)}`, { to: 'debug' })
+    }
     await tick($, config)
     ticker?.cancel()
     ticker = $.clock.every(SEGMENT_EVERY_MS, () => void tick($, config))
@@ -222,9 +252,7 @@ export const register: Register = (on, options) => {
 
   on('session.end', async ($, e, next) => {
     // The ticker must survive a /clear because no session.start follows it to restart one.
-    if (e.reason === 'clear') {
-      await update($, last, () => null)
-    } else {
+    if (e.reason !== 'clear') {
       ticker?.cancel()
       ticker = undefined
     }
