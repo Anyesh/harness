@@ -186,6 +186,7 @@ export function gateDecision(
 const PERSON_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
 // The model's own main-loop call, raised by the engine; a query carries no call id and a plugin's call names the plugin.
+// Anything short of deny reaches the person, because a hook's allow does not dismiss these tools' dialog.
 export function waitsOnPerson(e: ToolCheckInput, verdict: ToolCheckResult, origin: Origin): boolean {
   return (
     origin.plugin === 'engine' &&
@@ -193,7 +194,7 @@ export function waitsOnPerson(e: ToolCheckInput, verdict: ToolCheckResult, origi
     e.agentId === undefined &&
     PERSON_TOOLS.has(e.tool) &&
     e.approver === 'person' &&
-    verdict.decision === 'ask'
+    verdict.decision !== 'deny'
   )
 }
 

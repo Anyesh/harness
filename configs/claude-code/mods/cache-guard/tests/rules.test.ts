@@ -25,6 +25,7 @@ import {
   segmentFile,
   segmentFor,
   STEP_HANDOFF,
+  waitsOnPerson,
 } from '../hooks/rules'
 import type { AgentTrack, ListedAgent, StepRecord } from '../types'
 
@@ -199,6 +200,25 @@ describe('last response keys', () => {
   test('pruneLastKeys never drops the kept key, however old', () => {
     const entries: [string, unknown][] = Array.from({ length: 51 }, (_, i) => [lastKey(`s${i}`), { at: i, ctx: 1, model: OPUS }])
     expect(pruneLastKeys(entries, lastKey('s0'))).toEqual(['last:s1'])
+  })
+})
+
+describe('waitsOnPerson', () => {
+  const engine = { plugin: 'engine', tier: 'core' } as const
+  const call = { tool: 'AskUserQuestion', input: {}, tool_use_id: 'tu1', approver: 'person' } as const
+
+  test("the engine's own main-loop question or plan approval, unless denied", () => {
+    expect(waitsOnPerson(call, { decision: 'ask' }, engine)).toBe(true)
+    expect(waitsOnPerson({ ...call, tool: 'ExitPlanMode' }, { decision: 'allow' }, engine)).toBe(true)
+    expect(waitsOnPerson(call, { decision: 'deny' }, engine)).toBe(false)
+  })
+
+  test("not a plugin's call, a query, a subagent's call, a permission prompt or another approver", () => {
+    expect(waitsOnPerson(call, { decision: 'ask' }, { plugin: 'cache-guard', tier: 'user' })).toBe(false)
+    expect(waitsOnPerson({ tool: 'AskUserQuestion', input: {}, approver: 'person' }, { decision: 'ask' }, engine)).toBe(false)
+    expect(waitsOnPerson({ ...call, agentId: 'a1' }, { decision: 'ask' }, engine)).toBe(false)
+    expect(waitsOnPerson({ ...call, tool: 'Bash' }, { decision: 'ask' }, engine)).toBe(false)
+    expect(waitsOnPerson({ ...call, approver: 'host' }, { decision: 'ask' }, engine)).toBe(false)
   })
 })
 

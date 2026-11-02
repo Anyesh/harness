@@ -420,9 +420,17 @@ describe('step gate', () => {
     expect(w.asked).toEqual([])
   })
 
-  test('an allowed call does not ask', async ($, on) => {
+  test("a hook's allow still marks a question, because it does not dismiss the dialog", async ($, on) => {
     const w = world(on)
     w.verdict = 'allow'
+    await waitedOn($, w, 72)
+    await step($, w, usage(0, 380_000), { index: 1 })
+    expect(w.asked).toHaveLength(1)
+  })
+
+  test('a denied question does not ask', async ($, on) => {
+    const w = world(on)
+    w.verdict = 'deny'
     await waitedOn($, w, 72)
     await step($, w, usage(0, 380_000), { index: 1 })
     expect(w.asked).toEqual([])
@@ -539,6 +547,7 @@ describe('last response per session', () => {
     await start($, on)
     expect(w.stored['last:sess-1']).toBeDefined()
     expect(w.stored['last:s0']).toBeUndefined()
+    expect(w.stored['last:s1']).toBeDefined()
   })
 })
 
