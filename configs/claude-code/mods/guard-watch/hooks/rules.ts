@@ -22,7 +22,7 @@ export function blockDetail(reason: string): string {
 
 export function blockSegment(blocks: readonly Block[]): Segment | null {
   if (blocks.length === 0) return null
-  const text = blocks.length === 1 ? '1 block' : `${blocks.length} blocks`
+  const text = blocks.length === 1 ? '⊘ 1 block' : `⊘ ${blocks.length} blocks`
   return { text, tone: blocks.some(b => b.agentId !== undefined) ? 'warn' : 'normal' }
 }
 

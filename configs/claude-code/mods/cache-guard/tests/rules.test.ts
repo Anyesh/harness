@@ -9,7 +9,6 @@ import {
   classifyStep,
   effectiveTtl,
   formatUsd,
-  joinSegments,
   pruneTracks,
   gateDecision,
   gateQuestion,
@@ -267,15 +266,15 @@ describe('segmentFor', () => {
   const last: StepRecord = { at: 0, ctx: 380_000, model: OPUS }
 
   test('warm shows the time left', () => {
-    expect(segmentFor(last, 380_000, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache 42m', tone: 'normal' })
+    expect(segmentFor(last, 380_000, 18 * MINUTE, 60 * MINUTE)).toEqual({ text: '◷ 42m left', tone: 'normal' })
   })
 
   test('cold shows what the next send re-writes, as a warning', () => {
-    expect(segmentFor(last, 380_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $3.04', tone: 'warn' })
+    expect(segmentFor(last, 380_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: '◷ cold ≈ $3.04', tone: 'warn' })
   })
 
   test('prices the live context size, not the remembered one', () => {
-    expect(segmentFor(last, 100_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: 'cache cold ≈ $0.80', tone: 'warn' })
+    expect(segmentFor(last, 100_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: '◷ cold ≈ $0.80', tone: 'warn' })
   })
 
   test('hides under 20k tokens of context, and without a live size or a previous response', () => {
@@ -287,7 +286,7 @@ describe('segmentFor', () => {
 
 describe('segmentFile', () => {
   test('writes text, tone and time as JSON, and nothing for no segment', () => {
-    expect(JSON.parse(segmentFile({ text: 'cache 42m', tone: 'normal' }, 5))).toEqual({ text: 'cache 42m', tone: 'normal', at: 5 })
+    expect(JSON.parse(segmentFile({ text: '◷ 42m left', tone: 'normal' }, 5))).toEqual({ text: '◷ 42m left', tone: 'normal', at: 5 })
     expect(segmentFile(null, 5)).toBe('')
   })
 })
@@ -350,18 +349,10 @@ describe('agents', () => {
   test('the segment counts live agents and warns on cold ones', () => {
     const agents = { a: track(now - 9 * MINUTE), b: track(now - MINUTE) }
     const list = [listed('a', 'idle'), listed('b', 'running'), listed('c', 'pending'), listed('d', 'completed')]
-    expect(agentSegment(agents, list, now, ttl)).toEqual({ text: 'agents 3 · 1 cold', tone: 'warn' })
-    expect(agentSegment({}, list, now, ttl)).toEqual({ text: 'agents 3', tone: 'normal' })
+    expect(agentSegment(agents, list, now, ttl)).toEqual({ text: '◈ 3 agents · 1 cold', tone: 'warn' })
+    expect(agentSegment({}, list, now, ttl)).toEqual({ text: '◈ 3 agents', tone: 'normal' })
+    expect(agentSegment({}, [listed('b', 'running')], now, ttl)).toEqual({ text: '◈ 1 agent', tone: 'normal' })
     expect(agentSegment(agents, [listed('d', 'completed')], now, ttl)).toBeNull()
-  })
-
-  test('segments join in order and warn when either warns', () => {
-    expect(joinSegments({ text: 'cache 42m', tone: 'normal' }, { text: 'agents 1 · 1 cold', tone: 'warn' })).toEqual({
-      text: 'cache 42m · agents 1 · 1 cold',
-      tone: 'warn',
-    })
-    expect(joinSegments(null, { text: 'agents 2', tone: 'normal' })).toEqual({ text: 'agents 2', tone: 'normal' })
-    expect(joinSegments(null, null)).toBeNull()
   })
 
   test('tracks outlive the agent list for a day, so a late resume is still classified', () => {

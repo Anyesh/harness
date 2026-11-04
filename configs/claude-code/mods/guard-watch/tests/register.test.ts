@@ -49,7 +49,7 @@ describe('tool.check observer', () => {
     const w = world(on)
     w.verdict = { decision: 'deny', hook: 'PreToolUse', reason: COST }
     expect(await check($, 'Read')).toEqual(w.verdict)
-    expect(segment(w)).toEqual({ text: '1 block', tone: 'normal', at: NOW })
+    expect(segment(w)).toEqual({ text: '⊘ 1 block', tone: 'normal', at: NOW })
     expect(w.toasts).toEqual([])
   })
 
@@ -73,7 +73,7 @@ describe('tool.check observer', () => {
     await check($, 'Bash')
     await check($, 'Read', 'a1')
     expect(w.toasts).toEqual(["cost-guard blocked Explore's Read: file over 2 MB"])
-    expect(segment(w)).toMatchObject({ text: '2 blocks', tone: 'warn' })
+    expect(segment(w)).toMatchObject({ text: '⊘ 2 blocks', tone: 'warn' })
   })
 })
 
@@ -86,7 +86,7 @@ describe('session', () => {
     w.verdict = { decision: 'deny', hook: 'PreToolUse', reason: COST }
     await check($, 'Read')
     await w.clock.advance(30_000)
-    expect(segment(w)).toMatchObject({ text: '1 block', at: NOW + 30_000 })
+    expect(segment(w)).toMatchObject({ text: '⊘ 1 block', at: NOW + 30_000 })
     await $.session.end({ reason: 'clear', sessionId: 'sess-1' } as never)
     expect(w.files[SEGMENT]).toBeUndefined()
     await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })

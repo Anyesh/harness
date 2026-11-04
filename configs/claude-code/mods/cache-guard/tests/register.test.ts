@@ -9,7 +9,8 @@ const SEND = 'Send anyway'
 const CLEAR = 'Clear and hand off'
 const DRAFT = 'Keep as draft'
 const STOP = 'Stop here'
-const SEGMENT = '/state/harness/status/sess-1/cache-guard.json'
+const TIMER = '/state/harness/status/sess-1/cache-guard.json'
+const AGENTS = '/state/harness/status/sess-1/cache-guard-agents.json'
 const HANDOFF_LINE = "Continue from the previous session's handoff digest."
 const STEP_HANDOFF = `${HANDOFF_LINE}\n\nThe last answer or approval in that session was recorded but never sent to the model.`
 const STOP_NOTICE = 'Stopped before sending; the prompt cache is still cold.'
@@ -29,6 +30,7 @@ type World = {
   files: Record<string, string>
   agents: AgentInfo[]
   commands: string[][]
+  rmFails: boolean
   stored: Record<string, unknown>
   verdict: 'allow' | 'ask' | 'deny'
   requests: number
@@ -55,6 +57,7 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
     files: {},
     agents: [],
     commands: [],
+    rmFails: false,
     stored: {},
     verdict: 'ask',
     requests: 0,
@@ -121,7 +124,8 @@ function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state',
   })
   on('process.run', (_$, e) => {
     w.commands.push([...e.argv])
-    if (e.argv[0] === 'rm') delete w.files[e.argv[2] ?? '']
+    if (w.rmFails && e.argv[0] === 'rm') throw new Error('rm failed')
+    if (e.argv[0] === 'rm') for (const path of e.argv.slice(2)) delete w.files[path]
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   return w
@@ -573,8 +577,8 @@ describe('misses', () => {
   })
 })
 
-function segment(w: World) {
-  const text = w.files[SEGMENT]
+function segment(w: World, path: string) {
+  const text = w.files[path]
   return text ? JSON.parse(text) : text
 }
 
@@ -584,16 +588,19 @@ describe('status segment', () => {
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
     await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
     await warmed($, w, 18)
-    expect(segment(w)).toEqual({ text: 'cache 42m', tone: 'normal', at: NOW + 18 * MINUTE })
+    expect(segment(w, TIMER)).toEqual({ text: '◷ 42m left', tone: 'normal', at: NOW + 18 * MINUTE })
     await w.clock.advance(43 * MINUTE)
-    expect(segment(w)).toMatchObject({ text: 'cache cold ≈ $3.04', tone: 'warn' })
+    expect(segment(w, TIMER)).toMatchObject({ text: '◷ cold ≈ $3.04', tone: 'warn' })
     expect(w.statuses).toEqual([])
   })
 
   test('falls back to HOME when XDG_STATE_HOME is unset', async ($, on) => {
     const w = world(on, { HOME: '/home/user' })
     await warmed($, w, 1)
-    expect(Object.keys(w.files)).toEqual(['/home/user/.local/state/harness/status/sess-1/cache-guard.json'])
+    expect(Object.keys(w.files)).toEqual([
+      '/home/user/.local/state/harness/status/sess-1/cache-guard.json',
+      '/home/user/.local/state/harness/status/sess-1/cache-guard-agents.json',
+    ])
   })
 
   test('the segment keeps updating after /clear, which starts no new session', async ($, on) => {
@@ -602,24 +609,36 @@ describe('status segment', () => {
     await start($, on)
     await warmed($, w, 1)
     await $.session.end({ reason: 'clear', sessionId: 'sess-1' } as never)
-    expect(w.files[SEGMENT]).toBeUndefined()
+    expect(w.files[TIMER]).toBeUndefined()
+    expect(w.files[AGENTS]).toBeUndefined()
     await step($, w, usage(0, 40_000))
     await w.clock.advance(30_000)
-    expect(segment(w)).toMatchObject({ text: 'cache 59m', tone: 'normal' })
+    expect(segment(w, TIMER)).toMatchObject({ text: '◷ 59m left', tone: 'normal' })
     await w.clock.advance(60 * MINUTE)
-    expect(segment(w)).toMatchObject({ text: 'cache cold ≈ $0.32', tone: 'warn' })
+    expect(segment(w, TIMER)).toMatchObject({ text: '◷ cold ≈ $0.32', tone: 'warn' })
   })
 
-  test('removes the segment file when the session ends', async ($, on) => {
+  test('removes both segment files when the session ends', async ($, on) => {
     const w = world(on)
     on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
     await warmed($, w, 1)
     await $.session.end({ reason: 'exit', sessionId: 'sess-1' } as never)
-    expect(w.files[SEGMENT]).toBeUndefined()
+    expect(w.files[TIMER]).toBeUndefined()
+    expect(w.files[AGENTS]).toBeUndefined()
     expect(w.commands).toEqual([
-      ['rm', '-f', SEGMENT],
+      ['rm', '-f', TIMER, AGENTS],
       ['rmdir', '/state/harness/status/sess-1'],
     ])
+  })
+
+  test('empties both segment files when removing them fails', async ($, on) => {
+    const w = world(on)
+    on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
+    await warmed($, w, 1)
+    w.rmFails = true
+    await $.session.end({ reason: 'exit', sessionId: 'sess-1' } as never)
+    expect(w.files[TIMER]).toBe('')
+    expect(w.files[AGENTS]).toBe('')
   })
 })
 
@@ -644,10 +663,21 @@ describe('agents', () => {
     w.agents = [agent('a1', 'running')]
     await step($, w, usage(0, 120_000), { agentId: 'a1' })
     await complete($, 'a1')
-    expect(segment(w)).toMatchObject({ text: 'agents 1', tone: 'normal' })
+    expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 1 agent', tone: 'normal' })
     w.agents = [agent('a1', 'idle')]
     await w.clock.advance(6 * MINUTE)
-    expect(segment(w)).toMatchObject({ text: 'agents 1 · 1 cold', tone: 'warn' })
+    expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 1 agent · 1 cold', tone: 'warn' })
+  })
+
+  test('a cold agent warns in its own file and leaves the session timer normal', async ($, on) => {
+    const w = world(on)
+    await start($, on)
+    w.agents = [agent('a1', 'idle')]
+    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await w.clock.advance(6 * MINUTE)
+    await warmed($, w, 1)
+    expect(segment(w, TIMER)).toMatchObject({ text: '◷ 59m left', tone: 'normal' })
+    expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 1 agent · 1 cold', tone: 'warn' })
   })
 
   test('an agent leaves the segment once unlisted, and a later cold resume still toasts', async ($, on) => {
@@ -657,7 +687,7 @@ describe('agents', () => {
     await step($, w, usage(0, 120_000), { agentId: 'a1' })
     w.agents = []
     await w.clock.advance(30_000)
-    expect(segment(w)).toBe('')
+    expect(segment(w, AGENTS)).toBe('')
     await w.clock.advance(9 * MINUTE)
     w.agents = [agent('a1', 'running')]
     await step($, w, usage(0, 120_000), { agentId: 'a1' })

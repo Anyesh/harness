@@ -223,8 +223,8 @@ export type Segment = { text: string; tone: Tone }
 export function segmentFor(last: StepRecord | null, ctx: number | undefined, now: number, ttlMs: number): Segment | null {
   if (!last || ctx === undefined || ctx < MIN_STATUS_CTX) return null
   const left = last.at + ttlMs - now
-  if (left > 0) return { text: `cache ${formatDuration(left)}`, tone: 'normal' }
-  return { text: `cache cold ≈ ${formatUsd(rewriteUsd(last.model, ctx, ttlMs))}`, tone: 'warn' }
+  if (left > 0) return { text: `◷ ${formatDuration(left)} left`, tone: 'normal' }
+  return { text: `◷ cold ≈ ${formatUsd(rewriteUsd(last.model, ctx, ttlMs))}`, tone: 'warn' }
 }
 
 // The format must match what statusline.sh reads; tests/test_statusline.sh pins that side.
@@ -307,19 +307,14 @@ export function agentSegment(
   const live = listed.filter(isLive)
   if (live.length === 0) return null
   const cold = live.filter(agent => isCold(agent, agents[agent.id], now, ttlMs)).length
-  if (cold === 0) return { text: `agents ${live.length}`, tone: 'normal' }
-  return { text: `agents ${live.length} · ${cold} cold`, tone: 'warn' }
+  const count = `◈ ${live.length} ${live.length === 1 ? 'agent' : 'agents'}`
+  if (cold === 0) return { text: count, tone: 'normal' }
+  return { text: `${count} · ${cold} cold`, tone: 'warn' }
 }
 
 // Tracks age out by time, not by listing, because ended agents leave $.agent.list within a minute yet can be resumed much later.
 export function pruneTracks(tracks: Readonly<Record<string, AgentTrack>>, now: number): Record<string, AgentTrack> {
   return Object.fromEntries(Object.entries(tracks).filter(([, track]) => now - track.at < TRACK_KEEP_MS))
-}
-
-export function joinSegments(...segments: (Segment | null)[]): Segment | null {
-  const shown = segments.filter((s): s is Segment => s !== null)
-  if (shown.length === 0) return null
-  return { text: shown.map(s => s.text).join(' · '), tone: shown.some(s => s.tone === 'warn') ? 'warn' : 'normal' }
 }
 
 export function agentMissToast(type: string, miss: Miss): string {

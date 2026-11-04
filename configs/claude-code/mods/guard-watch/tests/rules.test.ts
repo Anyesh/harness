@@ -39,8 +39,8 @@ describe('blockSegment', () => {
 
   test('counts blocks and warns when a subagent was blocked', () => {
     expect(blockSegment([])).toBeNull()
-    expect(blockSegment([block()])).toEqual({ text: '1 block', tone: 'normal' })
-    expect(blockSegment([block(), block('a1')])).toEqual({ text: '2 blocks', tone: 'warn' })
+    expect(blockSegment([block()])).toEqual({ text: '⊘ 1 block', tone: 'normal' })
+    expect(blockSegment([block(), block('a1')])).toEqual({ text: '⊘ 2 blocks', tone: 'warn' })
   })
 })
 

@@ -67,17 +67,22 @@ row() { sed -n "${1}p" <<<"$out"; }
 C1=" ▐▛███▜▌ "
 C2="▝▜█████▛▘"
 C3="  ▘▘ ▝▝  "
-METRICS="Opus 5.5  │  \$4.12  │  ctx ███░░░░░ 38% 380k  │  72m"
+METRICS="Opus 5.5  │  \$4.12  │  ⛁ ███░░░░░ 38% 380k  │  ◉ 97%  │  up 1h12m"
 BASE="$C1  [default] plain"$'\n'"$C2  $METRICS"$'\n'"$C3"
 GREEN=$'\033[32m'
 RED=$'\033[31m'
+NOW_S=$(date +%s)
+
+no_segments() { command rm -rf "$DIR"; }
+no_usage() { jq -c '.context_window.current_usage = {input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0}'; }
+low_hit() { jq -c '.context_window.current_usage = {input_tokens: 200000, cache_creation_input_tokens: 80000, cache_read_input_tokens: 100000}'; }
 
 echo ""
 echo "=== statusline ==="
 echo ""
 
 out=$(line)
-assert "clawd spans three rows of location, metrics and an empty third row" '[[ "$out" == "$BASE" ]]'
+assert "clawd spans three rows of location, session figures and an empty third row" '[[ "$out" == "$BASE" ]]'
 
 out=$(line "$SID" "$REPO")
 assert "a git folder shows its branch" '[[ "$(row 1)" == "$C1  [default] repo (feat-x)" ]]'
@@ -101,42 +106,78 @@ out=$(input | colored)
 assert "clawd is drawn in Claude orange" '[[ "$(row 2)" == $'"'"'\033[38;5;173m▝▜█████▛▘'"'"'* ]]'
 assert "context under half full draws a green bar" '[[ "$out" == *"${GREEN}███"* ]]'
 
-out=$(input | jq -c '.rate_limits = {five_hour: {used_percentage: 85}, seven_day: {used_percentage: 20}}' | plain)
-assert "quota windows sit on the third row" '[[ "$(row 3)" == "$C3  session: ████░ 85%  week: █░░░░ 20%" ]]'
-
 out=$(input | jq -c '.context_window.used_percentage = 85' | colored)
 assert "context past 80% draws a red bar" '[[ "$out" == *"${RED}██████"* ]]'
 
-segment guard-watch "2 blocks" normal "$NOW_MS"
-segment cache-guard "cache 42m" normal "$NOW_MS"
-out=$(line)
-assert "segments follow in fixed order" '[[ "$(row 3)" == "$C3  cache 42m  │  2 blocks" ]]'
+out=$(input | jq -c '.cost.total_duration_ms = 2520000' | plain)
+assert "a session under an hour shows its uptime in minutes" '[[ "$(row 2)" == *"│  up 42m" ]]'
 
-out=$(input | jq -c '.rate_limits = {seven_day: {used_percentage: 20}}' | plain)
-assert "segments follow the quota" '[[ "$(row 3)" == "$C3  week: █░░░░ 20%  │  cache 42m  │  2 blocks" ]]'
+out=$(input | jq -c '.cost.total_duration_ms = 4320000.7' | plain)
+assert "a fractional duration still shows the uptime" '[[ "$(row 2)" == *"│  up 1h12m" ]]'
 
-segment cache-guard 'cache cold ≈ $3.04' warn "$NOW_MS"
+out=$(input | jq -c --argjson r $((NOW_S + 7830)) '.rate_limits = {five_hour: {used_percentage: 85, resets_at: $r}, seven_day: {used_percentage: 20}}' | plain)
+assert "the quota row shows the 5h window with its reset, then the 7d window" '[[ "$(row 3)" == "$C3  5h ████░ 85% ↻2h10m  │  7d █░░░░ 20%" ]]'
+
+out=$(input | jq -c --argjson r $((NOW_S + 2550)) '.rate_limits = {five_hour: {used_percentage: 85, resets_at: $r}}' | plain)
+assert "a reset under an hour away shows minutes" '[[ "$(row 3)" == "$C3  5h ████░ 85% ↻42m" ]]'
+
+out=$(input | jq -c --argjson r $((NOW_S - 60)) '.rate_limits = {five_hour: {used_percentage: 85, resets_at: $r}}' | plain)
+assert "a reset already past shows no countdown" '[[ "$(row 3)" == "$C3  5h ████░ 85%" ]]'
+
+segment cache-guard "◷ 42m left" normal "$NOW_MS"
 out=$(line)
-assert "warn tone is plain under NO_COLOR" '[[ "$(row 3)" == "$C3  cache cold ≈ \$3.04  │  2 blocks" ]]'
+assert "the cache slot shows the timer then the hit rate" '[[ "$(row 2)" == "$C2  Opus 5.5  │  \$4.12  │  ⛁ ███░░░░░ 38% 380k  │  ◷ 42m left ◉ 97%  │  up 1h12m" ]]'
+
+out=$(input | no_usage | plain)
+assert "no usage yet leaves the timer alone in the cache slot" '[[ "$(row 2)" == *"│  ◷ 42m left  │  up 1h12m" ]]'
+
+no_segments
+out=$(input | no_usage | plain)
+assert "no timer and no usage drop the cache slot" '[[ "$(row 2)" == *" 380k  │  up 1h12m" ]]'
+
+out=$(input | low_hit | colored)
+assert "a hit rate under 80% is drawn in red" '[[ "$out" == *"${RED}◉ 26%${RESET}"* ]]'
 
 out=$(input | colored)
-assert "warn tone is drawn in yellow" '[[ "$out" == *"${YELLOW}cache cold ≈ \$3.04${RESET}"* ]]'
+assert "a hit rate of 80% or more is not red" '[[ "$out" == *"◉ 97%"* && "$out" != *"${RED}◉"* ]]'
 
-segment guard-watch "2 blocks" normal $((NOW_MS - 11 * 60 * 1000))
+segment cache-guard '◷ cold ≈ $3.04' warn "$NOW_MS"
+segment cache-guard-agents "◈ 2 agents · 1 cold" warn "$NOW_MS"
+segment guard-watch "⊘ 2 blocks" normal "$NOW_MS"
 out=$(line)
-assert "a segment older than 10 minutes is skipped" '[[ "$out" != *"2 blocks"* ]]'
+assert "a cold timer is plain under NO_COLOR" '[[ "$(row 2)" == *"│  ◷ cold ≈ \$3.04 ◉ 97%  │"* ]]'
+assert "agents then blocks fill the third row" '[[ "$(row 3)" == "$C3  ◈ 2 agents · 1 cold  │  ⊘ 2 blocks" ]]'
+
+out=$(input | jq -c '.rate_limits = {seven_day: {used_percentage: 20}}' | plain)
+assert "agents and blocks follow the quota" '[[ "$(row 3)" == "$C3  7d █░░░░ 20%  │  ◈ 2 agents · 1 cold  │  ⊘ 2 blocks" ]]'
+
+out=$(input | colored)
+assert "a cold timer is drawn in yellow" '[[ "$(row 2)" == *"${YELLOW}◷ cold ≈ \$3.04${RESET}"* ]]'
+assert "a warn segment on the third row is drawn in yellow" '[[ "$(row 3)" == *"${YELLOW}◈ 2 agents · 1 cold${RESET}"* ]]'
+
+segment guard-watch "⊘ 2 blocks" normal $((NOW_MS - 11 * 60 * 1000))
+segment cache-guard-agents "◈ 2 agents" normal $((NOW_MS - 11 * 60 * 1000))
+out=$(line)
+assert "segments older than 10 minutes drop from the third row" '[[ "$(row 3)" == "$C3" ]]'
+
+segment cache-guard "◷ 42m left" normal $((NOW_MS - 11 * 60 * 1000))
+out=$(line)
+assert "a stale timer drops while the hit rate stays" '[[ "$out" == "$BASE" ]]'
 
 : >"$DIR/cache-guard.json"
 out=$(line)
 assert "an emptied segment file is skipped" '[[ "$out" == "$BASE" ]]'
 
 printf 'not json' >"$DIR/cache-guard.json"
+printf 'not json' >"$DIR/cache-guard-agents.json"
 out=$(line)
 assert "a malformed segment file is skipped" '[[ "$out" == "$BASE" ]]'
 
-segment cache-guard "cache 42m" normal "$NOW_MS"
+segment cache-guard "◷ 42m left" normal "$NOW_MS"
+segment cache-guard-agents "◈ 2 agents" normal "$NOW_MS"
 out=$(line "../$SID")
 assert "a session id with path characters reads no segments" '[[ "$out" == "$BASE" ]]'
+no_segments
 
 USAGE="$STATE/harness/usage/sessions"
 limits() { jq -c '.rate_limits = {five_hour: {used_percentage: 38.2, resets_at: 1738425600.5}, seven_day: {used_percentage: 61, resets_at: 1738900000}}'; }

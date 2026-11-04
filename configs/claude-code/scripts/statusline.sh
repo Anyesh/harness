@@ -15,6 +15,24 @@ level() {
 
 SEP="  $(paint 2 "│")  "
 
+join_parts() {
+    local sep=$1 out="" part
+    shift
+    for part in "$@"; do
+        [ -n "$part" ] && out="${out:+$out$sep}$part"
+    done
+    printf '%s' "$out"
+}
+
+span() {
+    local mins=$(( $1 / 60000 ))
+    if [ "$mins" -ge 60 ]; then
+        printf '%dh%dm' $(( mins / 60 )) $(( mins % 60 ))
+    else
+        printf '%dm' "$mins"
+    fi
+}
+
 MODEL=$(echo "$input" | jq -r '.model.display_name // "?"')
 
 # claude-profile launchers export CLAUDE_PROFILE; a plain claude session runs on the default ~/.claude
@@ -38,10 +56,15 @@ COST_FMT=$(printf '%.2f' "$COST")
 CTX_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 CTX_USED_PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
 
-CTX_USED=$(echo "$input" | jq -r '(.context_window.current_usage // {}) | (.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)')
+read -r CACHE_READ CTX_USED < <(echo "$input" | jq -r '(.context_window.current_usage // {}) |
+    [(.cache_read_input_tokens // 0), ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0))] |
+    map(floor) | @tsv')
 
-DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
-DURATION_MIN=$(( DURATION_MS / 60000 ))
+CACHE_LOW_PCT=80
+CACHE_HIT=""
+[ "${CTX_USED:-0}" -gt 0 ] && CACHE_HIT=$(( CACHE_READ * 100 / CTX_USED ))
+
+DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0 | floor')
 
 mini_bar() {
     local pct=$1
@@ -56,7 +79,7 @@ mini_bar() {
 
 CTX_BAR=$(mini_bar "$CTX_USED_PCT" 8)
 
-if [ "$CTX_USED" -eq 0 ]; then
+if [ "${CTX_USED:-0}" -eq 0 ]; then
     CTX_USED=$(( CTX_SIZE * CTX_USED_PCT / 100 ))
 fi
 USED_K=$(( CTX_USED / 1000 ))
@@ -66,36 +89,21 @@ SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty
 FIVE_H_RESET=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 SEVEN_D_RESET=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 
-QUOTA=""
+FIVE_H_PART=""
 if [ -n "$FIVE_H" ] && [ "$FIVE_H" != "null" ]; then
     FIVE_H_INT=$(printf '%.0f' "$FIVE_H")
-    FIVE_BAR=$(mini_bar "$FIVE_H_INT" 5)
-    RESET_STR=""
+    FIVE_H_PART="5h $(mini_bar "$FIVE_H_INT" 5) ${FIVE_H_INT}%"
     if [ -n "$FIVE_H_RESET" ] && [ "$FIVE_H_RESET" != "null" ]; then
-        NOW=$(date +%s)
-        RESET_INT=$(printf '%.0f' "$FIVE_H_RESET")
-        REMAINING=$(( RESET_INT - NOW ))
-        if [ "$REMAINING" -gt 0 ]; then
-            HOURS=$(( REMAINING / 3600 ))
-            MINS=$(( (REMAINING % 3600) / 60 ))
-            if [ "$HOURS" -gt 0 ]; then
-                RESET_STR=" ${HOURS}h${MINS}m"
-            else
-                RESET_STR=" ${MINS}m"
-            fi
-        fi
+        REMAINING=$(( $(printf '%.0f' "$FIVE_H_RESET") - $(date +%s) ))
+        [ "$REMAINING" -gt 0 ] && FIVE_H_PART+=" ↻$(span $(( REMAINING * 1000 )))"
     fi
-    QUOTA="session: ${FIVE_BAR} ${FIVE_H_INT}%${RESET_STR}"
 fi
 
+SEVEN_D_PART=""
 if [ -n "$SEVEN_D" ] && [ "$SEVEN_D" != "null" ]; then
     SEVEN_D_INT=$(printf '%.0f' "$SEVEN_D")
-    SEVEN_BAR=$(mini_bar "$SEVEN_D_INT" 5)
-    QUOTA="${QUOTA:+$QUOTA  }week: ${SEVEN_BAR} ${SEVEN_D_INT}%"
+    SEVEN_D_PART="7d $(mini_bar "$SEVEN_D_INT" 5) ${SEVEN_D_INT}%"
 fi
-
-EXTRAS=()
-[ -n "$QUOTA" ] && EXTRAS+=("$QUOTA")
 
 SESSION_ID=$(echo "$input" | jq -r '.session_id // empty')
 [[ "$SESSION_ID" =~ ^[A-Za-z0-9_-]+$ ]] || SESSION_ID=""
@@ -139,18 +147,14 @@ sidebar_herdr() {
 
 # Fills the $claude_* tokens of this pane's sidebar entry (rows_by_agent.claude in configs/herdr/config.toml).
 report_sidebar() {
-    local herdr=$1 cache_low_pct=80 cache_read total pct
+    local herdr=$1
     local set=(--token "claude_profile=${CLAUDE_PROFILE:-default}" --token "claude_ctx=⛁ ${USED_K}k") clear=()
-    read -r cache_read total < <(echo "$input" | jq -r '(.context_window.current_usage // {}) |
-        [(.cache_read_input_tokens // 0), ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0))] |
-        map(floor) | @tsv')
-    if [ "${total:-0}" -gt 0 ]; then
-        pct=$(( cache_read * 100 / total ))
-        if [ "$pct" -lt "$cache_low_pct" ]; then
-            set+=(--token "claude_cache_low=◉ ${pct}%")
+    if [ -n "$CACHE_HIT" ]; then
+        if [ "$CACHE_HIT" -lt "$CACHE_LOW_PCT" ]; then
+            set+=(--token "claude_cache_low=◉ ${CACHE_HIT}%")
             clear+=(--clear-token claude_cache)
         else
-            set+=(--token "claude_cache=◉ ${pct}%")
+            set+=(--token "claude_cache=◉ ${CACHE_HIT}%")
             clear+=(--clear-token claude_cache_low)
         fi
     else
@@ -167,29 +171,29 @@ if [ -n "$HERDR_PANE_ID" ]; then
     [ -n "$HERDR" ] && { report_sidebar "$HERDR" </dev/null >/dev/null 2>&1 & disown; }
 fi
 
-# Mods write one segment file per session (see configs/claude-code/mods); the
-# order here is fixed so segments do not jump around, and a file untouched for
-# 10 minutes is skipped because a crashed session never empties its own.
-if [ -n "$SESSION_ID" ]; then
-    STATUS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/harness/status/$SESSION_ID"
-    NOW_MS=$(( $(date +%s) * 1000 ))
-    for mod in cache-guard guard-watch; do
-        file="$STATUS_DIR/$mod.json"
-        [ -s "$file" ] || continue
-        IFS=$'\t' read -r text tone at < <(jq -r '[.text // "", .tone // "normal", (.at // 0 | floor)] | @tsv' "$file" 2>/dev/null) || continue
-        [ -n "$text" ] || continue
-        (( NOW_MS - at <= 600000 )) || continue
-        if [ "$tone" = "warn" ]; then
-            text=$(paint 33 "$text")
-        fi
-        EXTRAS+=("$text")
-    done
-fi
+STATUS_DIR=""
+[ -n "$SESSION_ID" ] && STATUS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/harness/status/$SESSION_ID"
+NOW_MS=$(( $(date +%s) * 1000 ))
 
-EXTRA_ROW=""
-for part in "${EXTRAS[@]}"; do
-    EXTRA_ROW="${EXTRA_ROW:+$EXTRA_ROW$SEP}$part"
-done
+# A segment file untouched for 10 minutes is skipped because a crashed session never empties its own.
+mod_segment() {
+    local file="$STATUS_DIR/$1.json" text tone at
+    [ -n "$STATUS_DIR" ] && [ -s "$file" ] || return
+    IFS=$'\t' read -r text tone at < <(jq -r '[.text // "", .tone // "normal", (.at // 0 | floor)] | @tsv' "$file" 2>/dev/null) || return
+    [ -n "$text" ] || return
+    (( NOW_MS - at <= 600000 )) || return
+    if [ "$tone" = "warn" ]; then paint 33 "$text"; else printf '%s' "$text"; fi
+}
+
+HIT=""
+if [ -n "$CACHE_HIT" ]; then
+    HIT="◉ ${CACHE_HIT}%"
+    [ "$CACHE_HIT" -lt "$CACHE_LOW_PCT" ] && HIT=$(paint 31 "$HIT")
+fi
+CACHE_SLOT=$(join_parts " " "$(mod_segment cache-guard)" "$HIT")
+
+SESSION_ROW=$(join_parts "$SEP" "$(paint 36 "$MODEL")" "\$${COST_FMT}" "⛁ ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k" "$CACHE_SLOT" "$(paint 2 "up $(span "$DURATION_MS")")")
+ACCOUNT_ROW=$(join_parts "$SEP" "$FIVE_H_PART" "$SEVEN_D_PART" "$(mod_segment cache-guard-agents)" "$(mod_segment guard-watch)")
 
 draw() {
     if [ -n "$2" ]; then printf '%s  %s\n' "$1" "$2"; else printf '%s\n' "$1"; fi
@@ -198,5 +202,5 @@ draw() {
 # Every Clawd row is padded to 9 cells so the text beside him starts in the same column on all three rows
 CLAWD='38;5;173'
 draw "$(paint "$CLAWD" " ▐▛███▜▌ ")" "$LOCATION"
-draw "$(paint "$CLAWD" "▝▜█████▛▘")" "$(paint 36 "$MODEL")${SEP}\$${COST_FMT}${SEP}ctx ${CTX_BAR} ${CTX_USED_PCT}% ${USED_K}k${SEP}$(paint 2 "${DURATION_MIN}m")"
-draw "$(paint "$CLAWD" "  ▘▘ ▝▝  ")" "$EXTRA_ROW"
+draw "$(paint "$CLAWD" "▝▜█████▛▘")" "$SESSION_ROW"
+draw "$(paint "$CLAWD" "  ▘▘ ▝▝  ")" "$ACCOUNT_ROW"

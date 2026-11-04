@@ -18,7 +18,6 @@ import {
   handoffPrompt,
   isCrewPrompt,
   isLastKey,
-  joinSegments,
   lastKey,
   missToast,
   observeStep,
@@ -54,9 +53,13 @@ async function agentTtlMs($: EngineInterface, config: Config): Promise<number> {
   return effectiveTtl(asBounds(await $.store.get('agentTtl')), config.agentTtlMs)
 }
 
-async function segmentPath($: EngineInterface, sessionId: string): Promise<string> {
+async function statusDir($: EngineInterface, sessionId: string): Promise<string> {
   const state = (await $.env.get('XDG_STATE_HOME')) || `${await $.env.get('HOME')}/.local/state`
-  return `${state}/harness/status/${sessionId}/cache-guard.json`
+  return `${state}/harness/status/${sessionId}`
+}
+
+function segmentPaths(dir: string): { timer: string; agents: string } {
+  return { timer: `${dir}/cache-guard.json`, agents: `${dir}/cache-guard-agents.json` }
 }
 
 async function liveContext($: EngineInterface): Promise<number | undefined> {
@@ -82,11 +85,11 @@ async function pruneLast($: EngineInterface): Promise<void> {
 
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {
   const now = await $.clock.now()
-  const segment = joinSegments(
-    segmentFor(await currentLast($), await liveContext($), now, await ttlMs($, config)),
-    agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config)),
-  )
-  await $.fs.write(await segmentPath($, await $.session.id()), segmentFile(segment, await $.clock.now()))
+  const paths = segmentPaths(await statusDir($, await $.session.id()))
+  const timer = segmentFor(await currentLast($), await liveContext($), now, await ttlMs($, config))
+  const agentCount = agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config))
+  await $.fs.write(paths.timer, segmentFile(timer, now))
+  await $.fs.write(paths.agents, segmentFile(agentCount, now))
 }
 
 async function showSegment($: EngineInterface, config: Config): Promise<void> {
@@ -98,14 +101,15 @@ async function showSegment($: EngineInterface, config: Config): Promise<void> {
 }
 
 // rmdir fails harmlessly while other mods' files remain, because the session folder is shared.
-async function removeSegment($: EngineInterface, sessionId: string): Promise<void> {
-  const path = await segmentPath($, sessionId)
+async function removeSegments($: EngineInterface, sessionId: string): Promise<void> {
+  const dir = await statusDir($, sessionId)
+  const paths = Object.values(segmentPaths(dir))
   try {
-    await $.process.run(['rm', '-f', path])
-    await $.process.run(['rmdir', path.slice(0, path.lastIndexOf('/'))])
+    await $.process.run(['rm', '-f', ...paths])
+    await $.process.run(['rmdir', dir])
   } catch (err) {
-    $.ui.log(`cache-guard: could not remove ${path} (${String(err)}), emptying it`, { to: 'debug' })
-    await $.fs.write(path, '')
+    $.ui.log(`cache-guard: could not remove ${paths.join(' ')} (${String(err)}), emptying them`, { to: 'debug' })
+    for (const path of paths) await $.fs.write(path, '')
   }
 }
 
@@ -254,7 +258,7 @@ export const register: Register = (on, options) => {
       ticker?.cancel()
       ticker = undefined
     }
-    await removeSegment($, e.sessionId)
+    await removeSegments($, e.sessionId)
     return next(e)
   })
 
