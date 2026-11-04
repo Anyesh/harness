@@ -262,9 +262,21 @@ assert "watchdog: a silent feed restarts" 'grep -q "try-restart" "$H/calls.log"'
 health 5000 200000 true ok
 out=$(dog)
 assert "watchdog: a silent feed while paused does not" '! grep -q "try-restart" "$H/calls.log"'
+assert "watchdog: a skipped silent feed says why" \
+  'grep -q "changes feed silent for 200 s; not restarting: paused=true remote=ok" <<<"$out"'
 health 5000 200000 false unreachable
 out=$(dog)
 assert "watchdog: a silent feed while unreachable does not" '! grep -q "try-restart" "$H/calls.log"'
+assert "watchdog: a skip while unreachable names the remote" \
+  'grep -q "changes feed silent for 200 s; not restarting: paused=false remote=unreachable" <<<"$out"'
+health 5000 200000 true ok 400000
+out=$(dog)
+assert "watchdog: a hung handler while paused still restarts and logs the skip" \
+  'grep -q "try-restart" "$H/calls.log" && grep -q "not restarting: paused=true" <<<"$out" && grep -q "has run for 400 s" <<<"$out"'
+health 120000 200000 true ok
+out=$(dog)
+assert "watchdog: stale health restarts without a skip line" \
+  'grep -q "try-restart" "$H/calls.log" && ! grep -q "not restarting" <<<"$out"'
 health 5000 5000 false auth
 out=$(dog env WIKI_SYNC_LOG_TIMES=1)
 assert "watchdog: lines carry a date and time with WIKI_SYNC_LOG_TIMES=1" \

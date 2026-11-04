@@ -42,6 +42,9 @@ if [[ "$remote" == auth ]]; then
   say "CouchDB rejected the login; fix the plugin settings (not restarting)"
   exit 0
 fi
+if ((now - ts <= 90000 && now - feed > 180000)) && [[ "$paused" == true || "$remote" == unreachable ]]; then
+  say "changes feed silent for $(((now - feed) / 1000)) s; not restarting: paused=$paused remote=$remote"
+fi
 if ((now - ts > 90000)); then
   restart "health.json is $(((now - ts) / 1000)) s old"
 elif [[ "$paused" != true && "$remote" != unreachable ]] && ((now - feed > 180000)); then
