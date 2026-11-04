@@ -1,7 +1,7 @@
 import { BaseStore, JsonFile } from "./base.ts";
 import { classifyError, Couch, CouchRemote, type RemoteIdentity, type RemoteState } from "./couch.ts";
 import { LocalStore } from "./local.ts";
-import { errText, log } from "./log.ts";
+import { errText, log, setTimestamps } from "./log.ts";
 import { ObsidianWatch } from "./obsidian.ts";
 import {
   applyPreferred,
@@ -286,6 +286,7 @@ class Daemon {
 }
 
 async function main(): Promise<number> {
+  setTimestamps(Deno.env.get("WIKI_SYNC_LOG_TIMES") === "1");
   const env = readEnv();
   await Deno.mkdir(env.state, { recursive: true });
   const args = Deno.args;

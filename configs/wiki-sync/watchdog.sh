@@ -8,7 +8,11 @@ HEALTH="$STATE/health.json"
 source "$INSTALL/service.sh"
 
 say() {
-  printf 'wiki-sync watchdog: %s\n' "$*"
+  if [[ "${WIKI_SYNC_LOG_TIMES:-}" == 1 ]]; then
+    printf '%s wiki-sync watchdog: %s\n' "$(date '+%F %T')" "$*"
+  else
+    printf 'wiki-sync watchdog: %s\n' "$*"
+  fi
 }
 
 restart() {

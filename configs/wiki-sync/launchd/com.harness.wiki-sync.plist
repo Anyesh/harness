@@ -13,6 +13,8 @@
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>WIKI_SYNC_LOG_TIMES</key>
+    <string>1</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

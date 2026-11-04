@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REAL_HOME="$HOME"
-unset HARNESS_WORK WIKI_VAULT
+unset HARNESS_WORK WIKI_VAULT WIKI_SYNC_LOG_TIMES
 
 PASS=0
 FAIL=0
@@ -201,6 +201,8 @@ assert "mac: both launch agents installed with paths filled in" \
 assert "mac: agents booted out then bootstrapped" \
   'grep -q "launchctl bootout gui/.*/com.harness.wiki-sync$" "$H/calls.log" && grep -q "launchctl bootstrap gui/[0-9]* $AGENTS/com.harness.wiki-sync.plist" "$H/calls.log" && grep -q "launchctl bootstrap gui/[0-9]* $AGENTS/com.harness.wiki-sync-watchdog.plist" "$H/calls.log"'
 assert "mac: no systemctl calls" '! grep -q systemctl "$H/calls.log"'
+assert "mac: both agents stamp their log lines" \
+  'grep -A1 -q "<key>WIKI_SYNC_LOG_TIMES</key>" "$AGENTS/com.harness.wiki-sync.plist" && grep -A1 -q "<key>WIKI_SYNC_LOG_TIMES</key>" "$AGENTS/com.harness.wiki-sync-watchdog.plist" && grep -A1 "<key>WIKI_SYNC_LOG_TIMES</key>" "$AGENTS"/*.plist | grep -c "<string>1</string>" | grep -qx 2'
 
 H="$TMP/mac-retry"
 new_home "$H"
@@ -244,7 +246,7 @@ health() {
 }
 dog() {
   : >"$H/calls.log"
-  HOME="$H" PATH="$H/bin:$PATH" "$INSTALL/watchdog.sh"
+  HOME="$H" PATH="$H/bin:$PATH" "$@" "$INSTALL/watchdog.sh"
 }
 touch "$H/active"
 health 5000 5000 false ok
@@ -263,6 +265,13 @@ assert "watchdog: a silent feed while paused does not" '! grep -q "try-restart" 
 health 5000 200000 false unreachable
 out=$(dog)
 assert "watchdog: a silent feed while unreachable does not" '! grep -q "try-restart" "$H/calls.log"'
+health 5000 5000 false auth
+out=$(dog env WIKI_SYNC_LOG_TIMES=1)
+assert "watchdog: lines carry a date and time with WIKI_SYNC_LOG_TIMES=1" \
+  'grep -Eq "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} wiki-sync watchdog: " <<<"$out"'
+out=$(dog env -u WIKI_SYNC_LOG_TIMES)
+assert "watchdog: lines carry no date without it" \
+  'grep -q "^wiki-sync watchdog: " <<<"$out"'
 health 5000 5000 false ok 400000
 out=$(dog)
 assert "watchdog: a hung handler restarts" 'grep -q "try-restart" "$H/calls.log"'
