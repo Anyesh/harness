@@ -158,6 +158,8 @@ assert "linux: first start took a snapshot of the wiki" 'ls "$INSTALL"/snapshots
 assert "linux: source staged without tests, env records the vault and wiki dir" \
   '[[ -f $INSTALL/src/main.ts && ! -e $INSTALL/src/sync.test.ts && ! -e $INSTALL/src/testing.ts && -x $INSTALL/run.sh ]] && grep -q "WIKI_SYNC_DIR=$H/vault/wiki" "$INSTALL/env"'
 assert "linux: dependencies cached with a frozen lockfile" 'grep -q "deno install --frozen --entrypoint main.ts" "$H/calls.log"'
+assert "linux: npm packages come from the public registry whatever ~/.npmrc says" \
+  'grep -qx "registry=https://registry.npmjs.org/" "$INSTALL/src/.npmrc"'
 assert "linux: stamp written" '[[ -s $INSTALL/stamp ]]'
 
 touch "$INSTALL/state/first-start-done"
