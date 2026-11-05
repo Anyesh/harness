@@ -33,9 +33,11 @@
 #                                   the state lines repeat on every sweep without it
 #   GONE <owner>                    an assigned owner herdr no longer lists
 #   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
-#     the profile is ? until the session's statusline writes its usage file;
-#     CONTEXT means at least CREW_CONTEXT_K thousand tokens or 80% of the
-#     session's context window, and ends the wait once per session;
+#     the profile is ? until the session's statusline writes its usage file, and
+#     opencode for an opencode agent, whose plugin writes it by pane;
+#     CONTEXT means at least CREW_CONTEXT_K thousand tokens (CREW_OPENCODE_CONTEXT_K,
+#     default 300, on opencode) or 80% of the session's context window, and ends
+#     the wait once per session;
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
 #     MERGING means a running or queued crew-merge; HEAVY-HOLD means the item id,
 #     or the merge-<id> of a running merge, holds the heavy slot; HEAVY-WAIT means
@@ -53,6 +55,9 @@
 #     for each claude-profile name and default: live crew workers and all live
 #     Claude agents on it, CREW_WORKERS_PER_PROFILE, and its usage (?% unknown);
 #     FULL at the cap or at CREW_SESSION_SOFT_PCT or CREW_WEEK_SOFT_PCT
+#   POOL opencode <crew>/<all>/<cap> api[ FULL]
+#     last, only when opencode is on PATH with an Anthropic credential (auth.json
+#     or ANTHROPIC_API_KEY); FULL only at the cap
 #   LEFTOVER <id> <worktree|branch|build-dir> <path or ref>
 #     a done or blocked row whose merged tip is in its into branch and whose
 #     landing finished, or a done report-only row whose report is done, with
@@ -120,6 +125,7 @@ session_hard=$((10#$(crew_threshold CREW_SESSION_HARD_PCT 90)))
 week_soft=$((10#$(crew_threshold CREW_WEEK_SOFT_PCT 85)))
 week_hard=$((10#$(crew_threshold CREW_WEEK_HARD_PCT 95)))
 context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 400)))
+opencode_context_k_limit=$((10#$(crew_threshold CREW_OPENCODE_CONTEXT_K 300)))
 profile_cap=$((10#$(crew_threshold CREW_WORKERS_PER_PROFILE 5)))
 
 role_once() {
@@ -294,15 +300,20 @@ load_seen() {
 }
 
 # Every agent herdr lists, in any workspace, one line each in agent_rows with
-# fields split by \037: name (empty when unnamed), status, session id, then
-# the session's profile, context tokens and context window, ? when unknown.
+# fields split by \037: name (empty when unnamed), status, usage key, then the
+# session's profile, context tokens and context window, ? when unknown. The
+# usage key is the session id, or pane-<pane id> for an opencode agent, which
+# herdr lists without one; that agent is on opencode before its first reply.
 agent_rows=
 load_agents() {
-  local name status sid usage
+  local name status sid kind pane usage
   agent_rows=$(
-    jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
-      while IFS=$'\037' read -r name status sid; do
-        usage=$(crew_session_usage "$sid") && [[ -n $usage ]] || usage=$'?\t?\t?'
+    jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?, .agent, .pane_id] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
+      while IFS=$'\037' read -r name status sid kind pane; do
+        if [[ $kind == opencode && -z $sid && -n $pane ]]; then sid=pane-${pane//[^A-Za-z0-9_-]/_}; fi
+        if ! usage=$(crew_session_usage "$sid") || [[ -z $usage ]]; then
+          if [[ $kind == opencode ]]; then usage=$'opencode\t?\t?'; else usage=$'?\t?\t?'; fi
+        fi
         printf '%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}"
       done
   )
@@ -342,9 +353,10 @@ agent_fields() {
 }
 
 context_k() {
-  local tokens=$1 window=$2
+  local tokens=$1 window=$2 limit=$context_k_limit
   [[ $tokens =~ ^[0-9]+$ ]] || return 1
-  if ((tokens >= context_k_limit * 1000)) || { [[ $window =~ ^[0-9]+$ ]] && ((window > 0 && tokens * 100 >= window * 80)); }; then
+  [[ $3 != opencode ]] || limit=$opencode_context_k_limit
+  if ((tokens >= limit * 1000)) || { [[ $window =~ ^[0-9]+$ ]] && ((window > 0 && tokens * 100 >= window * 80)); }; then
     echo $((tokens / 1000))
   else
     return 1
@@ -354,7 +366,7 @@ context_k() {
 usage_flags() {
   local k
   printf ' on %s' "$agent_profile"
-  if k=$(context_k "$agent_tokens" "$agent_window"); then printf ' CONTEXT %sk' "$k"; fi
+  if k=$(context_k "$agent_tokens" "$agent_window" "$agent_profile"); then printf ' CONTEXT %sk' "$k"; fi
 }
 
 at_least() {
@@ -421,10 +433,10 @@ note_limits() {
 }
 
 note_contexts() {
-  local name _status sid _profile tokens window
-  while IFS=$'\037' read -r name _status sid _profile tokens window; do
+  local name _status sid profile tokens window
+  while IFS=$'\037' read -r name _status sid profile tokens window; do
     [[ $name =~ $crew_re && -n $sid && -z ${usage_seen["context $sid"]:-} ]] || continue
-    context_k "$tokens" "$window" >/dev/null || continue
+    context_k "$tokens" "$window" "$profile" >/dev/null || continue
     usage_seen["context $sid"]=$EPOCHSECONDS
     usage_woke=1
     usage_new+=("context $name")
@@ -587,7 +599,7 @@ report_spares() {
     agent_fields "$name" || continue
     line="SPARE $name $agent_status on $agent_profile"
     [[ -z ${blocked_to[$name]:-} ]] || line+=" holds ${blocked_to[$name]}"
-    if k=$(context_k "$agent_tokens" "$agent_window"); then line+=" CONTEXT ${k}k"; fi
+    if k=$(context_k "$agent_tokens" "$agent_window" "$agent_profile"); then line+=" CONTEXT ${k}k"; fi
     echo "$line"
   done <<<"$agent_rows"
   report_empty_tabs
@@ -604,17 +616,32 @@ report_empty_tabs() {
   done < <(jq -r '.result.tabs[]? | .label | strings' <<<"$out" 2>/dev/null | awk '!seen[$0]++')
 }
 
+# opencode can run a worker when it is installed and holds an Anthropic
+# credential; neither check starts opencode.
+opencode_ready() {
+  command -v opencode >/dev/null || return 1
+  [[ -n ${ANTHROPIC_API_KEY:-} ]] && return 0
+  jq -e 'has("anthropic")' "${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json" >/dev/null 2>&1
+}
+
 pool_profiles() {
   {
     claude-profile names 2>/dev/null
     echo default
-  } | awk '/^[A-Za-z0-9_.-]+$/ && !seen[$0]++'
+  } | awk '/^[A-Za-z0-9_.-]+$/ && $0 != "opencode" && !seen[$0]++'
+  if opencode_ready; then echo opencode; fi
 }
 
 report_pool() {
   local p counts sp _sr wp _wr full
   while IFS= read -r p; do
     counts=$(awk -F'\037' -v p="$p" -v re="$crew_re" '$4 == p { all++; if ($1 ~ re) crew++ } END { print crew + 0 "/" all + 0 }' <<<"$agent_rows")
+    if [[ $p == opencode ]]; then
+      full=
+      ((${counts#*/} < profile_cap)) || full=" FULL"
+      echo "POOL opencode $counts/$profile_cap api$full"
+      continue
+    fi
     read -r sp _sr wp _wr < <(crew_profile_usage "$p")
     full=
     if ((${counts#*/} >= profile_cap)) || at_least "${sp:-}" "$session_soft" || at_least "${wp:-}" "$week_soft"; then full=" FULL"; fi

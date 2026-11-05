@@ -209,6 +209,7 @@ assert "a non-integer value for a whole-number key takes the default" '[[ $(crew
 assert "bad lines are collected with their line numbers" '[[ ${#crew_threshold_errors[@]} -eq 2 && ${crew_threshold_errors[0]} == "thresholds line 6: unknown key CREW_BOGUS" && ${crew_threshold_errors[1]} == "thresholds line 7: not KEY=value: nope" ]]'
 crew_read_thresholds "$TMP_DIR/none"
 assert "a missing file clears earlier values" '[[ $(crew_threshold CREW_MEM_MIN_MB 1024) == 1024 && ${#crew_threshold_errors[@]} -eq 0 ]]'
+assert "CREW_OPENCODE_CONTEXT_K is a whole-number key" '[[ $(CREW_OPENCODE_CONTEXT_K=250 crew_threshold CREW_OPENCODE_CONTEXT_K 300) == 250 && $(CREW_OPENCODE_CONTEXT_K=2.5 crew_threshold CREW_OPENCODE_CONTEXT_K 300) == 300 ]]'
 if command -v zsh >/dev/null; then
   assert "crew-lib still sources in zsh" '[[ $(cd "$MAIN" && zsh -c ". \"$REPO_ROOT/configs/claude-code/bin/crew-lib.sh\" && crew_dir") == "$MAIN/.claude/crew" ]]'
 fi

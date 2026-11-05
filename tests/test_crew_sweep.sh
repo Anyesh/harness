@@ -44,7 +44,16 @@ export XDG_STATE_HOME="$TMP_DIR/xdg"
 USAGE="$XDG_STATE_HOME/harness/usage/sessions"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_STATE" "$FAKE_BIN" "$USAGE"
-export PATH="$FAKE_BIN:$PATH"
+# shellcheck source=lib/path-without.sh
+. "$SCRIPT_DIR/lib/path-without.sh"
+unset ANTHROPIC_API_KEY
+export XDG_DATA_HOME="$TMP_DIR/data"
+OPENCODE_AUTH="$XDG_DATA_HOME/opencode/auth.json"
+OPENCODE_BIN="$TMP_DIR/opencode-bin"
+mkdir -p "$OPENCODE_BIN" "${OPENCODE_AUTH%/*}"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$OPENCODE_BIN/opencode"
+chmod +x "$OPENCODE_BIN/opencode"
+export PATH="$FAKE_BIN:$(path_without opencode "$TMP_DIR")"
 
 # Fake herdr: `agent list` prints $FAKE_STATE/agents.json and fails while the
 # count in list_fail is above zero, or once the count in list_ok has run out;
@@ -145,15 +154,18 @@ set_role() {
   rm -f "$FAKE_STATE/role_calls"
 }
 
-# agents 'name status [session]' ...; a name of null makes an unnamed agent,
-# and without a session the agent gets one with no usage file.
+# agents 'name status [session] [kind]' ...; agent N sits in pane wB:pN. A name
+# of null makes an unnamed agent, a session of - leaves agent_session out as
+# herdr does for opencode, and without a session the agent gets one with no
+# usage file. The kind defaults to claude.
 agents() {
-  local a name status sid pane=0
+  local a name status sid kind pane=0
   for a in "$@"; do
-    read -r name status sid <<<"$a"
+    read -r name status sid kind <<<"$a"
     pane=$((pane + 1))
-    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" --arg sid "${sid:-s-p$pane}" \
-      '{name: (if $n == "null" then null else $n end), pane_id: $p, tab_id: "wB:t1", agent_status: $s, agent_session: {value: $sid}}'
+    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" --arg sid "${sid:-s-p$pane}" --arg k "${kind:-claude}" \
+      '{name: (if $n == "null" then null else $n end), agent: $k, pane_id: $p, tab_id: "wB:t1", agent_status: $s}
+        + (if $sid == "-" then {} else {agent_session: {value: $sid}} end)'
   done | jq -s '{result: {agents: .}}' >"$FAKE_STATE/agents.json"
 }
 
@@ -202,7 +214,10 @@ tabs
 
 echo "role check"
 set_role none
-{ row 1 done x-w1; row 2 blocked x-w2; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  row 2 blocked x-w2
+} >"$CREW/board.tsv"
 sweep 1
 assert "a clean none prints SUPERSEDED" 'has SUPERSEDED'
 assert "the role check comes before ALL-DONE" '! has ALL-DONE'
@@ -226,10 +241,19 @@ assert "a crew-role that keeps failing never gives SUPERSEDED" '! has SUPERSEDED
 set_role lead
 
 echo "ALL-DONE"
-{ row 1 done x-w1; row 2 blocked x-w2; row 3 done x-w3; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  row 2 blocked x-w2
+  row 3 done x-w3
+} >"$CREW/board.tsv"
 sweep 0
 assert "one blocked row and the rest done prints ALL-DONE" 'has ALL-DONE && [[ $RC -eq 0 ]]'
-{ row 1 done x-w1; printf '\n'; row 2 done x-w2; printf '\n'; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  printf '\n'
+  row 2 done x-w2
+  printf '\n'
+} >"$CREW/board.tsv"
 sweep 0
 assert "blank lines do not stop ALL-DONE" 'has ALL-DONE'
 printf '\n\n' >"$CREW/board.tsv"
@@ -241,14 +265,23 @@ assert "an empty board is not ALL-DONE" '! has ALL-DONE'
 rm "$CREW/board.tsv"
 sweep 0
 assert "a missing board is not ALL-DONE" '! has ALL-DONE && [[ $RC -eq 0 ]]'
-{ row 1 done x-w1; row 2 open ''; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  row 2 open ''
+} >"$CREW/board.tsv"
 sweep 0
 assert "an open row stops ALL-DONE" '! has ALL-DONE'
-{ row 1 done x-w1; row 2 assigned x-w2; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  row 2 assigned x-w2
+} >"$CREW/board.tsv"
 agents 'x-w2 working'
 sweep 0
 assert "an assigned row stops ALL-DONE" '! has ALL-DONE'
-{ row 1 done x-w1; printf '2\tfinished\tx-w2\tw/2\tmain\t0\tx\n'; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1
+  printf '2\tfinished\tx-w2\tw/2\tmain\t0\tx\n'
+} >"$CREW/board.tsv"
 sweep 0
 assert "a row with an unknown status is ignored" 'has ALL-DONE'
 
@@ -592,10 +625,17 @@ assert "a row waiting on a cycle names the stuck row" 'has "DEPS 16 waits on stu
 assert "spaces around dep ids are ignored" 'has "READY 18"'
 assert "each stuck row gets exactly one DEPS line" '[[ $(grep -c "^DEPS " <<<"$OUT") -eq 8 ]]'
 assert "READY never shortens the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
-{ row 1 done x-w1 "$NOW"; row 2 open '' 0 1; row 3 open '' 0 2; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1 "$NOW"
+  row 2 open '' 0 1
+  row 3 open '' 0 2
+} >"$CREW/board.tsv"
 sweep 0
 assert "only the head of a chain is READY" 'has "READY 2" && ! has "READY 3" && ! has_re "^DEPS"'
-{ row 1 done x-w1 "$NOW"; row 2 done x-w2 "$NOW" 1; } >"$CREW/board.tsv"
+{
+  row 1 done x-w1 "$NOW"
+  row 2 done x-w2 "$NOW" 1
+} >"$CREW/board.tsv"
 sweep 0
 assert "ALL-DONE comes before READY and DEPS" '[[ $(without_pool) == ALL-DONE ]]'
 
@@ -751,13 +791,20 @@ assert "a CONTEXT already alerted for its session prints without waking" '[[ $EL
 assert "an alerted context prints no WOKE" '! has_re "^WOKE"'
 usage u3b work 420000 1000000 10 "$HOUR" 10 "$WEEK"
 agents "$S-w1 working u1" "$S-w3 working u3b"
-{ row 1 assigned "$S-w1" "$NOW"; row 3 assigned "$S-w3" "$NOW"; } >"$CREW/board.tsv"
+{
+  row 1 assigned "$S-w1" "$NOW"
+  row 3 assigned "$S-w3" "$NOW"
+} >"$CREW/board.tsv"
 sweep 30
 assert "CONTEXT in a new session of the same worker wakes again" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "WORKER $S-w3 item 3 working on work CONTEXT 420k"'
 usage u5b play 150000 null 10 "$HOUR" 10 "$WEEK"
 usage u6b play 150000 0 10 "$HOUR" 10 "$WEEK"
 agents "$S-w5 working u5b" "$S-w6 working u6b"
-{ row 5 assigned "$S-w5" "$NOW"; row 6 assigned "$S-w6" "$NOW"; row 8 open ''; } >"$CREW/board.tsv"
+{
+  row 5 assigned "$S-w5" "$NOW"
+  row 6 assigned "$S-w6" "$NOW"
+  row 8 open ''
+} >"$CREW/board.tsv"
 sweep 1
 assert "workers with a null or 0 window keep the usual lines and exit 0" '[[ $RC -eq 0 ]] && has TIMEOUT && has "READY 8" && has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
 
@@ -789,7 +836,10 @@ rm -f "$FAKE_STATE/list_fail"
 echo "pool"
 reset_usage
 printf 'work\nplay\nidle\nspare\nweekly\n' >"$FAKE_STATE/profiles"
-{ row 1 assigned "$S-w1" "$NOW"; row 2 assigned "$S-w2" "$NOW"; } >"$CREW/board.tsv"
+{
+  row 1 assigned "$S-w1" "$NOW"
+  row 2 assigned "$S-w2" "$NOW"
+} >"$CREW/board.tsv"
 usage u1 work 1000 1000000 20 "$HOUR" 30 "$WEEK"
 usage u2 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
 usage uo work 1000 1000000 10 "$HOUR" 10 "$WEEK"
@@ -809,6 +859,42 @@ assert "POOL below the cap and both soft thresholds is not FULL" 'has "POOL spar
 assert "POOL reads ?% for a profile with no session files" 'has "POOL idle 0/0/3 session ?% week ?%"'
 assert "POOL takes the higher of two sessions whose resets differ by seconds" 'has "POOL default 0/0/3 session 60% week 10%"'
 assert "POOL lists each claude-profile name and default once" '[[ $(grep -c "^POOL " <<<"$OUT") -eq 6 ]]'
+
+echo "opencode workers"
+# pane_usage <pane number> <tokens> writes the file harness-crew-usage.js writes.
+pane_usage() {
+  printf '{"profile":"opencode","context_tokens":%s,"context_window":null}' "$2" >"$USAGE/pane-wB_p$1.json"
+}
+reset_usage
+printf 'work\n' >"$FAKE_STATE/profiles"
+{ for i in 1 2 3 4; do row "$i" assigned "$S-w$i" "$NOW"; done; } >"$CREW/board.tsv"
+usage u1 work 300000 1000000 10 "$HOUR" 10 "$WEEK"
+pane_usage 2 300000
+pane_usage 4 299000
+agents "$S-w1 working u1" "$S-w2 working - opencode" "$S-w3 working - opencode" "$S-w4 idle - opencode"
+sweep 30
+assert "an opencode worker reads its usage by pane and flags CONTEXT at 300k" 'has "WORKER $S-w2 item 2 working on opencode CONTEXT 300k"'
+assert "a Claude worker at 300k keeps the 400k threshold" 'has "WORKER $S-w1 item 1 working on work"'
+assert "an opencode worker below 300k has no CONTEXT" 'has "WORKER $S-w4 item 4 idle on opencode IDLE"'
+assert "an opencode worker with no usage file is on opencode" 'has "WORKER $S-w3 item 3 working on opencode"'
+assert "the opencode CONTEXT wakes the sweep once by name" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "WOKE context $S-w2" && [[ $(grep -c "^WOKE" <<<"$OUT") -eq 1 ]]'
+assert "the alert is recorded under the pane key" 'grep -q "^context pane-wB_p2	" "$CREW/.sweep-limits"'
+sweep 1
+assert "an alerted opencode CONTEXT prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && ! has_re "^WOKE" && has "WORKER $S-w2 item 2 working on opencode CONTEXT 300k"'
+CREW_OPENCODE_CONTEXT_K=1 sweep 0
+assert "CREW_OPENCODE_CONTEXT_K sets the opencode threshold only" 'has "WORKER $S-w4 item 4 idle on opencode CONTEXT 299k IDLE" && has "WORKER $S-w1 item 1 working on work"'
+assert "no POOL opencode line without opencode on PATH" '! has_re "^POOL opencode"'
+echo '{"anthropic":{"type":"api","key":"k"}}' >"$OPENCODE_AUTH"
+PATH="$OPENCODE_BIN:$PATH" sweep 0
+assert "POOL opencode with opencode and an auth.json entry counts its agents, last" '[[ $(grep "^POOL " <<<"$OUT" | tail -n 1) == "POOL opencode 3/3/5 api" ]]'
+PATH="$OPENCODE_BIN:$PATH" CREW_WORKERS_PER_PROFILE=3 sweep 0
+assert "POOL opencode is FULL at the cap" 'has "POOL opencode 3/3/3 api FULL"'
+echo '{"openai":{"type":"api","key":"k"}}' >"$OPENCODE_AUTH"
+PATH="$OPENCODE_BIN:$PATH" sweep 0
+assert "no POOL opencode line without an Anthropic credential" '! has_re "^POOL opencode"'
+PATH="$OPENCODE_BIN:$PATH" ANTHROPIC_API_KEY=k sweep 0
+assert "ANTHROPIC_API_KEY counts as the credential" 'has "POOL opencode 3/3/5 api"'
+rm -f "$OPENCODE_AUTH"
 
 echo "limits"
 reset_usage
@@ -855,7 +941,11 @@ assert "a LIMIT is recorded even when the sweep then exits on a herdr failure" '
 echo "spare"
 reset_usage
 printf 'work\n' >"$FAKE_STATE/profiles"
-{ row 1 assigned "$S-w1" "$NOW"; row 2 blocked "$S-w3" "$NOW"; row 3 assigned "$S-w4" "$NOW"; } >"$CREW/board.tsv"
+{
+  row 1 assigned "$S-w1" "$NOW"
+  row 2 blocked "$S-w3" "$NOW"
+  row 3 assigned "$S-w4" "$NOW"
+} >"$CREW/board.tsv"
 for u in u1 u2 u3 uo ul; do usage "$u" work 1000 1000000 10 "$HOUR" 10 "$WEEK"; done
 usage u5 work 450000 1000000 10 "$HOUR" 10 "$WEEK"
 agents "$S-w1 working u1" "$S-w2 idle u2" "$S-w3 idle u3" "$S-w5 idle u5" "$S-old1 idle uo" "$S-lead idle ul"
