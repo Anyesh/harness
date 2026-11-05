@@ -2,13 +2,18 @@
 # Usage: crew-heavy acquire <holder> <purpose> [max-wait-seconds]   (default 7200)
 #        crew-heavy release <holder>
 #        crew-heavy status
+#        crew-heavy holds <holder>   (exit 0 when <holder> holds the slot, 1 otherwise)
 #        crew-heavy run <holder> <purpose> [max-wait-seconds] -- <command...>
 #
 # One machine-wide slot for memory-heavy work, held as the directory
 # <crew dir>/heavy.lock with a holder file `holder<TAB>purpose<TAB>epoch`.
-# Waiters queue first come, first served: each holds a ticket in
-# <crew dir>/heavy.queue named `<epoch microseconds, zero-padded>.<pid>.<holder>`
-# and may take the lock only while no older ticket is live.
+# Each waiter holds a ticket in <crew dir>/heavy.queue named
+# `<epoch microseconds, zero-padded>.<pid>.<holder>` and may take the lock only
+# while no live ticket is ahead of it. Merge gates (`merge-<id>`), holders listed
+# in <crew dir>/heavy-priority and tickets older than CREW_HEAVY_AGE seconds
+# (default 3600) go first, oldest first, then everyone else oldest first. With
+# heavy-slots set, a normal waiter also stays behind every live crew-merge
+# marker whose merge has neither the slot nor a ticket yet.
 set -euo pipefail
 # shellcheck source=crew-lib.sh
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
@@ -19,7 +24,7 @@ die() {
 }
 
 crew=$(crew_dir) || die "not inside a git repository"
-crew_heavy_slots "$crew" >/dev/null || die "$crew/heavy-slots must contain 1, the only slot count supported"
+slots=$(crew_heavy_slots "$crew") || die "$crew/heavy-slots must contain 1, the only slot count supported"
 lock=$crew/heavy.lock
 queue=$crew/heavy.queue
 ticket=
@@ -29,28 +34,45 @@ holder_line() {
   [[ -f $lock/holder ]] && cat "$lock/holder"
 }
 
-# A ticket is live while its pid runs a process that started no later than the
-# ticket, so a pid reused by a newer process does not hold the queue.
-ticket_live() {
-  local name=${1##*/} pid start
-  pid=${name#*.}
-  pid=${pid%%.*}
-  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
-  start=$(crew_pid_start "$pid") || return 1
-  ((start <= 10#${name%%.*} / 1000000))
+current_holder() {
+  crew_heavy_hold "$crew" | cut -f1
 }
 
-# Prints how many live tickets are older than ticket $1, removing dead ones.
-tickets_ahead() {
-  local t n=0
-  for t in "$queue"/*; do
-    [[ -e $t && $t < $1 ]] || continue
-    if ticket_live "$t"; then
-      n=$((n + 1))
-    else
-      rm -f "$t"
-    fi
+# crew-merge takes its ticket only after it holds crew-merge.lock and has
+# prepared the merge, so between two merges the slot would sit free with no
+# priority ticket in the queue.
+merges_without_ticket() {
+  local m id n=0 hold
+  hold=$(current_holder)
+  for m in "$crew"/items/*/merging; do
+    [[ -f $m ]] || continue
+    id=${m%/merging}
+    id=${id##*/}
+    [[ $hold != "merge-$id" && " $1 " != *" merge-$id "* ]] || continue
+    case $(crew_merge_state "$m") in
+    queued | running) n=$((n + 1)) ;;
+    esac
   done
+  echo "$n"
+}
+
+# Prints how many waiters are ahead of ticket $1, removing dead tickets.
+tickets_ahead() {
+  local t class holder path mine='' holders='' n=0
+  for t in "$queue"/*; do
+    if [[ -e $t ]] && ! crew_heavy_ticket_live "$t"; then rm -f "$t"; fi
+  done
+  while IFS=$'\t' read -r class holder _ path; do
+    holders+=" $holder"
+    if [[ $path == "$1" ]]; then
+      mine=$class
+    elif [[ -z $mine ]]; then
+      n=$((n + 1))
+    fi
+  done < <(crew_heavy_queue "$crew")
+  if [[ $mine != 0 && $slots == 1 ]]; then
+    n=$((n + $(merges_without_ticket "$holders")))
+  fi
   echo "$n"
 }
 
@@ -70,7 +92,7 @@ acquire() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   while :; do
-    if [[ $(holder_line | cut -f1) == "$holder" ]]; then
+    if [[ $(current_holder) == "$holder" ]]; then
       drop_ticket
       echo "crew-heavy: $holder already holds the slot"
       return 0
@@ -98,7 +120,7 @@ release() {
     echo "crew-heavy: slot is free"
     return 0
   }
-  current=$(holder_line | cut -f1)
+  current=$(current_holder)
   [[ $current == "$holder" ]] || die "slot is held by ${current:-unknown}, not $holder"
   rm -f "$lock/holder"
   rmdir "$lock"
@@ -113,13 +135,8 @@ status() {
   else
     echo "free"
   fi
-  local t name waiting=()
-  for t in "$queue"/*; do
-    [[ -e $t ]] && ticket_live "$t" || continue
-    name=${t##*/}
-    name=${name#*.}
-    waiting+=("${name#*.}")
-  done
+  local waiting
+  mapfile -t waiting < <(crew_heavy_waiters "$crew" | cut -f1)
   ((${#waiting[@]})) || return 0
   local list
   printf -v list '%s, ' "${waiting[@]}"
@@ -138,6 +155,10 @@ release)
   release "$1"
   ;;
 status) status ;;
+holds)
+  (($# == 1)) || die "usage: crew-heavy holds <holder>"
+  [[ $(current_holder) == "$1" ]]
+  ;;
 run)
   (($# >= 2)) || die "usage: crew-heavy run <holder> <purpose> [max-wait-seconds] -- <command...>"
   holder=$1 purpose=$2
@@ -155,5 +176,5 @@ run)
   trap 'exit 143' TERM
   "$@"
   ;;
-*) die "usage: crew-heavy acquire|release|status|run" ;;
+*) die "usage: crew-heavy acquire|release|status|holds|run" ;;
 esac

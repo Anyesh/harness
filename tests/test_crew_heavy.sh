@@ -179,6 +179,158 @@ heavy release 1
 heavy bogus
 assert "an unknown subcommand prints usage and fails" '[[ $RC -ne 0 && $OUT == *usage* ]]'
 
+# shellcheck source=../configs/claude-code/bin/crew-lib.sh
+. "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"
+sleep 300 &
+MERGER=$!
+PIDS+=("$MERGER")
+MSTART=$(crew_pid_start "$MERGER")
+SHA=$(printf '%040d' 7)
+marker() {
+  mkdir -p "$CREW/items/$1"
+  case $2 in
+    queued) printf 'pid %s\nstart %s\ntip %s\nqueued %s\n' "$MERGER" "$MSTART" "$SHA" "$EPOCHSECONDS" ;;
+    running) printf 'pid %s\nstart %s\ntip %s\n' "$MERGER" "$MSTART" "$SHA" ;;
+    stale) printf 'pid %s\nstart %s\ntip %s\n' "$MERGER" "$((MSTART + 1))" "$SHA" ;;
+  esac >"$CREW/items/$1/merging"
+}
+live_ticket() {
+  mkdir -p "$QUEUE"
+  printf '%s/%020d.%s.%s' "$QUEUE" "$((10#${EPOCHREALTIME//[!0-9]/}))" "$MERGER" "$1"
+}
+ORDER="$TMP_DIR/served"
+QUEUED=()
+queue_run() {
+  local h=$1
+  shift
+  (cd "$MAIN" && exec env "$@" "$HEAVY" run "$h" suite 30 -- bash -c "echo $h >>'$ORDER'; sleep 0.3") >/dev/null 2>&1 &
+  PIDS+=("$!")
+  QUEUED+=("$!")
+  sleep 0.5
+}
+drain() {
+  local p
+  for p in "${QUEUED[@]}"; do wait "$p" 2>/dev/null || true; done
+  QUEUED=()
+}
+served() { paste -sd" " "$ORDER"; }
+
+echo "priority order"
+printf '1\n' >"$CREW/heavy-slots"
+: >"$ORDER"
+heavy acquire 1 stack
+queue_run 2
+queue_run merge-x
+heavy status
+assert "status lists a merge ahead of an older normal waiter" '[[ $OUT == "held by 1 for stack, 0 min"$'\''\n'\''"waiting: merge-x, 2" ]]'
+heavy release 1
+drain
+assert "a merge queued after a normal waiter takes the slot first" '[[ $(served) == "merge-x 2" && ! -e $LOCK && $(tickets) -eq 0 ]]'
+
+: >"$ORDER"
+heavy acquire 1 stack
+queue_run merge-a
+queue_run 2
+queue_run 3
+printf '3\n' >"$CREW/heavy-priority"
+heavy status
+assert "a waiter granted heavy-priority while queued goes ahead of older normal waiters, not older merges" '[[ $OUT == *"waiting: merge-a, 3, 2" ]]'
+heavy release 1
+drain
+assert "the granted waiter is served in that order without restarting" '[[ $(served) == "merge-a 3 2" && $(tickets) -eq 0 ]]'
+
+: >"$ORDER"
+heavy acquire 1 stack
+queue_run 2
+queue_run 3
+heavy status
+assert "a granted waiter is listed first" '[[ $OUT == *"waiting: 3, 2" ]]'
+: >"$CREW/heavy-priority"
+heavy status
+assert "removing it from heavy-priority demotes it" '[[ $OUT == *"waiting: 2, 3" ]]'
+heavy release 1
+drain
+assert "a demoted waiter is served after older normal waiters" '[[ $(served) == "2 3" && $(tickets) -eq 0 ]]'
+rm "$CREW/heavy-priority"
+
+echo "merging markers"
+marker x queued
+heavy acquire 2 suite 1
+assert "a queued merging marker with no hold or ticket keeps a normal waiter off a free slot" '[[ $RC -ne 0 && ! -e $LOCK && $OUT == *"1 ahead"* && $(tickets) -eq 0 ]]'
+marker x running
+heavy acquire 2 suite 1
+assert "a running merging marker with no hold or ticket keeps a normal waiter off a free slot" '[[ $RC -ne 0 && ! -e $LOCK && $OUT == *"1 ahead"* ]]'
+mt=$(live_ticket merge-x)
+: >"$mt"
+heavy acquire 2 suite 1
+assert "a marker whose merge has a ticket counts once" '[[ $RC -ne 0 && $OUT == *"1 ahead"* ]]'
+rm "$mt"
+heavy acquire merge-x "merge gate" 0
+heavy acquire 2 suite 1
+assert "a marker whose merge holds the slot adds no one ahead" '[[ $RC -ne 0 && $OUT == *"0 ahead"* && $(holder_field 1) == merge-x ]]'
+heavy release merge-x
+printf '2\n' >"$CREW/heavy-priority"
+heavy acquire 2 suite 0
+assert "a heavy-priority waiter is not held back by a marker" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+rm "$CREW/heavy-priority"
+rm "$CREW/heavy-slots"
+heavy acquire 2 suite 0
+assert "without heavy-slots a marker holds no one back" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+printf '1\n' >"$CREW/heavy-slots"
+marker x stale
+heavy acquire 2 suite 0
+assert "a stale marker holds no one back" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+rm -rf "$CREW/items"
+
+echo "aging"
+: >"$ORDER"
+heavy acquire 1 stack 0
+marker y queued
+queue_run 2 CREW_HEAVY_AGE=2
+sleep 2
+queue_run merge-x CREW_HEAVY_AGE=2
+heavy release 1
+drain
+assert "with CREW_HEAVY_AGE=2 an aged normal ticket beats a younger merge and a queued marker" '[[ $(served) == "2 merge-x" && $(tickets) -eq 0 ]]'
+marker y running
+(cd "$MAIN" && CREW_HEAVY_AGE=2 exec "$HEAVY" acquire 2 suite 10) >/dev/null 2>&1 &
+aged=$!
+PIDS+=("$aged")
+sleep 1
+assert "a young normal waiter stays off a free slot while a merge runs" '[[ ! -e $LOCK ]] && kill -0 "$aged"'
+rc=0
+wait "$aged" || rc=$?
+assert "once aged it takes the free slot despite the running marker" '[[ $rc -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+rm -rf "$CREW/items"
+
+echo "holds"
+heavy holds 1
+assert "holds exits 1 with no output on a free slot" '[[ $RC -eq 1 && -z $OUT ]]'
+heavy acquire 1 stack
+heavy holds 1
+assert "holds exits 0 with no output for the holder" '[[ $RC -eq 0 && -z $OUT ]]'
+heavy holds 2
+assert "holds exits 1 with no output for anyone else" '[[ $RC -eq 1 && -z $OUT ]]'
+heavy holds
+assert "holds without a holder prints usage and fails" '[[ $RC -ne 0 && $OUT == *usage* ]]'
+
+echo "old-format tickets"
+old=$(live_ticket w.1)
+: >"$old"
+heavy status
+assert "status lists a ticket written by the old code, dots in its holder kept" '[[ $OUT == *"waiting: w.1" ]]'
+heavy release 1
+heavy acquire 2 suite 1
+assert "a normal waiter queues behind an old-format ticket" '[[ $RC -ne 0 && $OUT == *"1 ahead"* && ! -e $LOCK ]]'
+heavy acquire merge-z "merge gate" 0
+assert "a merge goes ahead of an old-format ticket" '[[ $RC -eq 0 && $(holder_field 1) == merge-z && -e $old ]]'
+heavy release merge-z
+rm "$old"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

@@ -118,6 +118,48 @@ assert "a missing marker fails with no output" '! out=$(crew_merge_state "$TMP_D
 kill "$live"
 wait "$live" 2>/dev/null || true
 
+echo "heavy queue"
+HC="$TMP_DIR/heavycrew"
+HQ="$HC/heavy.queue"
+mkdir -p "$HQ"
+sleep 60 &
+live=$!
+S=$(crew_pid_start "$live")
+sleep 0 &
+dead=$!
+wait "$dead"
+ticket() { printf '%s/%020d.%s.%s' "$HQ" "$(($1 * 1000000 + 7))" "$2" "$3"; }
+assert "a ticket whose pid started no later than the ticket is live" 'crew_heavy_ticket_live "$(ticket "$S" "$live" w)"'
+assert "a ticket older than its pid's process is not live" '! crew_heavy_ticket_live "$(ticket "$((S - 5))" "$live" w)"'
+assert "a ticket with a dead pid is not live" '! crew_heavy_ticket_live "$(ticket "$S" "$dead" w)"'
+assert "a ticket with no pid field is not live" '! crew_heavy_ticket_live "$HQ/00000000000000000001" && ! crew_heavy_ticket_live "$HQ/x.$live.w"'
+
+assert "a merge- holder has priority" 'crew_heavy_priority "$HC" merge-3 "$EPOCHSECONDS"'
+assert "a plain holder has no priority" '! crew_heavy_priority "$HC" 3 "$EPOCHSECONDS"'
+printf '12\n 4 \n' >"$HC/heavy-priority"
+assert "a holder listed as a whole line in heavy-priority has priority" 'crew_heavy_priority "$HC" 12 "$EPOCHSECONDS" && crew_heavy_priority "$HC" 4 "$EPOCHSECONDS"'
+assert "a holder that is only part of a heavy-priority line has none" '! crew_heavy_priority "$HC" 1 "$EPOCHSECONDS" && ! crew_heavy_priority "$HC" 123 "$EPOCHSECONDS"'
+rm "$HC/heavy-priority"
+assert "a ticket CREW_HEAVY_AGE old has priority, defaulting to 3600 s" 'crew_heavy_priority "$HC" 3 "$((EPOCHSECONDS - 3600))" && ! crew_heavy_priority "$HC" 3 "$((EPOCHSECONDS - 3500))"'
+assert "CREW_HEAVY_AGE sets the age that gives priority" '(CREW_HEAVY_AGE=10 crew_heavy_priority "$HC" 3 "$((EPOCHSECONDS - 10))") && ! (CREW_HEAVY_AGE=10 crew_heavy_priority "$HC" 3 "$((EPOCHSECONDS - 5))")'
+
+assert "a free slot has an empty hold" 'out=$(crew_heavy_hold "$HC") && [[ -z $out ]]'
+mkdir "$HC/heavy.lock"
+printf 'merge-3\tmerge gate\t1700000000\n' >"$HC/heavy.lock/holder"
+assert "a hold is the holder and its epoch, tab-separated" '[[ $(crew_heavy_hold "$HC") == "merge-3	1700000000" ]]'
+
+: >"$(ticket "$S" "$live" a)"
+: >"$(ticket "$((S + 50))" "$live" merge-b)"
+: >"$(ticket "$((S + 100))" "$live" c.x)"
+: >"$(ticket "$((S + 200))" "$live" d)"
+: >"$(ticket "$S" "$dead" e)"
+printf 'd\n' >"$HC/heavy-priority"
+assert "waiters list priority tickets by age, then the rest by age, as holder and epoch" '[[ $(crew_heavy_waiters "$HC") == "merge-b	$((S + 50))"$'\''\n'\''"d	$((S + 200))"$'\''\n'\''"a	$S"$'\''\n'\''"c.x	$((S + 100))" ]]'
+assert "an aged ticket joins the priority class ahead of younger merges" '[[ $(CREW_HEAVY_AGE=0 crew_heavy_waiters "$HC" | cut -f1 | paste -sd" " -) == "a merge-b d c.x" ]]'
+assert "listing waiters deletes no ticket" '[[ $(find "$HQ" -type f | wc -l) -eq 5 ]]'
+kill "$live"
+wait "$live" 2>/dev/null || true
+
 echo "usage files"
 export XDG_STATE_HOME="$TMP_DIR/state"
 U="$XDG_STATE_HOME/harness/usage/sessions"

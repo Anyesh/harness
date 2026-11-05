@@ -244,6 +244,58 @@ crew_heavy_slots() {
   echo "$n"
 }
 
+# A heavy.queue ticket, `<epoch microseconds>.<pid>.<holder>`, is live while its
+# pid runs a process that started no later than the ticket, so a pid reused by
+# a newer process does not hold the queue.
+crew_heavy_ticket_live() {
+  local name=${1##*/} pid start
+  pid=${name#*.}
+  pid=${pid%%.*}
+  [[ ${name%%.*} =~ ^[0-9]+$ && $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null || return 1
+  start=$(crew_pid_start "$pid") || return 1
+  ((start <= 10#${name%%.*} / 1000000))
+}
+
+crew_heavy_priority() {
+  local age=${CREW_HEAVY_AGE:-3600}
+  [[ $age =~ ^[0-9]+$ ]] || age=3600
+  [[ $2 == merge-* ]] && return 0
+  if [[ -f $1/heavy-priority ]] && awk -v h="$2" '{ gsub(/^[ \t\r]+|[ \t\r]+$/, "") } $0 == h { found = 1; exit } END { exit !found }' "$1/heavy-priority"; then
+    return 0
+  fi
+  ((EPOCHSECONDS - $3 >= age))
+}
+
+crew_heavy_hold() {
+  [[ -f $1/heavy.lock/holder ]] || return 0
+  awk -F'\t' -v OFS='\t' 'NR == 1 { print $1, $3 }' "$1/heavy.lock/holder"
+}
+
+# Live tickets of crew $1 in serving order as `class<TAB>holder<TAB>epoch
+# seconds<TAB>path`, class 0 for priority and 1 for normal; each class is
+# served oldest first.
+crew_heavy_queue() {
+  local t name holder epoch tab=$'\t' first=() rest=()
+  for t in "$1"/heavy.queue/*; do
+    [[ -e $t ]] && crew_heavy_ticket_live "$t" || continue
+    name=${t##*/}
+    holder=${name#*.}
+    holder=${holder#*.}
+    epoch=$((10#${name%%.*} / 1000000))
+    if crew_heavy_priority "$1" "$holder" "$epoch"; then
+      first+=("0$tab$holder$tab$epoch$tab$t")
+    else
+      rest+=("1$tab$holder$tab$epoch$tab$t")
+    fi
+  done
+  ((${#first[@]} + ${#rest[@]})) || return 0
+  printf '%s\n' "${first[@]}" "${rest[@]}"
+}
+
+crew_heavy_waiters() {
+  crew_heavy_queue "$1" | cut -f2,3
+}
+
 # herdr agent names must match [a-z][a-z0-9_-]{0,31}; 21 + 1 + 4 leaves room
 # for the longest suffix, -old99.
 crew_slug() {
