@@ -157,6 +157,31 @@ spawn r-w2 default
 assert "default profile runs no claude-profile and adds no profile env" \
   '[[ $RC -eq 0 && ! -f $FAKE_STATE/profile.calls ]] && ! grep -q "^CLAUDE_" "$FAKE_STATE/create.args"'
 
+echo "lead mode"
+reset
+spawn --lead r-l1 p1
+assert "lead exits 0, prints the pane and starts the agent" \
+  '[[ $RC -eq 0 && $(starts) -eq 1 ]] && has "pane w1:p9" && [[ $(after --label) == r-l1 ]]'
+assert "lead passes neither unattended nor notify off" \
+  '[[ -f $FAKE_STATE/create.args ]] && ! grep -q "^HARNESS_" "$FAKE_STATE/create.args"'
+assert "lead keeps the profile env" \
+  'arg CLAUDE_PROFILE=p1 && arg "CLAUDE_CONFIG_DIR=/x/p 1"'
+assert "lead keeps the push URL overrides" \
+  'arg GIT_CONFIG_KEY_1=remote.origin.pushurl && arg GIT_CONFIG_VALUE_1=/nonexistent/crew-no-push &&
+   arg GIT_CONFIG_KEY_3=remote.upstream.pushurl && arg GIT_CONFIG_VALUE_3=/nonexistent/crew-no-push &&
+   arg GIT_CONFIG_COUNT=4 && [[ $(grep -cxF -- --env "$FAKE_STATE/create.args") -eq 11 ]]'
+reset
+NOREMOTE_LEAD="$TMP_DIR/noremote-lead"
+git init -q "$NOREMOTE_LEAD"
+RC=0
+OUT=$(cd "$NOREMOTE_LEAD" && "$SPAWN" --lead r-l2 default 2>&1) || RC=$?
+assert "lead with no profile env and no remotes passes no env at all" \
+  '[[ $RC -eq 0 ]] && ! grep -qxF -- --env "$FAKE_STATE/create.args"'
+reset
+spawn --lead r-l3
+assert "lead without a profile is a usage error with no herdr call" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+
 echo "repo with no remotes"
 reset
 NOREMOTE="$TMP_DIR/noremote"

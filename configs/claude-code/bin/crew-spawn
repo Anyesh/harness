@@ -9,7 +9,12 @@ die() {
   exit 4
 }
 
-(($# == 2)) || die "usage: crew-spawn <name> <profile>"
+lead=0
+if [[ ${1-} == --lead ]]; then
+  lead=1
+  shift
+fi
+(($# == 2)) || die "usage: crew-spawn [--lead] <name> <profile>"
 name=$1
 profile=$2
 [[ $name =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || die "invalid agent name: $name"
@@ -37,7 +42,8 @@ labelled=$(jq --arg l "$name" '[.result.tabs[] | select(.label == $l)] | length'
   die "cannot read herdr tab list: $tabs"
 ((labelled == 0)) || exists
 
-envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
+envs=()
+((lead)) || envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
 if [[ $profile != default ]]; then
   profile_env=$(claude-profile env "$profile") || die "claude-profile env $profile failed"
   while IFS= read -r kv; do
