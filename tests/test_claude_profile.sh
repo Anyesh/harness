@@ -35,20 +35,34 @@ cat >"$HOME/.claude.json" <<'EOF'
 {"mcpServers": {"web-strip": {"command": "node"}, "second-brain": {"command": "sb"}}, "oauthAccount": {"emailAddress": "main@example.com"}}
 EOF
 
+export LOGOUT_LOG="$TMP_DIR/logouts"
+: >"$LOGOUT_LOG"
 cat >"$STUB_BIN/claude" <<'EOF'
 #!/usr/bin/env bash
+creds="$CLAUDE_CONFIG_DIR/.credentials.json"
 if [[ "$1 $2" == "auth status" ]]; then
-  if [[ -f "$CLAUDE_CONFIG_DIR/.credentials.json" ]]; then
-    echo '{"loggedIn": true, "email": "work@example.com"}'
+  [[ ! -f "$CLAUDE_CONFIG_DIR/.status-crashes" ]] || exit 3
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    echo '{"loggedIn": true, "authMethod": "api_key", "apiKeySource": "ANTHROPIC_API_KEY"}'
+  elif [[ -f "$creds" ]]; then
+    jq -c '{loggedIn: true, email: "work@example.com", authMethod: "claude.ai"} + .' "$creds"
   else
-    echo '{"loggedIn": false}'
+    echo '{"loggedIn": false, "authMethod": "none"}'
     exit 1
   fi
+  exit 0
+fi
+if [[ "$1 $2" == "auth logout" ]]; then
+  echo "$CLAUDE_CONFIG_DIR" >>"$LOGOUT_LOG"
+  [[ ! -f "$CLAUDE_CONFIG_DIR/.logout-fails" ]] || exit 1
+  rm -f "$creds"
+  echo "Successfully logged out from your Anthropic account."
   exit 0
 fi
 echo "cfg=$CLAUDE_CONFIG_DIR profile=$CLAUDE_PROFILE args=$*"
 EOF
 chmod +x "$STUB_BIN/claude"
+logged_out() { grep -qxF "$HOME/.claude-$1" "$LOGOUT_LOG"; }
 mkdir -p "$HOME/.local/bin"
 cp "$TOOL" "$HOME/.local/bin/claude-profile"
 
@@ -117,11 +131,55 @@ assert "no dir left for refused name" '[[ ! -e "$HOME/.claude-other" ]]'
 echo "=== remove ==="
 printf 'nope\n' | bash "$TOOL" remove work >/dev/null 2>&1 || true
 assert "wrong confirmation keeps profile" '[[ -d "$P" && -x "$LAUNCHER" ]]'
-printf 'work\n' | bash "$TOOL" remove work >/dev/null 2>&1
+assert "wrong confirmation does not sign out" '! logged_out work'
+out=$(printf 'work\n' | ANTHROPIC_API_KEY=sk-shell bash "$TOOL" remove work 2>&1)
+assert "claude.ai sign-in is signed out before removal" 'logged_out work'
+assert "removal reports the sign-out" 'grep -q "Signed out of profile work" <<<"$out"'
+assert "logout output is not passed through" '! grep -q "Successfully logged out" <<<"$out"'
 assert "profile dir removed" '[[ ! -e "$P" ]]'
 assert "launcher removed" '[[ ! -e "$LAUNCHER" ]]'
 assert "shared projects untouched" '[[ "$(cat "$HOME/.claude/projects/p1/s.jsonl")" == keep ]]'
 assert "main settings untouched" '[[ -f "$HOME/.claude/settings.json" ]]'
+
+echo "=== remove signs out only sign-ins stored in the profile ==="
+signed_in() {
+  printf 'n\n' | bash "$TOOL" "$1" >/dev/null 2>&1
+  printf '%s\n' "$2" >"$HOME/.claude-$1/.credentials.json"
+}
+signed_in ownkey '{"authMethod": "api_key", "apiKeySource": "/login managed key"}'
+out=$(printf 'ownkey\n' | bash "$TOOL" remove ownkey 2>&1)
+assert "a key created by /login is signed out" 'logged_out ownkey'
+assert "profile with its own key removed" '[[ ! -e "$HOME/.claude-ownkey" ]]'
+signed_in shared '{"authMethod": "oauth_token"}'
+out=$(printf 'shared\n' | bash "$TOOL" remove shared 2>&1)
+assert "a sign-in shared outside the profile is left alone" '! logged_out shared'
+assert "skipped sign-out is reported with its method" 'grep -q "shared.*oauth_token" <<<"$out"'
+assert "profile with a shared sign-in still removed" '[[ ! -e "$HOME/.claude-shared" ]]'
+printf 'n\n' | bash "$TOOL" nologin >/dev/null 2>&1
+out=$(printf 'nologin\n' | bash "$TOOL" remove nologin 2>&1)
+assert "signed-out profile needs no sign-out" '! logged_out nologin'
+assert "signed-out profile removed without a warning" '[[ "$out" == *"Removed profile nologin"* && "$out" != *"claude-profile:"* ]]'
+signed_in stuck '{}'
+touch "$HOME/.claude-stuck/.logout-fails"
+out=$(printf 'stuck\n' | bash "$TOOL" remove stuck 2>&1)
+assert "failed sign-out is reported" 'grep -q "could not sign out of profile stuck" <<<"$out"'
+assert "failed sign-out still removes the profile" '[[ ! -e "$HOME/.claude-stuck" && ! -e "$HOME/.local/bin/claude-stuck" ]]'
+signed_in crashy '{}'
+touch "$HOME/.claude-crashy/.status-crashes"
+out=$(printf 'crashy\n' | bash "$TOOL" remove crashy 2>&1)
+assert "unreadable sign-in is not signed out" '! logged_out crashy'
+assert "unreadable sign-in is reported" 'grep -q "could not read how profile crashy signs in" <<<"$out"'
+assert "unreadable sign-in still removes the profile" '[[ ! -e "$HOME/.claude-crashy" ]]'
+printf 'n\n' | bash "$TOOL" nodir >/dev/null 2>&1
+rm -rf "$HOME/.claude-nodir"
+out=$(printf 'nodir\n' | bash "$TOOL" remove nodir 2>&1)
+assert "launcher-only profile removed without calling claude" '! logged_out nodir && [[ ! -e "$HOME/.local/bin/claude-nodir" && ! -e "$HOME/.claude-nodir" ]]'
+signed_in noclaude '{}'
+mkdir -p "$TMP_DIR/jq-only"
+ln -s "$(command -v jq)" "$TMP_DIR/jq-only/jq"
+out=$(printf 'noclaude\n' | PATH="$TMP_DIR/jq-only:$HOME/.local/bin:/usr/bin:/bin" bash "$TOOL" remove noclaude 2>&1)
+assert "missing claude is reported" 'grep -q "claude not found" <<<"$out"'
+assert "missing claude still removes the profile" '[[ ! -e "$HOME/.claude-noclaude" ]]'
 
 echo "=== remove --all ==="
 printf 'n\n' | bash "$TOOL" third >/dev/null 2>&1
@@ -130,8 +188,9 @@ assert "wrong confirmation keeps every profile" '[[ -d "$HOME/.claude-alt" && -d
 printf 'all\n' | bash "$TOOL" remove --all >/dev/null 2>&1
 assert "confirmed remove --all deletes every profile" '[[ ! -e "$HOME/.claude-alt" && ! -e "$HOME/.claude-third" ]]'
 assert "confirmed remove --all deletes launchers" '[[ ! -e "$HOME/.local/bin/claude-alt" && ! -e "$HOME/.local/bin/claude-third" ]]'
-printf 'n\n' | bash "$TOOL" alt >/dev/null 2>&1
+signed_in alt '{}'
 out=$(bash "$TOOL" remove --all --yes </dev/null 2>&1)
+assert "--yes signs out each profile" 'logged_out alt'
 assert "--yes removes without a prompt" '[[ ! -e "$HOME/.claude-alt" && ! -e "$HOME/.local/bin/claude-alt" ]]'
 assert "--yes reports each profile" 'grep -q "Removed profile alt" <<<"$out"'
 assert "foreign launcher survives remove --all" '[[ "$(claude-other)" == mine ]]'

@@ -24,9 +24,9 @@ Usage: claude-profile [name]        create or repair a profile (asks for a name 
        claude-profile names         print profile names, one per line
        claude-profile env <name>    print the variables that run a session as that profile
        claude-profile sync [name]   relink profiles to ~/.claude and merge new MCP servers
-       claude-profile remove <name> delete a profile and its launcher
+       claude-profile remove <name> sign out, then delete a profile and its launcher
        claude-profile remove --all [--yes]
-                                    delete every profile (--yes skips the prompt)
+                                    the same for every profile (--yes skips the prompt)
 
 A profile is ~/.claude-<name> with its own sign-in, sharing the harness config,
 skills, plugins and project history from ~/.claude. Start it with claude-<name>.
@@ -219,9 +219,45 @@ sync() {
   done < <(our_profiles)
 }
 
+profile_claude() {
+  local name="$1"
+  shift
+  env -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN \
+    CLAUDE_PROFILE="$name" CLAUDE_CONFIG_DIR="$(profile_dir "$name")" claude "$@"
+}
+
+# Only a claude.ai login or a key /login created is stored per profile; a
+# keyless Console sign-in is machine-wide, so logging it out would sign out
+# every profile that uses it.
+sign_out() {
+  local name="$1" status method
+  [[ -d "$(profile_dir "$name")" ]] || return 0
+  if ! command -v claude >/dev/null; then
+    warn "claude not found, so profile $name was not signed out before removal"
+    return 0
+  fi
+  status=$(profile_claude "$name" auth status --json 2>/dev/null) || true
+  method=$(jq -r 'if .loggedIn != true then "none"
+    elif .authMethod == "claude.ai" or (.authMethod == "api_key" and .apiKeySource == "/login managed key") then "own"
+    else .authMethod // "unknown" end' <<<"$status" 2>/dev/null) || method=unknown
+  case "${method:-unknown}" in
+    none) ;;
+    unknown) warn "could not read how profile $name signs in, so it was not signed out" ;;
+    own)
+      if profile_claude "$name" auth logout >/dev/null 2>&1; then
+        printf 'Signed out of profile %s\n' "$name"
+      else
+        warn "could not sign out of profile $name; revoke its sign-in from the account's settings"
+      fi
+      ;;
+    *) warn "profile $name signs in with $method, which is not stored in the profile, so it was left signed in" ;;
+  esac
+}
+
 delete_profile() {
   local name="$1" launcher
   launcher=$(launcher_path "$name")
+  sign_out "$name"
   rm -rf "$(profile_dir "$name")"
   if is_our_launcher "$launcher"; then
     rm -f "$launcher"
