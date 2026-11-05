@@ -188,6 +188,7 @@ assert "session usage gives profile, context tokens and window" '[[ $(crew_sessi
 assert "null context fields read as ?" '[[ $(crew_session_usage main) == "default	?	?" ]]'
 assert "a missing session file fails" '! crew_session_usage nosuch >/dev/null'
 assert "a session id with odd characters fails" '! crew_session_usage "../busy" >/dev/null'
+assert "a pane usage key turns every unsafe character into _" '[[ $(crew_pane_usage_key "w1:p4H") == pane-w1_p4H && $(crew_pane_usage_key "a/b.c-d_e") == pane-a_b_c-d_e ]]'
 assert "profile usage takes the highest figure in the latest window, within 300 s of jitter" '[[ $(crew_profile_usage ero) == "88 $((B + 1)) 40 $W" ]]'
 assert "a passed or null window reads ?" '[[ $(crew_profile_usage default) == "? ? 50 $W" ]]'
 assert "a profile with no session files reads ?" '[[ $(crew_profile_usage nobody) == "? ? ? ?" ]]'

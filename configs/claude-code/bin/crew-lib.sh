@@ -58,13 +58,13 @@ crew_pid_start() {
 # keeps inactive pages as reclaimable cache.
 crew_mem_avail_mb() {
   case $1 in
-  Linux) awk '$1 == "MemAvailable:" && $2 ~ /^[0-9]+$/ { printf "%d\n", $2 / 1024; ok = 1; exit } END { exit !ok }' ;;
-  Darwin) awk '
+    Linux) awk '$1 == "MemAvailable:" && $2 ~ /^[0-9]+$/ { printf "%d\n", $2 / 1024; ok = 1; exit } END { exit !ok }' ;;
+    Darwin) awk '
     match($0, /page size of [0-9]+ bytes/) { page = substr($0, RSTART + 13, RLENGTH - 19) }
     /^Pages (free|inactive|speculative):/ { v = $NF; sub(/\.$/, "", v); pages += v; n++ }
     END { if (!page || n != 3) exit 1; printf "%d\n", pages * page / 1048576 }
   ' ;;
-  *) return 1 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -73,9 +73,9 @@ crew_mem_avail_mb() {
 crew_load5() {
   local field
   case $1 in
-  Linux) field=2 ;;
-  Darwin) field=3 ;;
-  *) return 1 ;;
+    Linux) field=2 ;;
+    Darwin) field=3 ;;
+    *) return 1 ;;
   esac
   awk -v f="$field" '
     NR == 1 && (f == 2 || $1 == "{") && $f ~ /^[0-9]+([.][0-9]+)?$/ { print $f; ok = 1 }
@@ -115,6 +115,12 @@ crew_dstate_summary() {
 
 crew_usage_dir() {
   printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/harness/usage/sessions"
+}
+
+# The usage file name, without .json, of an opencode agent in herdr pane $1;
+# harness-crew-usage.js applies the same rule.
+crew_pane_usage_key() {
+  printf 'pane-%s\n' "${1//[^A-Za-z0-9_-]/_}"
 }
 
 # Profile, context tokens and context window of one session, tab-separated,

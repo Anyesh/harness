@@ -3,11 +3,13 @@ set -euo pipefail
 
 unset HARNESS_UNATTENDED HARNESS_NOTIFY HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_BIN_PATH
 while read -r v; do unset "$v"; done < <(compgen -e | grep '^GIT_CONFIG_' || true)
-unset CREW_SPAWN_DEADLINE CREW_SPAWN_PROMPT_TIMEOUT CREW_SPAWN_POLL CREW_SPAWN_START_MS
+unset CREW_SPAWN_DEADLINE CREW_SPAWN_PROMPT_TIMEOUT CREW_SPAWN_POLL CREW_SPAWN_START_MS CREW_OPENCODE_MODEL CREW_OPENCODE_REVIEW_MODEL
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SPAWN="$REPO_ROOT/configs/claude-code/bin/crew-spawn"
+# shellcheck source=lib/path-without.sh
+. "$SCRIPT_DIR/lib/path-without.sh"
 
 PASS=0
 FAIL=0
@@ -30,9 +32,13 @@ trap 'command rm -rf "$TMP_DIR"' EXIT
 
 export CREW_SPAWN_POLL=0.05 CREW_SPAWN_PROMPT_TIMEOUT=3
 export FAKE_STATE="$TMP_DIR/state"
+export XDG_STATE_HOME="$TMP_DIR/xdg"
+USAGE="$XDG_STATE_HOME/harness/usage/sessions"
 FAKE_BIN="$TMP_DIR/bin"
-mkdir -p "$FAKE_BIN"
-export PATH="$FAKE_BIN:$PATH"
+OPENCODE_BIN="$TMP_DIR/opencode-bin"
+mkdir -p "$FAKE_BIN" "$OPENCODE_BIN"
+NO_OPENCODE_PATH="$FAKE_BIN:$(path_without opencode "$TMP_DIR")"
+export PATH="$OPENCODE_BIN:$NO_OPENCODE_PATH"
 
 cat >"$FAKE_BIN/herdr" <<'EOF'
 #!/usr/bin/env bash
@@ -72,6 +78,8 @@ case "$1 $2" in
   busy) fg=200 procs='[{"name":"direnv","pid":200}]' ;;
   claude) fg=300 procs='[{"name":"claude","pid":300}]' ;;
   native) fg=300 procs='[{"name":"2.1.318","argv0":"claude","pid":300}]' ;;
+  opencode) fg=300 procs='[{"name":"opencode.exe","argv0":"/opt/homebrew/bin/opencode","pid":300}]' ;;
+  ocname) fg=300 procs='[{"name":"opencode","pid":300}]' ;;
   esac
   printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s,"foreground_processes":%s}}}\n' "$fg" "$procs"
   ;;
@@ -102,10 +110,26 @@ EOF
 cat >"$FAKE_BIN/claude-profile" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$FAKE_STATE/profile.calls"
+if [[ $1 == names ]]; then
+  cat "$FAKE_STATE/profile-names" 2>/dev/null
+  exit 0
+fi
 [[ "$1 $2" == "env p1" ]] || exit 1
 printf 'CLAUDE_PROFILE=p1\nCLAUDE_CONFIG_DIR=/x/p 1\n'
 EOF
-chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/claude-profile"
+# Fake opencode: `models anthropic` prints $FAKE_STATE/models, or both crew
+# models when it is absent, and fails while models_fail exists.
+cat >"$OPENCODE_BIN/opencode" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$FAKE_STATE/opencode.calls"
+[[ "$1 $2" == "models anthropic" ]] || exit 9
+if [[ -f $FAKE_STATE/models_fail ]]; then
+  echo "Error: provider anthropic not found" >&2
+  exit 1
+fi
+cat "$FAKE_STATE/models" 2>/dev/null || printf 'anthropic/claude-fable-5-1\nanthropic/claude-opus-5-5\n'
+EOF
+chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/claude-profile" "$OPENCODE_BIN/opencode"
 
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
@@ -265,6 +289,72 @@ printf '1\n1\n1\n' >"$FAKE_STATE/start.rc"
 CREW_SPAWN_START_MS=7 spawn r-w15 default
 assert "agent start timeout is configurable" \
   '[[ $(head -n 1 "$FAKE_STATE/start.log") == *"--timeout 7 --"* ]]'
+
+echo "opencode"
+config() { sed -n 's/^OPENCODE_CONFIG_CONTENT=//p' "$FAKE_STATE/create.args"; }
+reset
+mkdir -p "$USAGE"
+echo '{}' >"$USAGE/pane-w1_p9.json"
+echo '{}' >"$USAGE/pane-w1_p8.json"
+spawn r-o1 opencode
+assert "opencode exits 0 and starts the opencode kind with the model" \
+  '[[ $RC -eq 0 && $(cat "$FAKE_STATE/start.log") == "r-o1 --kind opencode --pane w1:p9 --timeout 120000 -- -m anthropic/claude-opus-5-5" ]] && has "pane w1:p9"'
+assert "opencode checks the anthropic models and asks claude-profile only for names" \
+  '[[ $(cat "$FAKE_STATE/opencode.calls") == "models anthropic" && $(cat "$FAKE_STATE/profile.calls") == names ]]'
+assert "opencode is unattended with notify off and the push URLs dead" \
+  'arg HARNESS_UNATTENDED=1 && arg HARNESS_NOTIFY=0 && arg GIT_CONFIG_VALUE_3=/nonexistent/crew-no-push && arg GIT_CONFIG_COUNT=4 &&
+   [[ $(grep -cxF -- --env "$FAKE_STATE/create.args") -eq 12 ]] && ! grep -q "^CLAUDE_" "$FAKE_STATE/create.args"'
+assert "the opencode config allows edit, bash, webfetch and external_directory and denies question" \
+  '[[ $(config | jq -c ".permission") == "{\"edit\":\"allow\",\"bash\":\"allow\",\"webfetch\":\"allow\",\"external_directory\":\"allow\",\"question\":\"deny\"}" ]]'
+assert "the opencode config defines the crew-review subagent on Fable" \
+  'config | jq -e ".agent[\"crew-review\"] | .mode == \"subagent\" and .model == \"anthropic/claude-fable-5-1\" and (.description | length > 0)" >/dev/null'
+assert "a usage file left by an earlier pane with the same id is removed, others kept" \
+  '[[ ! -e $USAGE/pane-w1_p9.json && -e $USAGE/pane-w1_p8.json ]]'
+
+reset
+printf 'anthropic/claude-sonnet-5-5\nanthropic/claude-haiku-5-5\n' >"$FAKE_STATE/models"
+CREW_OPENCODE_MODEL=anthropic/claude-sonnet-5-5 CREW_OPENCODE_REVIEW_MODEL=anthropic/claude-haiku-5-5 spawn r-o2 opencode
+assert "CREW_OPENCODE_MODEL and CREW_OPENCODE_REVIEW_MODEL override both models" \
+  '[[ $RC -eq 0 && $(cat "$FAKE_STATE/start.log") == *"-- -m anthropic/claude-sonnet-5-5" ]] &&
+   [[ $(config | jq -r ".agent[\"crew-review\"].model") == anthropic/claude-haiku-5-5 ]]'
+
+reset
+printf 'anthropic/claude-sonnet-5-5\nanthropic/claude-opus-5-5-preview\n' >"$FAKE_STATE/models"
+spawn r-o3 opencode
+assert "a model opencode does not list exits 4 naming it, before any herdr call" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args && ! -f $FAKE_STATE/events ]] && grep -q "^crew-spawn: opencode unavailable: .*anthropic/claude-opus-5-5" <<<"$OUT"'
+reset
+touch "$FAKE_STATE/models_fail"
+spawn r-o4 opencode
+assert "a failing opencode models exits 4 with its error and no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "^crew-spawn: opencode unavailable: .*provider anthropic not found" <<<"$OUT"'
+reset
+PATH=$NO_OPENCODE_PATH spawn r-o5 opencode
+assert "opencode missing from PATH exits 4 with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "^crew-spawn: opencode unavailable: " <<<"$OUT"'
+
+reset
+spawn --lead r-o6 opencode
+assert "an opencode lead exits 4 with no tab" '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args && ! -f $FAKE_STATE/opencode.calls ]]'
+reset
+printf 'p1\nopencode\n' >"$FAKE_STATE/profile-names"
+spawn r-o7 opencode
+assert "a Claude profile named opencode exits 4 with no tab" '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+
+reset
+echo opencode >"$FAKE_STATE/pi"
+spawn r-o8 opencode
+assert "opencode already in the foreground stops before agent start" '[[ $RC -eq 4 && $(starts) -eq 0 ]]'
+reset
+printf '1\n' >"$FAKE_STATE/start.rc"
+echo ocname,prompt >"$FAKE_STATE/start.after"
+spawn r-o9 opencode
+assert "a process named opencode counts as the agent: no retry" '[[ $RC -eq 1 && $(starts) -eq 1 ]]'
+reset
+printf '1\n0\n' >"$FAKE_STATE/start.rc"
+echo claude,prompt >"$FAKE_STATE/start.after"
+spawn r-o10 opencode
+assert "claude in the foreground is not the opencode agent: busy until the prompt, then retried" '[[ $RC -eq 0 && $(starts) -eq 2 ]]'
 
 echo "usage"
 reset

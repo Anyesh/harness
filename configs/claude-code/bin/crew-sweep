@@ -310,7 +310,7 @@ load_agents() {
   agent_rows=$(
     jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?, .agent, .pane_id] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
       while IFS=$'\037' read -r name status sid kind pane; do
-        if [[ $kind == opencode && -z $sid && -n $pane ]]; then sid=pane-${pane//[^A-Za-z0-9_-]/_}; fi
+        if [[ $kind == opencode && -z $sid && -n $pane ]]; then sid=$(crew_pane_usage_key "$pane"); fi
         if ! usage=$(crew_session_usage "$sid") || [[ -z $usage ]]; then
           if [[ $kind == opencode ]]; then usage=$'opencode\t?\t?'; else usage=$'?\t?\t?'; fi
         fi

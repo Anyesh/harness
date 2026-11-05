@@ -25,6 +25,21 @@ poll=${CREW_SPAWN_POLL:-1}
 start_ms=${CREW_SPAWN_START_MS:-120000}
 tries=3
 
+kind=claude
+if [[ $profile == opencode ]]; then
+  kind=opencode
+  ((! lead)) || die "the lead runs /crew, which needs Claude Code, so it cannot run in opencode"
+  if claude-profile names 2>/dev/null | grep -qxF opencode; then
+    die "a Claude profile is named opencode, so the profile opencode is ambiguous"
+  fi
+  model=${CREW_OPENCODE_MODEL:-anthropic/claude-opus-5-5}
+  review_model=${CREW_OPENCODE_REVIEW_MODEL:-anthropic/claude-fable-5-1}
+  command -v opencode >/dev/null || die "opencode unavailable: opencode is not on PATH"
+  models=$(timeout 30 opencode models anthropic 2>&1) ||
+    die "opencode unavailable: opencode models anthropic failed: ${models//$'\n'/ }"
+  grep -qxF "$model" <<<"$models" || die "opencode unavailable: opencode models anthropic does not list $model"
+fi
+
 main=$(crew_main) || die "not inside a git repository"
 
 exists() {
@@ -44,7 +59,14 @@ labelled=$(jq --arg l "$name" '[.result.tabs[] | select(.label == $l)] | length'
 
 envs=()
 ((lead)) || envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
-if [[ $profile != default ]]; then
+if [[ $kind == opencode ]]; then
+  oc_config=$(jq -nc --arg review "$review_model" '{
+    permission: {edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow", question: "deny"},
+    agent: {"crew-review": {mode: "subagent", model: $review,
+      description: "Reviews a change, plan or decision and advises; use it for every review, advice or second opinion."}}
+  }') || die "cannot build the opencode config"
+  envs+=(--env "OPENCODE_CONFIG_CONTENT=$oc_config")
+elif [[ $profile != default ]]; then
   profile_env=$(claude-profile env "$profile") || die "claude-profile env $profile failed"
   while IFS= read -r kv; do
     [[ -n $kv ]] && envs+=(--env "$kv")
@@ -65,17 +87,21 @@ created=$(timeout 30 herdr tab create --cwd "$main" --label "$name" --no-focus "
 pane=$(jq -r '.result.root_pane.pane_id // empty' <<<"$created" 2>/dev/null)
 [[ -n $pane ]] || die "herdr tab create returned no pane: $created"
 echo "pane $pane"
+if [[ $kind == opencode ]]; then
+  rm -f "$(crew_usage_dir)/$(crew_pane_usage_key "$pane").json"
+fi
 
-# The native install's process is named by its version (2.1.318); only argv0 says claude.
+# The native Claude install's process is named by its version (2.1.318) and
+# opencode's by its binary (opencode.exe); argv0 names either.
 shell_state() {
   local info
   info=$(timeout 10 herdr pane process-info --pane "$pane" 2>/dev/null) || {
     echo other
     return
   }
-  jq -r '.result.process_info
-    | if any(.foreground_processes[]?; .name == "claude" or ((.argv0 // "") | split("/") | last) == "claude")
-      then "claude"
+  jq -r --arg k "$kind" '.result.process_info
+    | if any(.foreground_processes[]?; ((.name // "") | sub("\\.exe$"; "")) == $k or ((.argv0 // "") | split("/") | last) == $k)
+      then "agent"
       elif (.shell_pid | type) == "number" and .shell_pid == .foreground_process_group_id
       then "prompt"
       else "other" end' <<<"$info" 2>/dev/null || echo other
@@ -87,7 +113,7 @@ wait_prompt() {
   while :; do
     case $(shell_state) in
       prompt) return 0 ;;
-      claude) return 1 ;;
+      agent) return 1 ;;
     esac
     ((SECONDS < until)) || return 2
     sleep "$poll"
@@ -96,18 +122,19 @@ wait_prompt() {
 
 wait_prompt
 case $? in
-  1) die "claude is already in the foreground of pane $pane" ;;
+  1) die "$kind is already in the foreground of pane $pane" ;;
   2) die "the shell in pane $pane did not reach its prompt" ;;
 esac
 
+if [[ $kind == opencode ]]; then agent_args=(-m "$model"); else agent_args=(--dangerously-skip-permissions); fi
 rc=
 for ((try = 1; try <= tries; try++)); do
   left=$((end - SECONDS))
   ((left > 0)) || break
   ms=$((left * 1000))
   ((ms > start_ms)) && ms=$start_ms
-  timeout $((ms / 1000 + 10)) herdr agent start "$name" --kind claude --pane "$pane" --timeout "$ms" \
-    -- --dangerously-skip-permissions >&2
+  timeout $((ms / 1000 + 10)) herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$ms" \
+    -- "${agent_args[@]}" >&2
   rc=$?
   ((rc == 0)) && exit 0
   ((try < tries)) || break
