@@ -24,7 +24,8 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 - Never push, publish or deploy, and never run a command that does. Pushing to the repo's remotes fails on purpose.
 - Never end a turn waiting on something that cannot wake you; a background shell you started does.
 - Use `set -o pipefail` on any command whose exit status you treat as a verdict.
-- When `$crew/heavy-slots` exists, hold the heavy slot for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs. Run `crew-heavy acquire <id> "<purpose>"` with `run_in_background`, since it waits until the slot is free, and `crew-heavy release <id>` once the stack is torn down. Never hold it across idle time (waiting on a review, the lead or a reply), keep test parallelism low while you hold it (for example `pytest -n 2`), and release it before `crew-merge`, which takes the slot itself for the gate. Waiters get the slot in arrival order, so never restart a waiting `acquire`, which sends you to the back of the queue.
+- When `$crew/heavy-slots` exists, hold the heavy slot for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs. Run `crew-heavy acquire <id> "<purpose>"` with `run_in_background`, since it waits until the slot is free, and `crew-heavy release <id>` once the stack is torn down. Never hold it across idle time (waiting on a review, the lead or a reply), keep test parallelism low while you hold it (for example `pytest -n 2`), and release it before `crew-merge`, which takes the slot itself for the gate and refuses to start while your item id holds it. Merge gates go first automatically, so never yield the queue by hand, and never restart a waiting `acquire`, which sends you to the back of the queue. Pass `acquire` a max wait of at least `CREW_HEAVY_AGE` plus 7200 seconds (10800 by default, as in `crew-heavy acquire <id> "<purpose>" 10800`), because a ticket that old moves to the front but can still wait out one holder's session.
+- When `$crew/light-slots` exists, run type checks, lint and unit tests through `crew-light <command...>`, which exits with the command's status. It pauses while a merge gate runs, which can outlast the Bash tool's timeout, so run it with `run_in_background`.
 
 ## Shell pitfalls
 
@@ -34,7 +35,11 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 
 ## Reporting
 
-Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked`, `handoff` or `rate-limited`, with the reset time Claude showed), the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved, and any preference of the user's you learned, so the lead can save it. Writing it wakes the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
+Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `blocked`, `handoff` or `rate-limited`, with the reset time Claude showed, or `working` for a progress note), an `at: <date -u +%FT%TZ>` line written fresh on every write, the commit sha if there is one, and a short summary. It may end with a `lessons:` section: what cost you time that one line in the brief would have saved, and any preference of the user's you learned, so the lead can save it. A write that changes its content wakes the lead, except with status `working`, the one status that never does, and a status word outside this list wakes it on every write, even a touch. The fresh `at:` line is what makes a question you raise again after an answer reach the lead. After a `question`, stop until the lead answers with a `[crew]` prompt.
+
+## Report-only items
+
+When `$crew/items/<id>/report-only` exists, the item is an end-to-end check or report that lands nothing and its stop point is "reported": there is no review and no `crew-merge`; your findings go in `report.md`. From the main checkout, when `git -C "$main" rev-list --count <into>..w/<id>` prints 0, run `git -C "$main" worktree remove "$main/.claude/worktrees/w-<id>"` without `--force`, then `git -C "$main" update-ref -d refs/heads/w/<id> <its tip>`, then `(cd "$main" && crew-clean-build <id>)`, and report `done`. Commits on the branch mean the item was not report-only, so report `question`. When the worktree refuses to go (untracked artifacts such as screenshots), report `done` anyway and name the worktree in the report, so `LEFTOVER` and the lead clean it up.
 
 ## Handoff
 
