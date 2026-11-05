@@ -72,6 +72,14 @@ assert "crew_board keeps a last row without a newline and normalises its deps" '
 printf 'summary\nstatus:  question \nstatus: done\n' >"$TMP_DIR/report.md"
 assert "report status is the first status line, trimmed" '[[ $(crew_report_status "$TMP_DIR/report.md") == question ]]'
 assert "a missing report has an empty status" '[[ -z $(crew_report_status "$TMP_DIR/none.md") ]]'
+assert "report word is the first status line's leading word" '[[ $(crew_report_word "$TMP_DIR/report.md") == question ]]'
+printf 'status: rate-limited resets 3pm\n' >"$TMP_DIR/word.md"
+assert "report word stops at the first space" '[[ $(crew_report_word "$TMP_DIR/word.md") == rate-limited ]]'
+printf 'status:done   \n' >"$TMP_DIR/word.md"
+assert "report word ignores trailing spaces" '[[ $(crew_report_word "$TMP_DIR/word.md") == done ]]'
+printf 'status: Done\n' >"$TMP_DIR/word.md"
+assert "report word is empty when the status starts with no lowercase word" '[[ -z $(crew_report_word "$TMP_DIR/word.md") ]]'
+assert "a missing report has an empty word" '[[ -z $(crew_report_word "$TMP_DIR/none.md") ]]'
 
 SLOTS="$TMP_DIR/slots"
 mkdir -p "$SLOTS"

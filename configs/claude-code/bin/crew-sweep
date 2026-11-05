@@ -9,7 +9,11 @@
 #   ALL-DONE                        every board row is done or blocked; POOL, SPARE
 #                                   and LEFTOVER lines come first unless herdr fails
 #   ERROR <step>: <message>         a failed crew-role or herdr call, retried
-#   CHANGED <path> / REMOVED <path> item files that differ from the last sweep
+#   CHANGED <path> / REMOVED <path> an item's merged file or report.md that differs
+#                                   from the last sweep; a report counts only when its
+#                                   status is done, question, blocked, handoff or
+#                                   rate-limited or changes away from one, and one with
+#                                   an at: line only when its content changes
 #   TIMEOUT                         nothing changed within the wait and no resource
 #                                   breach ended it
 #   RESOURCE <line>                 each breach crew-resources (beside this script)
@@ -24,6 +28,9 @@
 #     a profile with live crew workers ($slug-w<N>), or the lead's own, at or above
 #     CREW_SESSION_HARD_PCT or CREW_WEEK_HARD_PCT; checked when RESOURCE is, it
 #     ends the wait once per profile and window (.sweep-limits)
+#   WOKE limit <profile> <window> / WOKE context <name>
+#                                   a LIMIT or CONTEXT alert that is new on this sweep;
+#                                   the state lines repeat on every sweep without it
 #   GONE <owner>                    an assigned owner herdr no longer lists
 #   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
 #     the profile is ? until the session's statusline writes its usage file;
@@ -163,13 +170,126 @@ all_done() {
   ' "$board"
 }
 
-snapshot() {
-  local files
+# snap_stat maps each watched path to its `path<TAB>mtime-ns<TAB>size` stat
+# line and snap_key to its key; snap_cache maps stat lines to keys across
+# polls, so a quiet poll reads no file contents.
+declare -A snap_stat snap_key snap_cache new_keys new_cacheable
+actionable_re='^(done|question|blocked|handoff|rate-limited)$'
+
+# Keys a merged file on its sha1, and a report whose status word needs the
+# lead on its sha1 when it carries an at: line, else on its stat line, so a
+# rewrite without at: is never hidden. Only a `working` report keys as -, so a
+# status word nobody defined still wakes the lead on every rewrite. A failed
+# read keys on the stat line and is not cached.
+content_keys() {
+  local p word at out scanned=0 line fallback
+  local -a reports=() hash=()
+  local -A words=() ats=() sums=()
+  new_keys=()
+  new_cacheable=()
+  for p in "$@"; do
+    if [[ $p == */report.md ]]; then reports+=("$p"); else hash+=("$p"); fi
+  done
+  if ((${#reports[@]})) && out=$(awk -v OFS='\037' '
+    /^status:/ && !(FILENAME in word) {
+      v = $0
+      sub(/^status:[[:space:]]*/, "", v)
+      word[FILENAME] = match(v, /^[a-z-]+/) ? substr(v, 1, RLENGTH) : ""
+    }
+    /^at:/ { at[FILENAME] = 1 }
+    END { for (i = 1; i < ARGC; i++) print ARGV[i], word[ARGV[i]], at[ARGV[i]] + 0 }
+  ' "${reports[@]}" 2>/dev/null); then
+    scanned=1
+    while IFS=$'\037' read -r p word at; do
+      words[$p]=$word
+      ats[$p]=$at
+      if [[ $word =~ $actionable_re && $at == 1 ]]; then hash+=("$p"); fi
+    done <<<"$out"
+  fi
+  if ((${#hash[@]})); then
+    while IFS= read -r -d '' line; do
+      sums[${line:42}]=${line:0:40}
+    done < <(sha1sum -z -- "${hash[@]}" 2>/dev/null)
+  fi
+  for p in "$@"; do
+    if [[ -n ${sums[$p]:-} ]]; then
+      new_keys[$p]="sha ${sums[$p]}"
+      new_cacheable[$p]=1
+      continue
+    fi
+    fallback=${snap_stat[$p]#*$'\t'}
+    new_keys[$p]="stat ${fallback/$'\t'/ }"
+    if [[ $p != */report.md ]] || ((! scanned)); then continue; fi
+    if [[ ${words[$p]} == working ]]; then
+      new_keys[$p]=-
+      new_cacheable[$p]=1
+    elif [[ ! ${words[$p]} =~ $actionable_re || ${ats[$p]} != 1 ]]; then
+      new_cacheable[$p]=1
+    fi
+  done
+}
+
+# Sets the variable named $1 to one `path<TAB>key` line per watched file,
+# sorted by path. Call it without $(...) so snap_cache survives.
+snapshot_into() {
+  local files line path out=
+  local -a lines=() fresh=()
+  local -A next=()
   shopt -s nullglob
-  files=("$crew"/items/*/report.md "$crew"/items/*/review.md "$crew"/items/*/merged)
+  files=("$crew"/items/*/report.md "$crew"/items/*/merged)
   shopt -u nullglob
-  ((${#files[@]})) || return 0
-  stat --printf '%n\t%.9Y\t%s\n' "${files[@]}" 2>/dev/null | LC_ALL=C sort
+  if ((${#files[@]})); then
+    mapfile -t lines < <(stat --printf '%n\t%.9Y\t%s\n' "${files[@]}" 2>/dev/null | LC_ALL=C sort)
+  fi
+  snap_stat=()
+  snap_key=()
+  for line in "${lines[@]}"; do
+    path=${line%%$'\t'*}
+    snap_stat[$path]=$line
+    [[ -n ${snap_cache[$line]+x} ]] || fresh+=("$path")
+  done
+  if ((${#fresh[@]})); then content_keys "${fresh[@]}"; fi
+  for line in "${lines[@]}"; do
+    path=${line%%$'\t'*}
+    if [[ -n ${snap_cache[$line]+x} ]]; then
+      snap_key[$path]=${snap_cache[$line]}
+      next[$line]=${snap_cache[$line]}
+    else
+      snap_key[$path]=${new_keys[$path]}
+      [[ -z ${new_cacheable[$path]:-} ]] || next[$line]=${new_keys[$path]}
+    fi
+    out+=$path$'\t'${snap_key[$path]}$'\n'
+  done
+  snap_cache=()
+  for line in "${!next[@]}"; do snap_cache[$line]=${next[$line]}; done
+  printf -v "$1" '%s' "${out%$'\n'}"
+}
+
+# Reads .sweep-seen as `path<TAB>key` lines into the variable named $1. A file
+# without the v2 header is the old `path<TAB>mtime<TAB>size` format: an entry
+# whose stat line still matches takes the current key, other report.md and
+# merged entries get one no key can equal, and review.md entries are dropped,
+# so the first sweep after a deploy lists only real changes. Needs a snapshot
+# taken first.
+load_seen() {
+  local raw line path rebuilt=
+  raw=$(cat "$seen" 2>/dev/null)
+  if [[ $raw == v2 || $raw == v2$'\n'* ]]; then
+    raw=${raw#v2}
+    printf -v "$1" '%s' "${raw#$'\n'}"
+    return
+  fi
+  while IFS= read -r line; do
+    path=${line%%$'\t'*}
+    [[ -n $line && ($path == */report.md || $path == */merged) ]] || continue
+    if [[ ${snap_stat[$path]:-} == "$line" ]]; then
+      rebuilt+=$path$'\t'${snap_key[$path]}$'\n'
+    else
+      rebuilt+=$path$'\t'old$'\n'
+    fi
+  done <<<"$raw"
+  [[ -z $rebuilt ]] || rebuilt=$(printf '%s' "$rebuilt" | LC_ALL=C sort)
+  printf -v "$1" '%s' "$rebuilt"
 }
 
 # Every agent herdr lists, in any workspace, one line each in agent_rows with
@@ -295,6 +415,7 @@ note_limits() {
     if [[ -n $old ]] && ((resets - old <= 300 && old - resets <= 300)); then continue; fi
     usage_seen["limit $p $w"]=$resets
     usage_woke=1
+    usage_new+=("limit $p $w")
   done < <(limit_crossings)
 }
 
@@ -305,12 +426,14 @@ note_contexts() {
     context_k "$tokens" "$window" >/dev/null || continue
     usage_seen["context $sid"]=$EPOCHSECONDS
     usage_woke=1
+    usage_new+=("context $name")
   done <<<"$agent_rows"
 }
 
 # One herdr attempt; a failure skips this round, since retrying here would
 # hold up the wait and ending the sweep would drop everything else it reports.
 usage_woke=0
+usage_new=()
 check_usage() {
   usage_at=$SECONDS
   agents_once || return 0
@@ -783,15 +906,16 @@ load_alerts
 load_usage_seen
 check_resources
 check_usage
-previous=$(cat "$seen" 2>/dev/null)
-current=$(snapshot)
+current= previous=
+snapshot_into current
+load_seen previous
 deadline=$((SECONDS + limit))
 while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && SECONDS < deadline)); do
   sleep 1
   ((SECONDS >= next_publish)) && publish
   ((SECONDS >= resources_at + resource_every)) && check_resources
   ((SECONDS >= usage_at + resource_every)) && check_usage
-  current=$(snapshot)
+  snapshot_into current
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
 ((usage_woke || SECONDS == usage_at)) || check_usage
@@ -808,6 +932,7 @@ else
     END { for (p in old) if (!(p in now)) print "REMOVED " p }
   ' <(printf '%s\n' "$previous") <(printf '%s\n' "$current") | LC_ALL=C sort
 fi
+for line in "${usage_new[@]}"; do echo "WOKE $line"; done
 
 report_resources
 agent_list
@@ -825,9 +950,9 @@ report_reflect
 run_sweep_check
 
 if [[ -n $current ]]; then
-  printf '%s\n' "$current" >"$seen.tmp"
+  printf 'v2\n%s\n' "$current" >"$seen.tmp"
 else
-  : >"$seen.tmp"
+  echo v2 >"$seen.tmp"
 fi
 mv -f "$seen.tmp" "$seen"
 publish

@@ -271,14 +271,13 @@ assert "a new merged file ends the wait early" '[[ $ELAPSED -lt 3000 ]]'
 assert "only the merged file is listed" 'has "CHANGED $CREW/items/1/merged" && ! has_re "report.md"'
 
 echo "verdict: green" >"$CREW/items/1/review.md"
-sweep 5
-assert "a review written between sweeps returns at once" '[[ $ELAPSED -lt 1000 ]]'
-assert "the review written between sweeps is listed" 'has "CHANGED $CREW/items/1/review.md"'
+sweep 1
+assert "review.md is not watched" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && ! has_re "review.md"'
 
 sleep 0.05
-echo "status: gone" >"$CREW/items/1/report.md"
+echo "status: done" >"$CREW/items/1/report.md"
 sweep 5
-assert "a same-size rewrite within one second counts as a change" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $CREW/items/1/report.md"'
+assert "a same-content rewrite of a report with no at: line counts as a change" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $CREW/items/1/report.md"'
 
 rm "$CREW/items/1/merged"
 sweep 5
@@ -288,11 +287,126 @@ echo "notes" >"$CREW/items/1/notes.md"
 sweep 1
 assert "notes.md is not watched" '[[ $ELAPSED -ge 1000 ]] && ! has_re CHANGED'
 
-expected=$(cd "$CREW" && LC_ALL=C stat --printf '%n\t%.9Y\t%s\n' "$PWD/items/1/report.md" "$PWD/items/1/review.md" | LC_ALL=C sort)
-assert ".sweep-seen holds path, nanosecond mtime and size" '[[ $(<"$CREW/.sweep-seen") == "$expected" ]]'
+expected=$(printf 'v2\n%s\tstat %s' "$CREW/items/1/report.md" "$(stat --printf '%.9Y %s' "$CREW/items/1/report.md")")
+assert ".sweep-seen starts with v2 and keys a report with no at: line on its mtime and size" '[[ $(<"$CREW/.sweep-seen") == "$expected" ]]'
 
 rm -rf "$CREW/items/1"
 rm -f "$CREW/.sweep-seen"
+
+echo "content keys"
+report() { printf 'status: %s\nat: %s\n' "$2" "$3" >"$1"; }
+seen_key() { awk -F'\t' -v p="$1" '$1 == p { print $2 }' "$CREW/.sweep-seen"; }
+R="$CREW/items/1/report.md"
+mkdir -p "$CREW/items/1"
+report "$R" working t1
+sweep 0
+report "$R" working t2
+sweep 1
+assert "a progress rewrite with a status that needs no action does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+(sleep 0.3 && report "$R" question t3) &
+sweep 5
+assert "a new question during the wait wakes" '[[ $ELAPSED -lt 3000 ]] && has "CHANGED $R"'
+touch "$R"
+sweep 1
+assert "touching a report with an at: line does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+report "$R" question t3
+sweep 1
+assert "an identical rewrite of a report with an at: line does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+report "$R" "rate-limited resets 3pm" t4
+sweep 1
+assert "a rate-limited status with a reset time wakes" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $R"'
+report "$R" working t5
+sweep 1
+assert "a change to a status that needs no action wakes once" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $R"'
+report "$R" working t6
+sweep 1
+assert "the next progress rewrite does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
+report "$R" Done t7
+sweep 0
+report "$R" Done t8
+sweep 1
+assert "a rewrite of a report with an unrecognized status wakes, so it is never hidden" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $R"'
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+
+statuses=(done question 'rate-limited resets 3pm' 'done   ' doneish Done working)
+words=(done question rate-limited done doneish '' working)
+for i in "${!statuses[@]}"; do
+  mkdir -p "$CREW/items/a$i"
+  report "$CREW/items/a$i/report.md" "${statuses[$i]}" t1
+done
+echo "main abc def" >"$CREW/items/a0/merged"
+sweep 0
+agree=1
+for i in "${!statuses[@]}"; do
+  f="$CREW/items/a$i/report.md"
+  w=$(crew_report_word "$f")
+  [[ $w == "${words[$i]}" ]] || agree=0
+  if [[ $w =~ ^(done|question|blocked|handoff|rate-limited)$ ]]; then
+    [[ $(seen_key "$f") == "sha $(sha1sum <"$f" | cut -c1-40)" ]] || agree=0
+  elif [[ $w == working ]]; then
+    [[ $(seen_key "$f") == - ]] || agree=0
+  else
+    [[ $(seen_key "$f") == "stat $(stat --printf '%.9Y %s' "$f")" ]] || agree=0
+  fi
+done
+assert "crew_report_word and the snapshot agree on each status word" '((agree))'
+assert "a merged file is keyed on its sha1" '[[ $(seen_key "$CREW/items/a0/merged") == "sha $(sha1sum <"$CREW/items/a0/merged" | cut -c1-40)" ]]'
+
+REAL_SHA1SUM=$(command -v sha1sum)
+export REAL_SHA1SUM
+cat >"$FAKE_BIN/sha1sum" <<'EOF'
+#!/usr/bin/env bash
+echo "$#" >>"$FAKE_STATE/sha1sum_calls"
+exec "$REAL_SHA1SUM" "$@"
+EOF
+chmod +x "$FAKE_BIN/sha1sum"
+rm -f "$FAKE_STATE/sha1sum_calls"
+sweep 3
+assert "a quiet wait hashes files only on its first poll" '[[ $ELAPSED -ge 3000 ]] && has TIMEOUT && [[ $(grep -cvx 0 "$FAKE_STATE/sha1sum_calls") -eq 1 ]]'
+rm "$FAKE_BIN/sha1sum"
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+
+echo "re-raise"
+mkdir -p "$CREW/items/1"
+{ row 1 assigned x-w1 "$(($(date +%s) - 100))"; } >"$CREW/board.tsv"
+agents 'x-w1 working'
+echo "status: question" >"$R"
+sweep 0
+{ row 1 assigned x-w1 "$(($(date +%s) + 1))"; } >"$CREW/board.tsv"
+echo "status: question" >"$R"
+sweep 1
+assert "an identical rewrite of an answered question with no at: line wakes" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $R"'
+report "$R" question t1
+sweep 0
+{ row 1 assigned x-w1 "$(($(date +%s) + 1))"; } >"$CREW/board.tsv"
+report "$R" question t2
+sweep 1
+assert "the same question rewritten with a new at: line after the answer wakes" '[[ $ELAPSED -lt 1000 ]] && has "CHANGED $R"'
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
+
+echo "old .sweep-seen"
+old_seen() {
+  stat --printf '%n\t%.9Y\t%s\n' "$CREW/items/1/report.md" "$CREW/items/1/review.md" \
+    "$CREW/items/2/report.md" "$CREW/items/3/merged" | LC_ALL=C sort >"$CREW/.sweep-seen"
+}
+mkdir -p "$CREW/items"/{1,2,3}
+echo "status: done" >"$CREW/items/1/report.md"
+report "$CREW/items/2/report.md" question t1
+echo "verdict: green" >"$CREW/items/1/review.md"
+echo "main abc def" >"$CREW/items/3/merged"
+old_seen
+sweep 1
+assert "an old-format .sweep-seen with nothing changed waits out the wait" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && ! has_re "^(CHANGED|REMOVED) "'
+assert "an old-format .sweep-seen is rewritten in the new format" '[[ $(head -n 1 "$CREW/.sweep-seen") == v2 && $(wc -l <"$CREW/.sweep-seen") -eq 4 ]] && ! grep -q review.md "$CREW/.sweep-seen"'
+old_seen
+touch -d "@$(($(date +%s) - 50))" "$CREW/items/2/report.md"
+rm "$CREW/items/3/merged"
+sweep 1
+expected=$(printf 'CHANGED %s\nREMOVED %s' "$CREW/items/2/report.md" "$CREW/items/3/merged")
+assert "an old-format .sweep-seen lists only the paths whose stat line differs or that are gone" '[[ $ELAPSED -lt 1000 && $(grep -E "^(CHANGED|REMOVED) " <<<"$OUT") == "$expected" ]]'
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
 
 echo "workers"
 NOW=$(date +%s)
@@ -631,8 +745,10 @@ assert "CONTEXT at 80% of a 200k window" 'has "WORKER $S-w4 item 4 working on pl
 assert "a null or 0 context window gives no CONTEXT" 'has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
 assert "null figures give no CONTEXT and no error" 'has "WORKER $S-w7 item 7 working on work" && [[ $RC -eq 0 ]] && ! has_re "^ERROR"'
 assert "a new CONTEXT ends the wait at once without TIMEOUT" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT'
+assert "a new context alert prints WOKE with the worker's name" 'has "WOKE context $S-w3" && has "WOKE context $S-w4" && ! has "WOKE context $S-w5"'
 sweep 1
 assert "a CONTEXT already alerted for its session prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has "WORKER $S-w4 item 4 working on play CONTEXT 170k"'
+assert "an alerted context prints no WOKE" '! has_re "^WOKE"'
 usage u3b work 420000 1000000 10 "$HOUR" 10 "$WEEK"
 agents "$S-w1 working u1" "$S-w3 working u3b"
 { row 1 assigned "$S-w1" "$NOW"; row 3 assigned "$S-w3" "$NOW"; } >"$CREW/board.tsv"
@@ -706,16 +822,19 @@ agents "$S-w1 working u1" "$S-lead idle ul" "other working uo"
 sweep 30
 assert "a crew profile at the session hard threshold wakes with LIMIT" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work session 92% resets in [0-9]+ min$"'
 assert "a profile with neither crew workers nor the lead gets no LIMIT" '! has_re "^LIMIT solo"'
+assert "a new LIMIT prints WOKE before the state lines" 'has "WOKE limit work session" && [[ $(grep -n "^WOKE" <<<"$OUT" | cut -d: -f1) -lt $(grep -n "^LIMIT" <<<"$OUT" | cut -d: -f1) ]]'
 LIMIT_REC=$(printf "limit work session\t%s" "$((B - 1))")
 assert ".sweep-limits records the raw resets" 'grep -qxF "$LIMIT_REC" "$CREW/.sweep-limits"'
 sweep 1
 assert "an alerted LIMIT prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^LIMIT work session 92% "'
+assert "an alerted LIMIT prints no WOKE" '! has_re "^WOKE"'
 usage u1b work 1000 1000000 93 "$((B + 1))" 10 "$WEEK"
 sweep 1
 assert "a second session's resets seconds away across a 300 s boundary does not wake" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && has_re "^LIMIT work session 93% "'
 usage u1 work 1000 1000000 92 "$((B - 1))" 96 "$WEEK"
 sweep 30
 assert "the week window of an alerted profile wakes on its own" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work week 96% "'
+assert "only the new window gets WOKE" 'has "WOKE limit work week" && ! has "WOKE limit work session"'
 usage u1 work 1000 1000000 95 "$((B + 18000))" 96 "$WEEK"
 sweep 30
 assert "a new session window wakes again" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has_re "^LIMIT work session 95% "'

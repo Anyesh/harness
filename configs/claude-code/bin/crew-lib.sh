@@ -33,6 +33,16 @@ crew_report_status() {
   sed -n 's/^status:[[:space:]]*//p' "$1" | head -n 1 | tr -d '[:space:]'
 }
 
+# The leading [a-z-] run of the first status: line, so `rate-limited resets
+# 3pm` gives rate-limited; crew-sweep's snapshot awk applies the same rule.
+crew_report_word() {
+  local line
+  [[ -f $1 ]] || return 0
+  line=$(sed -n 's/^status:[[:space:]]*//p' "$1" | head -n 1)
+  [[ $line =~ ^[a-z-]+ ]] && echo "${BASH_REMATCH[0]}"
+  return 0
+}
+
 # Epoch second a live process started, read through ps because macOS has no
 # /proc. lstart carries no zone, so both ps and date run in UTC; local time
 # would make a DST fall-back hour ambiguous. Needs GNU date for -d.
