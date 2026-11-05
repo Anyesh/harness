@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-spawn: %s\n' "$*" >&2
+  exit 4
+}
+
+(($# == 2)) || die "usage: crew-spawn <name> <profile>"
+name=$1
+profile=$2
+[[ $name =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || die "invalid agent name: $name"
+
+end=$((SECONDS + ${CREW_SPAWN_DEADLINE:-540}))
+prompt_timeout=${CREW_SPAWN_PROMPT_TIMEOUT:-120}
+poll=${CREW_SPAWN_POLL:-1}
+start_ms=${CREW_SPAWN_START_MS:-120000}
+tries=3
+
+main=$(crew_main) || die "not inside a git repository"
+
+exists() {
+  echo "exists $name"
+  exit 3
+}
+
+if err=$(timeout 10 herdr agent get "$name" 2>&1 >/dev/null); then
+  exists
+elif [[ $err != *'"code":"agent_not_found"'* ]]; then
+  die "herdr agent get failed: $err"
+fi
+tabs=$(timeout 10 herdr tab list 2>&1) || die "herdr tab list failed: $tabs"
+labelled=$(jq --arg l "$name" '[.result.tabs[] | select(.label == $l)] | length' <<<"$tabs") ||
+  die "cannot read herdr tab list: $tabs"
+((labelled == 0)) || exists
+
+envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
+if [[ $profile != default ]]; then
+  profile_env=$(claude-profile env "$profile") || die "claude-profile env $profile failed"
+  while IFS= read -r kv; do
+    [[ -n $kv ]] && envs+=(--env "$kv")
+  done <<<"$profile_env"
+fi
+remotes=$(git -C "$main" remote) || die "git remote failed in $main"
+n=0
+for r in $remotes; do
+  for v in "" /nonexistent/crew-no-push; do
+    envs+=(--env "GIT_CONFIG_KEY_$n=remote.$r.pushurl" --env "GIT_CONFIG_VALUE_$n=$v")
+    n=$((n + 1))
+  done
+done
+((n)) && envs+=(--env "GIT_CONFIG_COUNT=$n")
+
+created=$(timeout 30 herdr tab create --cwd "$main" --label "$name" --no-focus "${envs[@]}" 2>&1) ||
+  die "herdr tab create failed: $created"
+pane=$(jq -r '.result.root_pane.pane_id // empty' <<<"$created" 2>/dev/null)
+[[ -n $pane ]] || die "herdr tab create returned no pane: $created"
+echo "pane $pane"
+
+# The native install's process is named by its version (2.1.318); only argv0 says claude.
+shell_state() {
+  local info
+  info=$(timeout 10 herdr pane process-info --pane "$pane" 2>/dev/null) || {
+    echo other
+    return
+  }
+  jq -r '.result.process_info
+    | if any(.foreground_processes[]?; .name == "claude" or ((.argv0 // "") | split("/") | last) == "claude")
+      then "claude"
+      elif (.shell_pid | type) == "number" and .shell_pid == .foreground_process_group_id
+      then "prompt"
+      else "other" end' <<<"$info" 2>/dev/null || echo other
+}
+
+wait_prompt() {
+  local until=$((SECONDS + prompt_timeout))
+  ((until > end)) && until=$end
+  while :; do
+    case $(shell_state) in
+      prompt) return 0 ;;
+      claude) return 1 ;;
+    esac
+    ((SECONDS < until)) || return 2
+    sleep "$poll"
+  done
+}
+
+wait_prompt
+case $? in
+  1) die "claude is already in the foreground of pane $pane" ;;
+  2) die "the shell in pane $pane did not reach its prompt" ;;
+esac
+
+rc=
+for ((try = 1; try <= tries; try++)); do
+  left=$((end - SECONDS))
+  ((left > 0)) || break
+  ms=$((left * 1000))
+  ((ms > start_ms)) && ms=$start_ms
+  timeout $((ms / 1000 + 10)) herdr agent start "$name" --kind claude --pane "$pane" --timeout "$ms" \
+    -- --dangerously-skip-permissions >&2
+  rc=$?
+  ((rc == 0)) && exit 0
+  ((try < tries)) || break
+  wait_prompt || break
+done
+[[ -n $rc ]] || die "no time left to start the agent in pane $pane"
+exit "$rc"
