@@ -25,13 +25,18 @@
 #     CREW_SESSION_HARD_PCT or CREW_WEEK_HARD_PCT; checked when RESOURCE is, it
 #     ends the wait once per profile and window (.sweep-limits)
 #   GONE <owner>                    an assigned owner herdr no longer lists
-#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ QUIET][ DIALOG]
+#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
 #     the profile is ? until the session's statusline writes its usage file;
 #     CONTEXT means at least CREW_CONTEXT_K thousand tokens or 80% of the
 #     session's context window, and ends the wait once per session;
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
-#     MERGING means a running or queued crew-merge; QUIET means no progress for
-#     CREW_QUIET seconds (default 3600), or for a running merge a merging file that old
+#     MERGING means a running or queued crew-merge; HEAVY-HOLD means the item id,
+#     or the merge-<id> of a running merge, holds the heavy slot; HEAVY-WAIT means
+#     either has a heavy.queue ticket, <m> minutes old; LIGHT-WAIT means a live
+#     light.wait ticket for the item; neither wait is ever IDLE or QUIET.
+#     QUIET means no progress for CREW_QUIET seconds (default 3600), for a running
+#     merge a merging file that old or a merge-<id> hold that old, and for an
+#     item-id holder no progress or hold for CREW_HEAVY_LONG seconds
 #   SPARE <name> <herdr status> on <profile>[ holds <id>][ CONTEXT <n>k]
 #                                   a live crew worker owning no assigned row; holds
 #                                   names a blocked row it owns
@@ -51,7 +56,9 @@
 #                                   waits on stuck <dep>
 #   HEAVY <holder> <minutes> min <purpose>
 #                                   with heavy-slots, a heavy slot held longer than
-#                                   CREW_HEAVY_LONG seconds (default 5400); a lock
+#                                   CREW_HEAVY_LONG seconds (default 5400) while a
+#                                   heavy.queue ticket waits, or a light.wait ticket
+#                                   waits on a running merge-<id> hold; a lock
 #                                   with no holder file is aged by its directory
 #   HEAVY failed: <message>         heavy-slots holds something other than 1
 #   REFLECT                         reflections.md is missing or older than
@@ -338,26 +345,75 @@ last_progress() {
 }
 
 quiet_since() {
-  [[ $1 =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - $1 > quiet))
+  [[ $1 =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - $1 > ${2:-$quiet}))
+}
+
+heavy_holder=
+heavy_held_since=
+declare -A heavy_waiting light_waiting
+load_heavy() {
+  local holder since old t
+  heavy_holder='' heavy_held_since=''
+  heavy_waiting=()
+  light_waiting=()
+  IFS=$'\t' read -r holder since < <(crew_heavy_hold "$crew")
+  if [[ -n $holder && $since =~ ^[0-9]+$ ]]; then heavy_holder=$holder heavy_held_since=$since; fi
+  while IFS=$'\t' read -r holder since; do
+    [[ -n $holder && $since =~ ^[0-9]+$ ]] || continue
+    old=${heavy_waiting[$holder]:-}
+    if [[ -z $old ]] || ((since < old)); then heavy_waiting[$holder]=$since; fi
+  done < <(crew_heavy_waiters "$crew")
+  for t in "$crew"/light.wait/*; do
+    [[ -e $t ]] && crew_heavy_ticket_live "$t" || continue
+    t=${t##*/}
+    t=${t#*.}
+    light_waiting[${t#*.}]=1
+  done
+}
+
+heavy_wait_since() {
+  local a=${heavy_waiting[$1]:-} b=${heavy_waiting["merge-$1"]:-}
+  if [[ -z $a ]] || { [[ -n $b ]] && ((b < a)); }; then a=$b; fi
+  [[ -n $a ]] && echo "$a"
 }
 
 worker_line() {
   local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc
-  local item="$crew/items/$id" merge_state
+  local item="$crew/items/$id" merge_state since heavy= waiting=0 quiet_from= quiet_limit=$quiet
   merge_state=$(crew_merge_state "$item/merging")
+  if since=$(heavy_wait_since "$id"); then
+    heavy=" HEAVY-WAIT $(((EPOCHSECONDS - since) / 60))m"
+    waiting=1
+  elif [[ $heavy_holder == "$id" || ($heavy_holder == "merge-$id" && $merge_state == running) ]]; then
+    heavy=" HEAVY-HOLD"
+  fi
+  if [[ -n ${light_waiting[$id]:-} ]]; then
+    heavy+=" LIGHT-WAIT"
+    waiting=1
+  fi
   if [[ $merge_state == queued ]]; then
     flags+=" MERGING"
   elif [[ $merge_state == running ]]; then
     flags+=" MERGING"
-    quiet_since "$(stat -c %Y "$item/merging" 2>/dev/null)" && flags+=" QUIET"
+    if [[ $heavy_holder == "merge-$id" ]]; then
+      quiet_from=$heavy_held_since
+    else
+      quiet_from=$(stat -c %Y "$item/merging" 2>/dev/null)
+    fi
   else
-    if [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
+    if ((! waiting)) && [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
       flags+=" IDLE"
     fi
-    if ! waits_on_answer "$item/report.md" "$updated" && quiet_since "$(last_progress "$id" "$branch" "$updated")"; then
-      flags+=" QUIET"
+    if ! waits_on_answer "$item/report.md" "$updated"; then
+      quiet_from=$(last_progress "$id" "$branch" "$updated")
+      if [[ $heavy_holder == "$id" ]]; then
+        ((heavy_held_since > quiet_from)) && quiet_from=$heavy_held_since
+        quiet_limit=$heavy_long
+      fi
     fi
   fi
+  flags+=$heavy
+  if ((! waiting)) && quiet_since "$quiet_from" "$quiet_limit"; then flags+=" QUIET"; fi
   if [[ $status == blocked ]]; then
     screen=$(timeout 10 herdr agent read "$owner" --source visible --lines "$screen_lines" 2>&1)
     rc=$?
@@ -581,6 +637,11 @@ report_order() {
   '
 }
 
+heavy_delays_someone() {
+  ((${#heavy_waiting[@]})) && return 0
+  ((${#light_waiting[@]})) && [[ $1 == merge-* && $(crew_merge_state "$crew/items/${1#merge-}/merging") == running ]]
+}
+
 report_heavy() {
   local slots lock="$crew/heavy.lock" holder purpose since
   if ! slots=$(crew_heavy_slots "$crew"); then
@@ -592,7 +653,7 @@ report_heavy() {
     holder=unknown purpose=unknown
     since=$(stat -c %Y "$lock" 2>/dev/null) || return 0
   fi
-  ((EPOCHSECONDS - since > heavy_long)) || return 0
+  ((EPOCHSECONDS - since > heavy_long)) && heavy_delays_someone "$holder" || return 0
   echo "HEAVY $holder $(((EPOCHSECONDS - since) / 60)) min $purpose"
 }
 
@@ -751,6 +812,7 @@ fi
 report_resources
 agent_list
 load_owners
+load_heavy
 report_limits
 report_workers
 report_spares

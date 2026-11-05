@@ -117,7 +117,20 @@ cat >"$FAKE_BIN/claude-profile" <<'EOF'
 #!/usr/bin/env bash
 if [[ $1 == names ]]; then cat "$FAKE_STATE/profiles" 2>/dev/null; fi
 EOF
-chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr" "$FAKE_BIN/claude-profile"
+# Fake ps: `ps -o lstart= -p <pid>` prints $FAKE_STATE/ps-start-<pid> when it
+# exists, so a live pid can pass for one started long ago; anything else runs
+# the real ps.
+REAL_PS=$(command -v ps)
+export REAL_PS
+cat >"$FAKE_BIN/ps" <<'EOF'
+#!/usr/bin/env bash
+if [[ $# -eq 4 && "$1 $2 $3" == "-o lstart= -p" && -f $FAKE_STATE/ps-start-$4 ]]; then
+  cat "$FAKE_STATE/ps-start-$4"
+  exit 0
+fi
+exec "$REAL_PS" "$@"
+EOF
+chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr" "$FAKE_BIN/claude-profile" "$FAKE_BIN/ps"
 
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
@@ -811,15 +824,35 @@ rm -f "$USAGE"/*.json
 { row 1 open ''; } >"$CREW/board.tsv"
 agents
 
+HQ="$CREW/heavy.queue"
+LW="$CREW/light.wait"
+TICKET=
+ticket() {
+  local dir=$1 holder=$2 age=${3:-0} pid now
+  sleep 300 &
+  pid=$!
+  PIDS+=("$pid")
+  now=$(date +%s)
+  TZ=UTC0 date -d "@$((now - age - 60))" '+%a %b %e %H:%M:%S %Y' >"$FAKE_STATE/ps-start-$pid"
+  mkdir -p "$dir"
+  printf -v TICKET '%s/%020d.%s.%s' "$dir" "$(((now - age) * 1000000))" "$pid" "$holder"
+  : >"$TICKET"
+}
+
 echo "heavy slot"
 HLOCK="$CREW/heavy.lock"
 mkdir "$HLOCK"
 printf '7\tbrowser check\t%s\n' "$(($(date +%s) - 100 * 60))" >"$HLOCK/holder"
+ticket "$HQ" w9
 sweep 0
 assert "without heavy-slots a long-held slot prints no HEAVY line" '! has_re "^HEAVY"'
 echo 1 >"$CREW/heavy-slots"
 sweep 0
-assert "a slot held past 90 minutes prints HEAVY with holder, minutes and purpose" 'has "HEAVY 7 100 min browser check"'
+assert "a slot held past 90 minutes with a waiter prints HEAVY with holder, minutes and purpose" 'has "HEAVY 7 100 min browser check"'
+rm "$TICKET"
+sweep 0
+assert "a slot held past 90 minutes with no waiter prints no HEAVY line" '! has_re "^HEAVY"'
+ticket "$HQ" w9
 printf '7\tbrowser check\t%s\n' "$(($(date +%s) - 80 * 60))" >"$HLOCK/holder"
 sweep 0
 assert "a slot held under 90 minutes prints no HEAVY line" '! has_re "^HEAVY"'
@@ -831,10 +864,81 @@ assert "a slot with no holder file prints no error" '! has_re "No such file"'
 rmdir "$HLOCK"
 sweep 0
 assert "a free slot prints no HEAVY line" '! has_re "^HEAVY"'
+rm -rf "$HQ"
 echo 2 >"$CREW/heavy-slots"
 sweep 0
 assert "a heavy-slots file other than 1 is named" 'has "HEAVY failed: heavy-slots must contain 1" && [[ $RC -eq 0 ]]'
 rm "$CREW/heavy-slots"
+
+echo "heavy queue"
+export CREW_QUIET=100
+NOW=$(date +%s)
+OLD=$((NOW - 1000))
+rm -rf "$CREW/items" "$CREW/.sweep-seen"
+mkdir -p "$CREW/items"/{1..7}
+sleep 300 &
+LIVE=$!
+PIDS+=("$LIVE")
+live_start=$(crew_pid_start "$LIVE")
+for i in 2 3; do
+  printf 'pid %s\nstart %s\ntip %040d\n' "$LIVE" "$live_start" 0 >"$CREW/items/$i/merging"
+  touch -d "@$OLD" "$CREW/items/$i/merging"
+done
+printf 'pid %s\nstart 1\ntip %040d\n' "$LIVE" 0 >"$CREW/items/7/merging"
+touch -d "@$OLD" "$CREW/items/7/merging"
+{ for i in 1 2 3 4 5 6 7; do row "$i" assigned "x-w$i" "$OLD"; done; } >"$CREW/board.tsv"
+agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 idle' 'x-w5 idle' 'x-w6 idle' 'x-w7 idle'
+ticket "$HQ" 1 450
+ticket "$HQ" merge-2 200
+ticket "$LW" 5
+sleep 300 &
+PIDS+=("$!")
+: >"$(printf '%s/%020d.%s.%s' "$LW" "$(((NOW - 600) * 1000000))" "$!" 6)"
+sweep 0
+assert "an item id in the heavy queue is HEAVY-WAIT with its minutes, never IDLE or QUIET" 'has "WORKER x-w1 item 1 idle on ? HEAVY-WAIT 7m"'
+assert "a running merge whose merge id queues is HEAVY-WAIT, not QUIET for an old merging file" 'has "WORKER x-w2 item 2 working on ? MERGING HEAVY-WAIT 3m"'
+assert "a live light.wait ticket is LIGHT-WAIT, never IDLE or QUIET" 'has "WORKER x-w5 item 5 idle on ? LIGHT-WAIT"'
+assert "a light.wait ticket whose pid was reused is ignored" 'has "WORKER x-w6 item 6 idle on ? IDLE QUIET"'
+assert "a worker outside both queues keeps IDLE QUIET" 'has "WORKER x-w4 item 4 idle on ? IDLE QUIET"'
+rm -rf "$HQ" "$LW"
+mkdir "$HLOCK"
+printf 'merge-3\tgate\t%s\n' "$((NOW - 10))" >"$HLOCK/holder"
+sweep 0
+assert "a running merge holding the slot is HEAVY-HOLD, QUIET measured from the hold" 'has "WORKER x-w3 item 3 working on ? MERGING HEAVY-HOLD"'
+printf 'merge-3\tgate\t%s\n' "$((NOW - 200))" >"$HLOCK/holder"
+sweep 0
+assert "a merge hold older than CREW_QUIET is QUIET" 'has "WORKER x-w3 item 3 working on ? MERGING HEAVY-HOLD QUIET"'
+printf '4\tbrowser\t%s\n' "$((NOW - 2000))" >"$HLOCK/holder"
+sweep 0
+assert "an idle item-id holder is IDLE HEAVY-HOLD, not QUIET before CREW_HEAVY_LONG" 'has "WORKER x-w4 item 4 idle on ? IDLE HEAVY-HOLD"'
+CREW_HEAVY_LONG=500 sweep 0
+assert "an item-id holder with no progress past CREW_HEAVY_LONG is QUIET" 'has "WORKER x-w4 item 4 idle on ? IDLE HEAVY-HOLD QUIET"'
+printf '4\tbrowser\t%s\n' "$((NOW - 10))" >"$HLOCK/holder"
+CREW_HEAVY_LONG=500 sweep 0
+assert "an item-id hold newer than the last progress counts as progress" 'has "WORKER x-w4 item 4 idle on ? IDLE HEAVY-HOLD"'
+printf 'merge-7\tgate\t%s\n' "$((NOW - 10))" >"$HLOCK/holder"
+sweep 0
+assert "a merge hold under a stale merging marker is neither MERGING nor HEAVY-HOLD" 'has "WORKER x-w7 item 7 idle on ? IDLE QUIET"'
+echo 1 >"$CREW/heavy-slots"
+printf 'merge-3\tgate\t%s\n' "$((NOW - 100 * 60))" >"$HLOCK/holder"
+sweep 0
+assert "a long running merge hold with no waiter prints no HEAVY line" '! has_re "^HEAVY"'
+ticket "$LW" 5
+sweep 0
+assert "a live light ticket makes a long running merge hold print HEAVY" 'has "HEAVY merge-3 100 min gate"'
+printf '4\tbrowser\t%s\n' "$((NOW - 100 * 60))" >"$HLOCK/holder"
+sweep 0
+assert "a live light ticket does not make a long item-id hold print HEAVY" '! has_re "^HEAVY"'
+ticket "$HQ" 6
+sweep 0
+assert "a heavy waiter makes a long item-id hold print HEAVY" 'has "HEAVY 4 100 min browser"'
+rm -rf "$HQ" "$LW" "$HLOCK" "$CREW/heavy-slots" "$CREW/items" "$CREW/.sweep-seen"
+mkdir -p "$CREW/items"
+kill "$LIVE" 2>/dev/null || true
+wait "$LIVE" 2>/dev/null || true
+export CREW_QUIET=1000000
+{ row 1 open ''; } >"$CREW/board.tsv"
+agents
 echo "resources"
 rm -rf "$CREW/items" "$CREW/.sweep-seen" "$CREW/.sweep-resources"
 mkdir -p "$CREW/items"
