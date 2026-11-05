@@ -10,8 +10,10 @@ function usageFile(pane) {
   return join(state, "harness", "usage", "sessions", `pane-${pane.replace(/[^A-Za-z0-9_-]/g, "_")}.json`)
 }
 
+let writes = 0
+
 async function writeUsage(file, tokens) {
-  const tmp = `${file}.${process.pid}.tmp`
+  const tmp = `${file}.${process.pid}.${++writes}.tmp`
   try {
     await mkdir(join(file, ".."), { recursive: true })
     await writeFile(tmp, JSON.stringify({ profile: "opencode", context_tokens: tokens, context_window: null }))

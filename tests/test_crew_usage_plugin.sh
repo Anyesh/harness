@@ -47,7 +47,8 @@ run_plugin() {
     }
     const mod = await import(plugin)
     const hooks = await Object.values(mod)[0]({ client, directory: "/tmp", worktree: "/tmp" })
-    for (const event of JSON.parse(events)) await hooks.event({ event })
+    if (process.env.CONCURRENT) await Promise.all(JSON.parse(events).map((event) => hooks.event({ event })))
+    else for (const event of JSON.parse(events)) await hooks.event({ event })
     console.log(`gets ${gets}`)
   ' "$PLUGIN" "$2" 2>&1) || true
 }
@@ -73,6 +74,11 @@ echo "later message in the same session"
 run_plugin "w1:p3" "[$(message ses_a assistant 2 1000 40000 0),$(message ses_a assistant 3 500 41000 100)]"
 assert "the newest finished message replaces the figure" '[[ $(jq .context_tokens "$FILE" 2>/dev/null) -eq 41600 ]]'
 assert "the parent check runs once per session" 'grep -qx "gets 1" <<<"$OUT"'
+
+echo "concurrent events"
+CONCURRENT=1 run_plugin "w1:p3" "[$(message ses_a assistant 2 1000000 400000 0),$(message ses_a assistant 3 5 0 0)]"
+assert "two events handled at once leave one valid file and no error" \
+  'jq -e ".context_tokens == 1400000 or .context_tokens == 5" "$FILE" >/dev/null 2>&1 && ! grep -q "^harness-crew-usage: " <<<"$OUT" && [[ $(find "$USAGE" -type f | wc -l | tr -d " ") -eq 1 ]]'
 
 echo "messages that write nothing"
 rm -rf "$USAGE"
