@@ -275,7 +275,7 @@ verdict() {
       [[ "$opts" -lt 2 || "$opts" -gt 4 ]] && fails+=" options=$opts"
       ;;
     plan)
-      [[ -n "$(edits_under "$stream" "$repo/")" ]] && fails+=" edited-code-in-plan-mode"
+      [[ -n "$(edits_under "$stream" "$repo/" | grep -v "^$repo/.claude/plans/")" ]] && fails+=" edited-code-in-plan-mode"
       local plan
       plan=$(tool_uses "$stream" | jq -r 'select((.name == "Write" and (.input.file_path | test("/plans/"))) or .name == "ExitPlanMode")
         | (.input.content // .input.plan // "")' | tail -c 20000)
@@ -283,16 +283,28 @@ verdict() {
       [[ "$(grep -m1 '^## ' <<<"$plan")" == "## In short" ]] || fails+=" first-section-not-in-short"
       grep -qiE '^## Out of scope' <<<"$plan" || fails+=" no-out-of-scope"
       grep -qiE '^## Verification' <<<"$plan" || fails+=" no-verification"
-      local order
-      order=$(tool_uses "$stream" | jq -r 'if .name == "Agent" or .name == "Task" then "R"
-        elif (.name == "Write" or .name == "Edit") and ((.input.file_path // "") | test("/plans/")) then "E"
-        elif .name == "ExitPlanMode" then "X" else empty end' | tr -d '\n')
+      # A for a review whose first verdict word is APPROVE, R otherwise; the
+      # harness prefixes subagent results, so the verdict is not at the start.
+      # Edits after an approval apply its notes and need no new round.
+      local order last
+      order=$(jq -rnR '[inputs | fromjson? | select(.parent_tool_use_id == null)] as $ev
+        | ([$ev[] | select(.type == "user") | .message.content[]? | select(.type == "tool_result")
+            | {key: .tool_use_id, value: (.content | if type == "string" then . else ([.[]? | .text? // ""] | join("\n")) end)}]
+           | from_entries) as $res
+        | $ev[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")
+        | if .name == "Agent" or .name == "Task" then (($res[.id] // "") as $r | if ($r | index("APPROVE")) as $a | ($r | index("CHANGES NEEDED")) as $c | $a != null and ($c == null or $a < $c) then "A" else "R" end)
+          elif (.name == "Write" or .name == "Edit") and ((.input.file_path // "") | test("/plans/")) then "E"
+          elif .name == "ExitPlanMode" then "X" else empty end' "$stream" | tr -d '\n')
       order=${order%%X*}
       [[ $order == *E* ]] && order=${order#*E}
-      if [[ $order != *R* ]]; then
+      last=$(tr -d 'E' <<<"$order")
+      last=${last: -1}
+      if [[ -z $last ]]; then
         fails+=" plan-not-reviewed"
-      elif [[ ${order##*R} == *E* ]]; then
+      elif [[ $last == R && ${order##*R} == *E* ]]; then
         fails+=" plan-changed-after-last-review"
+      elif [[ $last == R ]]; then
+        fails+=" last-review-not-approved"
       fi
       ;;
     diagnose)
@@ -325,6 +337,8 @@ run_one() {
   settings='{}'
   [[ "$HOOKS" == true ]] && settings=$(cat "$OUT/hooks.json")
   [[ "$check" == commit-attr ]] && settings=$(jq -c '. + {attribution: {commit: "", pr: ""}}' <<<"$settings")
+  # A profile's plans dir can be a symlink into ~/.claude, where writes are blocked.
+  [[ "$check" == plan ]] && settings=$(jq -c '. + {plansDirectory: ".claude/plans"}' <<<"$settings")
   printf '%s\n' "$settings" > "$dir/settings.json"
 
   local mode=(--permission-mode acceptEdits)
