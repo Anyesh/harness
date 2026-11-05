@@ -27,6 +27,15 @@ Find the crew with `. "$(command -v crew-lib.sh)"`, then `crew=$(crew_dir)` and 
 - When `$crew/heavy-slots` exists, hold the heavy slot for Docker stacks and anything run against them, dev servers, browser checks and whole-suite runs. Run `crew-heavy acquire <id> "<purpose>"` with `run_in_background`, since it waits until the slot is free, and `crew-heavy release <id>` once the stack is torn down. Never hold it across idle time (waiting on a review, the lead or a reply), keep test parallelism low while you hold it (for example `pytest -n 2`), and release it before `crew-merge`, which takes the slot itself for the gate and refuses to start while your item id holds it. Merge gates go first automatically, so never yield the queue by hand, and never restart a waiting `acquire`, which sends you to the back of the queue. Pass `acquire` a max wait of at least `CREW_HEAVY_AGE` plus 7200 seconds (10800 by default, as in `crew-heavy acquire <id> "<purpose>" 10800`), because a ticket that old moves to the front but can still wait out one holder's session.
 - When `$crew/light-slots` exists, run type checks, lint and unit tests through `crew-light <command...>`, which exits with the command's status. It pauses while a merge gate runs, which can outlast the Bash tool's timeout, so run it with `run_in_background`.
 
+## In opencode
+
+When the lead started you in opencode (`crew-spawn <name> opencode`), you run on the paid Anthropic API and these lines replace the Claude Code rules they name:
+
+- Background work (`run_in_background`, as for `crew-heavy acquire`, `crew-light` and `crew-merge`): start the command with `nohup <command> > $crew/items/<id>/<name>.log 2>&1 &` and poll it with a `sleep` of at most 240 seconds, giving the bash tool a timeout above the sleep. opencode queues a prompt from the lead until the running command ends, and the prompt cache lasts 5 minutes, so a longer sleep both hides prompts and re-writes your whole context at full price. When a wait (the heavy slot, a merge) is expected to last past about 90 minutes, block on it in one foreground command with a bash timeout above that wait instead, because one cold cache re-write costs about what 24 polls do (1.25 times the context against 0.05 times per call). Cap every output you read.
+- Subagents (`model: "fable"`): every review, advice or second opinion, the fresh reviews in Landing included, goes to the `crew-review` subagent, which runs on Fable. Broad reading and log scanning go to `general`.
+- Hooks: none run, so nothing enforces the global rules for you; follow the rules in `~/.config/opencode/AGENTS.md` yourself, which carry the hook-fallback rules. The question tool is off, so a question goes in `report.md` as `status: question`.
+- `rate-limited`: the API kept refusing after opencode's own retries; the report carries the error text instead of a reset time.
+
 ## Shell pitfalls
 
 - In zsh, the macOS default shell, an unquoted variable holding a file list does not split into words, so a command gets the whole list as one name; pass the list through `xargs` or a file.
