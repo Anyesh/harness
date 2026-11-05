@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Usage: crew-light <command...>
+#
+# Runs the command under one of the N light slots set in <crew dir>/light-slots,
+# or at once when that file is missing. Slot i is a flock on
+# <crew dir>/light.slots/<i>.lock held by this wrapper, never by the command,
+# so the slot frees when the wrapper dies. No new slot is taken while a live
+# crew-merge gate (`merge-<id>`) holds the heavy slot, unless CREW_MERGE_GATE=1.
+# While it waits, a worker's run keeps a ticket in <crew dir>/light.wait named
+# like a heavy.queue ticket, `<epoch microseconds, zero-padded>.<pid>.<item>`.
+# Exits with the command's status.
+set -euo pipefail
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-light: %s\n' "$*" >&2
+  exit 1
+}
+
+(($#)) || die "usage: crew-light <command...>"
+crew=$(crew_dir) || die "not inside a git repository"
+[[ -e $crew/light-slots ]] || exec "$@"
+slots=$(tr -d '[:space:]' <"$crew/light-slots") || die "cannot read $crew/light-slots"
+[[ $slots =~ ^[1-9][0-9]*$ ]] || die "$crew/light-slots must contain a whole number of at least 1"
+dir=$crew/light.slots
+poll=${CREW_LIGHT_POLL:-5}
+ticket=
+mkdir -p "$dir"
+
+noted=$dir/.no-heavy-slots-noted
+if [[ -e $crew/heavy-slots ]]; then
+  rm -f "$noted"
+elif [[ ! -e $noted ]]; then
+  echo "crew-light: $crew/heavy-slots is not set, so merge gates take no heavy slot and never pause light commands" >&2
+  : >"$noted"
+fi
+
+gate_holder() {
+  local holder
+  [[ ${CREW_MERGE_GATE:-} != 1 ]] || return 1
+  holder=$(crew_heavy_hold "$crew" | cut -f1)
+  [[ $holder == merge-* ]] || return 1
+  [[ $(crew_merge_state "$crew/items/${holder#merge-}/merging" 2>/dev/null) == running ]] || return 1
+  echo "$holder"
+}
+
+take_slot() {
+  local i
+  for ((i = 1; i <= slots; i++)); do
+    exec {fd}>>"$dir/$i.lock"
+    flock -n "$fd" && return 0
+    exec {fd}>&-
+  done
+  return 1
+}
+
+worker_item() {
+  local main cwd rest
+  main=$(crew_main) || return 1
+  cwd=$(pwd -P)
+  [[ $cwd/ == "$main/.claude/worktrees/w-"*/* ]] || return 1
+  rest=${cwd#"$main/.claude/worktrees/w-"}
+  rest=${rest%%/*}
+  [[ $rest =~ ^[A-Za-z0-9_.-]+$ ]] && echo "$rest"
+}
+
+drop_ticket() {
+  [[ -n $ticket ]] && rm -f "$ticket"
+  ticket=
+}
+
+wait_for_slot() {
+  local item next_note=$EPOCHSECONDS holder
+  if item=$(worker_item); then
+    mkdir -p "$crew/light.wait"
+    printf -v ticket '%s/light.wait/%020d.%s.%s' "$crew" "$((10#${EPOCHREALTIME//[!0-9]/}))" "$$" "$item"
+  fi
+  trap drop_ticket EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  while :; do
+    if holder=$(gate_holder); then
+      :
+    elif take_slot; then
+      break
+    fi
+    if [[ -n $ticket && ! -e $ticket ]]; then : >"$ticket"; fi
+    if ((EPOCHSECONDS >= next_note)); then
+      if [[ -n $holder ]]; then
+        echo "crew-light: waiting for the merge gate of $holder" >&2
+      else
+        echo "crew-light: waiting, all $slots light slots are busy" >&2
+      fi
+      next_note=$((EPOCHSECONDS + 60))
+    fi
+    sleep "$poll" &
+    wait "$!"
+  done
+  drop_ticket
+  trap - EXIT HUP INT TERM
+}
+
+fd=
+wait_for_slot
+rc=0
+"$@" {fd}>&- || rc=$?
+exit "$rc"
