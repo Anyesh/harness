@@ -283,8 +283,8 @@ verdict() {
       [[ "$(grep -m1 '^## ' <<<"$plan")" == "## In short" ]] || fails+=" first-section-not-in-short"
       grep -qiE '^## Out of scope' <<<"$plan" || fails+=" no-out-of-scope"
       grep -qiE '^## Verification' <<<"$plan" || fails+=" no-verification"
-      # A for a review whose first verdict word is APPROVE, R otherwise; the
-      # harness prefixes subagent results, so the verdict is not at the start.
+      # A when the first line of a review that opens with a verdict says APPROVE,
+      # R otherwise; the harness prefixes subagent results with its own lines.
       # Edits after an approval apply its notes and need no new round.
       local order last
       order=$(jq -rnR '[inputs | fromjson? | select(.parent_tool_use_id == null)] as $ev
@@ -292,7 +292,7 @@ verdict() {
             | {key: .tool_use_id, value: (.content | if type == "string" then . else ([.[]? | .text? // ""] | join("\n")) end)}]
            | from_entries) as $res
         | $ev[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")
-        | if .name == "Agent" or .name == "Task" then (($res[.id] // "") as $r | if ($r | index("APPROVE")) as $a | ($r | index("CHANGES NEEDED")) as $c | $a != null and ($c == null or $a < $c) then "A" else "R" end)
+        | if .name == "Agent" or .name == "Task" then (if (($res[.id] // "") | [splits("\n") | select(test("^[^A-Za-z]*(APPROVE|CHANGES NEEDED)"))] | first // "" | test("^[^A-Za-z]*APPROVE")) then "A" else "R" end)
           elif (.name == "Write" or .name == "Edit") and ((.input.file_path // "") | test("/plans/")) then "E"
           elif .name == "ExitPlanMode" then "X" else empty end' "$stream" | tr -d '\n')
       order=${order%%X*}
