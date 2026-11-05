@@ -334,7 +334,65 @@ for sig in HUP:129 TERM:143; do
   assert "$sig during check frees the slot and lands nothing" '[[ $rc -eq $want && ! -e $HLOCK && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/$n/merged" ]] && no_leftover'
   n=$((n + 1))
 done
+
+new_item 37
+set_check "printf '%s' \"\${CREW_MERGE_GATE:-}\" >'$TMP_DIR/gate.snap'"
+run_merge 37 >"$TMP_DIR/out" 2>&1 || true
+assert "check runs with CREW_MERGE_GATE=1" '[[ -f "$CREW/items/37/merged" && $(<"$TMP_DIR/gate.snap") == 1 ]]'
 set_check 'exit 0'
+
+HQUEUE="$CREW/heavy.queue"
+heavy_tickets() { find "$HQUEUE" -type f 2>/dev/null | wc -l | tr -d ' '; }
+
+new_item 38
+(cd "$MAIN" && "$HEAVY" acquire 38 stack >/dev/null)
+(
+  exec {fd}>"$LOCK"
+  flock "$fd"
+  exec sleep 30
+) &
+echo $! >"$BG_PID_FILE"
+until ! flock -n "$LOCK" true; do sleep 0.1; done
+t0=$SECONDS
+(cd "$(wt_of 38)" && CREW_HEAVY_MERGE_WAIT=2 exec "$CM" 38) >"$TMP_DIR/out" 2>&1 &
+p38=$!
+for _ in $(seq 50); do
+  [[ $(heavy_tickets) -eq 0 ]] || break
+  kill -0 "$p38" 2>/dev/null || break
+  sleep 0.1
+done
+seen=$(heavy_tickets)
+rc=0
+wait "$p38" || rc=$?
+assert "a merge whose item holds the heavy slot refuses before waiting for the merge lock" '[[ $rc -eq 1 && $seen -eq 0 ]] && ((SECONDS - t0 < 10)) && grep -q "crew-heavy release 38" "$TMP_DIR/out"'
+assert "the refusal writes no marker and keeps the item's slot" '[[ ! -e "$CREW/items/38/merging" && ! -e "$CREW/items/38/merged" && $(cut -f1 "$HLOCK/holder") == 38 && $(heavy_tickets) -eq 0 ]]'
+(cd "$MAIN" && "$HEAVY" release 38 >/dev/null)
+
+start_queued() {
+  (cd "$(wt_of "$1")" && CREW_HEAVY_MERGE_WAIT=2 exec "$CM" "$1") >"$TMP_DIR/out" 2>&1 &
+  QBG=$!
+  for _ in $(seq 100); do
+    grep -q '^queued ' "$CREW/items/$1/merging" 2>/dev/null && return 0
+    sleep 0.1
+  done
+}
+start_queued 38
+assert "a merge waits on the merge lock while the item's slot is free" 'kill -0 "$QBG" && grep -q "^queued " "$CREW/items/38/merging"'
+echo 38 >"$CREW/heavy-priority"
+(cd "$MAIN" && "$HEAVY" acquire 38 stack >/dev/null)
+command rm "$CREW/heavy-priority"
+kill "$(cat "$BG_PID_FILE")"
+: >"$BG_PID_FILE"
+seen=0
+while kill -0 "$QBG" 2>/dev/null; do
+  seen=$((seen + $(heavy_tickets)))
+  sleep 0.05
+done
+rc=0
+wait "$QBG" || rc=$?
+assert "a slot the item took during the lock wait refuses before the heavy acquire" '[[ $rc -eq 1 && $seen -eq 0 ]] && grep -q "crew-heavy release 38" "$TMP_DIR/out"'
+assert "that refusal removes its marker and keeps the item's slot" '[[ ! -e "$CREW/items/38/merging" && ! -e "$CREW/items/38/merged" && $(cut -f1 "$HLOCK/holder") == 38 ]] && no_leftover'
+(cd "$MAIN" && "$HEAVY" release 38 >/dev/null)
 command rm "$CREW/heavy-slots"
 
 new_item 36

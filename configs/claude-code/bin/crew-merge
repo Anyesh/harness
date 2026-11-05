@@ -143,6 +143,13 @@ if [[ -f $crew/check ]] && head -n 1 "$crew/check" | grep -Eq '^#![[:space:]]*([
   syntax=$(bash -n "$crew/check" 2>&1) || die "check at $crew/check has a syntax error: $syntax"
 fi
 
+refuse_own_hold() {
+  if ((heavy_slots)) && "$heavy" holds "$id"; then
+    die "$id holds the heavy slot, so its merge gate would wait on itself; run crew-heavy release $id first"
+  fi
+}
+refuse_own_hold
+
 lock_marker
 if state=$(crew_merge_state "$item/merging"); then
   case $state in
@@ -233,6 +240,7 @@ unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
 for v in $(compgen -e); do
   if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
 done
+refuse_own_hold
 # heavy_held is set before acquire returns, so a HUP or TERM that lands as the
 # slot is taken still releases it; release refuses a slot someone else holds.
 if ((heavy_slots)); then
@@ -244,7 +252,7 @@ if ((heavy_slots)); then
 fi
 log=$runs/check-$id.log
 check_rc=0
-(cd "$tmp" && exec env "${unset_env[@]}" "$crew/check") >"$log" 2>&1 {lock}>&- || check_rc=$?
+(cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 "$crew/check") >"$log" 2>&1 {lock}>&- || check_rc=$?
 heavy_release
 if ((check_rc)); then
   tail -n 20 "$log" >&2
