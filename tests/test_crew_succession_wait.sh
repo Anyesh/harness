@@ -145,8 +145,18 @@ reset
 lead_is "$ME"
 tabs "other=w1:t1"
 run r-l1 5
-assert "no tab labelled with the name prints FAILED gone and exits 2" '[[ $RC -eq 2 && $OUT == "FAILED gone" ]]'
+assert "no tab labelled with the name on two polls prints FAILED gone and exits 2" \
+  '[[ $RC -eq 2 && $OUT == "FAILED gone" && $(calls tabs) -eq 2 ]]'
 assert "nothing is written" 'untouched "$ME"'
+
+reset
+lead_is "$ME"
+agents "" "$ME=r-lead" "$SUCC"
+tabs "other=w1:t1"
+cp "$FAKE_STATE/tabs.json" "$FAKE_STATE/tabs.1.json"
+tabs "r-l1=w1:t9"
+run r-l1 1
+assert "one tab listing without the successor's tab is not FAILED" '[[ $RC -eq 3 && $OUT == WAITING ]]'
 
 reset
 lead_is "$ME"

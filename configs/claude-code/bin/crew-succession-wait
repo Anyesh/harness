@@ -93,11 +93,10 @@ while :; do
     rc=1
   else
     key=self
-    successor_panes || {
-      echo "FAILED gone"
-      exit 2
-    }
-    if ((${#panes[@]})) && any_live "${panes[@]}"; then
+    if ! successor_panes; then
+      outcome="FAILED gone"
+      rc=2
+    elif ((${#panes[@]})) && any_live "${panes[@]}"; then
       missed=
     else
       outcome="FAILED no-agent"
