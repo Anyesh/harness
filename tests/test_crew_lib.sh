@@ -90,6 +90,10 @@ for bad in 2 0 '' x; do
   printf '%s\n' "$bad" >"$SLOTS/heavy-slots"
   assert "heavy-slots holding '$bad' is refused" '! out=$(crew_heavy_slots "$SLOTS") && [[ -z $out ]]'
 done
+assert "an item with no report-only marker is not report-only" '! crew_report_only "$SLOTS" 9'
+mkdir -p "$SLOTS/items/9"
+touch "$SLOTS/items/9/report-only"
+assert "an items/<id>/report-only marker makes the item report-only" 'crew_report_only "$SLOTS" 9'
 
 before=$EPOCHSECONDS
 sleep 30 &

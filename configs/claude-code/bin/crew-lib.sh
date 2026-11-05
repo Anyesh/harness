@@ -241,6 +241,11 @@ crew_dir() {
   printf '%s/.claude/crew\n' "$main"
 }
 
+# A report-only item lands nothing, so its done report stands in for a merge.
+crew_report_only() {
+  [[ -f $1/items/$2/report-only ]]
+}
+
 # Heavy slots the crew in dir $1 enables: 0 without a heavy-slots file. Only one
 # slot is supported, so any content other than 1 fails with no output.
 crew_heavy_slots() {

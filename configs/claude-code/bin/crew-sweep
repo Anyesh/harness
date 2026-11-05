@@ -55,7 +55,8 @@
 #     FULL at the cap or at CREW_SESSION_SOFT_PCT or CREW_WEEK_SOFT_PCT
 #   LEFTOVER <id> <worktree|branch|build-dir> <path or ref>
 #     a done or blocked row whose merged tip is in its into branch and whose
-#     landing finished, with that left over; once each (.sweep-leftovers)
+#     landing finished, or a done report-only row whose report is done, with
+#     that left over; once each (.sweep-leftovers)
 #   STALE-MERGE <id>                an item whose merging file a dead crew-merge left
 #   READY <id>                      an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
@@ -627,6 +628,10 @@ merged_field() {
 
 landed() {
   local file="$crew/items/$1/merged" tip into
+  if crew_report_only "$crew" "$1"; then
+    [[ $(crew_report_status "$crew/items/$1/report.md") == "done" ]]
+    return
+  fi
   [[ -f $file ]] || return 1
   tip=$(merged_field "$file" tip)
   into=$(merged_field "$file" into)
@@ -639,10 +644,14 @@ mtime_ns() {
   t=$(stat -c %.9Y "$1" 2>/dev/null) && t=${t/./} && [[ $t =~ ^[0-9]+$ ]] && echo "$t"
 }
 
-# A worker reports done or blocked after the cleanup that follows its merge;
-# until then its leftovers are its own to remove.
+# A worker reports done or blocked after the cleanup that follows its merge,
+# or done after a report-only item's cleanup; until then its leftovers are its
+# own to remove.
 landing_finished() {
   local item="$crew/items/$1" owner=$2 r m
+  if crew_report_only "$crew" "$1" && [[ $(crew_report_status "$item/report.md") == "done" ]]; then
+    return 0
+  fi
   if [[ $(crew_report_status "$item/report.md") =~ ^(done|blocked)$ ]] &&
     r=$(mtime_ns "$item/report.md") && m=$(mtime_ns "$item/merged") && ((r > m)); then
     return 0

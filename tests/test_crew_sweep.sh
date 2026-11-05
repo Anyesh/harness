@@ -875,6 +875,8 @@ for i in 21 22 24 25 26 27 28 30; do
   gc update-ref "refs/heads/w/$i" "$(gc commit-tree -p "$base" -m "item $i" "$tree")"
 done
 gc update-ref refs/heads/trunk "$(gc commit-tree -p "$base" -p w/21 -p w/22 -p w/24 -p w/27 -p w/28 -p w/30 -m land "$tree")"
+gc update-ref refs/heads/w/31 trunk
+gc update-ref refs/heads/w/32 trunk
 merged() {
   mkdir -p "$CREW/items/$1"
   printf 'branch w/%s\ntip %s\nmerged %s\ninto trunk\n' "$1" "$(gc rev-parse "${2:-w/$1}")" "$(gc rev-parse trunk)" >"$CREW/items/$1/merged"
@@ -889,6 +891,13 @@ echo "status: done" >"$CREW/items/27/report.md"
 touch -d "@$((NOW - 200))" "$CREW/items/27/report.md"
 echo "status: done" >"$CREW/items/30/report.md"
 mkdir -p "$CREW/items/25"
+echo "status: done" >"$CREW/items/25/report.md"
+mkdir -p "$CREW/items/31" "$CREW/items/32" "$TMP_DIR/build/w-31"
+touch "$CREW/items/31/report-only" "$CREW/items/32/report-only"
+gc worktree add -q "$REPO/.claude/worktrees/w-31" w/31
+echo "$TMP_DIR/build/w-31" >"$CREW/items/31/build-dir"
+echo "status: done" >"$CREW/items/31/report.md"
+echo "status: question" >"$CREW/items/32/report.md"
 leftover_rows() {
   row 21 done "$S-w1" "$NOW"
   row 22 done "$S-w2" "$NOW"
@@ -900,6 +909,8 @@ leftover_rows() {
   row 28 done "$S-w8" "$NOW"
   row 29 "$1" "$S-w8" "$NOW"
   row 30 done "$S-w3" "$NOW"
+  row 31 done "$S-w7" "$NOW"
+  row 32 done "$S-w3" "$NOW"
 }
 leftover_rows assigned >"$CREW/board.tsv"
 agents "$S-w7 idle" "$S-w8 working" "$S-w3 idle"
@@ -912,7 +923,9 @@ assert "a worker given another item has finished landing" 'has "LEFTOVER 28 bran
 assert "a done report newer than the merged file finishes landing" 'has "LEFTOVER 30 branch w/30"'
 assert "no LEFTOVER for an unmerged row or a tip outside into" '! has_re "^LEFTOVER (25|26) "'
 assert "no LEFTOVER while a live owner has not reported after the merge" '! has_re "^LEFTOVER 27 "'
-assert "each LEFTOVER line is counted once" '[[ $(grep -c "^LEFTOVER " <<<"$OUT") -eq 7 ]]'
+assert "a report-only item with a done report gets LEFTOVER with no merged file" 'has "LEFTOVER 31 worktree $REPO/.claude/worktrees/w-31" && has "LEFTOVER 31 branch w/31" && has "LEFTOVER 31 build-dir $TMP_DIR/build/w-31"'
+assert "no LEFTOVER for a report-only item whose report is not done" '! has_re "^LEFTOVER 32 "'
+assert "each LEFTOVER line is counted once" '[[ $(grep -c "^LEFTOVER " <<<"$OUT") -eq 10 ]]'
 sweep 0
 assert "a LEFTOVER prints once" '! has_re "^LEFTOVER "'
 rm -f "$CREW/.sweep-leftovers"
