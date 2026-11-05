@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Usage: crew-succession-wait <name> [max-seconds]   (default 600)
+#
+# Run by a lead that started successor <name> with crew-spawn --lead; reads
+# state only and prints one line:
+#   TAKEN <pane>          $crew/lead names another pane that is live (exit 0)
+#   ORPHANED <pane>       $crew/lead names another pane that is not live (exit 1)
+#   FAILED gone           $crew/lead names this pane and no tab is labelled
+#                         <name> (exit 2)
+#   FAILED no-agent       $crew/lead names this pane and that tab's pane is not
+#                         live (exit 2)
+#   WAITING               none of these within max seconds (exit 3)
+#   ERROR <step>          lead-file, pane-id, crew-dir, or a herdr list call
+#                         (agent-list, tab-list, pane-list) still failing after
+#                         CREW_SUCCESSION_RETRIES attempts (exit 4)
+#
+# A pane is live while herdr agent list has an agent on its pane_id. herdr keeps
+# listing an agent 10 to 15 s after it exits, and a just-started one can be
+# missing, so not live takes two misses in a row, CREW_SUCCESSION_POLL seconds
+# (default 5) apart.
+set -uo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+usage() {
+  echo "usage: crew-succession-wait <name> [max-seconds]" >&2
+  exit 4
+}
+
+error() {
+  echo "ERROR $1"
+  exit 4
+}
+
+(($# == 1 || $# == 2)) || usage
+name=$1
+max=${2:-600}
+[[ $name =~ ^[a-z][a-z0-9_-]{0,31}$ && $max =~ ^[0-9]+$ ]] || usage
+poll=${CREW_SUCCESSION_POLL:-5}
+retries=${CREW_SUCCESSION_RETRIES:-30}
+
+me=${HERDR_PANE_ID:-}
+[[ -n $me ]] || error pane-id
+crew=$(crew_dir) || error crew-dir
+
+# herdr_json <step> <jq check> <herdr args...>: sets REPLY to the output of the
+# first attempt that succeeds and passes the check.
+herdr_json() {
+  local step=$1 check=$2 i out
+  shift 2
+  for ((i = 1; i <= retries; i++)); do
+    if out=$(timeout 10 herdr "$@" 2>&1) && jq -e "$check" <<<"$out" >/dev/null 2>&1; then
+      REPLY=$out
+      return 0
+    fi
+    printf 'crew-succession-wait: herdr %s: %s\n' "$*" "${out:0:200}" >&2
+    ((i < retries)) && sleep "$poll"
+  done
+  error "$step"
+}
+
+any_live() {
+  herdr_json agent-list '.result.agents | type == "array"' agent list
+  jq -e '[.result.agents[].pane_id] as $live | any($ARGS.positional[]; IN($live[]))' \
+    --args "$@" <<<"$REPLY" >/dev/null
+}
+
+# Sets panes to the pane ids of every tab labelled $name; fails when there is none.
+successor_panes() {
+  local tab_ids
+  herdr_json tab-list '.result.tabs | type == "array"' tab list
+  tab_ids=$(jq -c --arg l "$name" '[.result.tabs[] | select(.label == $l) | .tab_id]' <<<"$REPLY")
+  [[ $tab_ids != '[]' ]] || return 1
+  herdr_json pane-list '.result.panes | type == "array"' pane list
+  mapfile -t panes < <(jq -r --argjson t "$tab_ids" '.result.panes[] | select(.tab_id | IN($t[])) | .pane_id' <<<"$REPLY")
+}
+
+end=$((SECONDS + max))
+missed=
+while :; do
+  lead_pane=
+  { [[ -r $crew/lead ]] && IFS=$'\t' read -r lead_pane _ <"$crew/lead"; } 2>/dev/null
+  [[ -n $lead_pane ]] || error lead-file
+
+  if [[ $lead_pane != "$me" ]]; then
+    key="other $lead_pane"
+    if any_live "$lead_pane"; then
+      echo "TAKEN $lead_pane"
+      exit 0
+    fi
+    outcome="ORPHANED $lead_pane"
+    rc=1
+  else
+    key=self
+    successor_panes || {
+      echo "FAILED gone"
+      exit 2
+    }
+    if ((${#panes[@]})) && any_live "${panes[@]}"; then
+      missed=
+    else
+      outcome="FAILED no-agent"
+      rc=2
+    fi
+  fi
+
+  if [[ -n ${outcome:-} ]]; then
+    if [[ $missed == "$key" ]]; then
+      echo "$outcome"
+      exit "$rc"
+    fi
+    missed=$key
+    outcome=
+  fi
+
+  if ((SECONDS >= end)); then
+    echo WAITING
+    exit 3
+  fi
+  sleep "$poll"
+done
