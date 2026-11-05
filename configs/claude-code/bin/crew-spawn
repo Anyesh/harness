@@ -29,7 +29,7 @@ kind=claude
 if [[ $profile == opencode ]]; then
   kind=opencode
   ((! lead)) || die "the lead runs /crew, which needs Claude Code, so it cannot run in opencode"
-  if claude-profile names 2>/dev/null | grep -qxF opencode; then
+  if grep -qxF opencode < <(claude-profile names 2>/dev/null); then
     die "a Claude profile is named opencode, so the profile opencode is ambiguous"
   fi
   model=${CREW_OPENCODE_MODEL:-anthropic/claude-opus-5-5}
