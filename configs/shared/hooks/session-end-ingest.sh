@@ -6,7 +6,7 @@
 SB_API="${SECOND_BRAIN_API:-http://127.0.0.1:7200}"
 
 # Verify daemon is healthy before attempting ingest
-if ! curl -sf "${SB_API}/v1/status" >/dev/null 2>&1; then
+if ! curl -sf --max-time 1 "${SB_API}/health" >/dev/null 2>&1; then
     echo '{}'
     exit 0
 fi

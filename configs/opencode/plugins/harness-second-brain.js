@@ -12,7 +12,7 @@ export const HarnessSecondBrain = async ({ $ }) => {
 
       let healthy = false
       try {
-        const res = await fetch(`${SB_API}/v1/status`, { signal: AbortSignal.timeout(2000) })
+        const res = await fetch(`${SB_API}/health`, { signal: AbortSignal.timeout(1000) })
         healthy = res.ok
       } catch (err) {
         healthy = false
