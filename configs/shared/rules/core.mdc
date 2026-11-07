@@ -11,6 +11,11 @@ alwaysApply: true
 - No empty catch blocks
 - No broad exception swallowing (`except Exception: pass`, bare `except:`)
 
+## Shell
+
+- **The shell is zsh with oh-my-zsh, and `cp`, `mv` and `rm` are aliased to their `-i` forms.** A bare call waits on an overwrite prompt nobody answers and hangs, and answering it could overwrite the wrong file. Write `command cp -f`, `command mv -f` or `command rm -f` after checking the target, and never start anything that can wait for input (pass `-y`, `--yes` or `--force`, or redirect `</dev/null`).
+- **Check for stuck processes yourself.** Before reporting done, and whenever an agent finishes but still shows background work, run `ps` for commands you or your subagents started and kill the ones that hang; a completed agent status does not mean its commands exited.
+
 ## Writing Style
 
 - **Write in natural, flowing prose.** Avoid staccato style (short declarative sentences stacked back to back). Connect related ideas with conjunctions, commas, and semicolons instead of chopping them into separate sentences. This governs the text inside bullets, paragraphs and files; the overall shape of a reply comes from Response Format.
