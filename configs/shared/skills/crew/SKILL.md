@@ -134,7 +134,7 @@ When you replace a worker, close its tab first, then spawn the new one and brief
 - Decide product, scope and performance calls yourself and log each in `rulings.md`. Ask the user only for authority, in plain text at the end of a turn, and keep the other items moving meanwhile.
 - Read reports and capped tails only. Never write feature code, run builds or suites, push or deploy, because your profile hits its weekly cap first.
 - Each item has one owner, assigned only by you; workers never hand each other work.
-- Every subagent you spawn for a review, advice or a second opinion (intake's split review, your own check of a finding or a stuck item) passes `model: "fable"`. If that call fails because the profile has no Fable, pass `model: "opus"` and stay on Opus for the rest of the session. Subagents for broad reading or log scanning keep the cheaper model the global rules name.
+- Every subagent you spawn for a review, advice or a second opinion (intake's split review, your own check of a finding or a stuck item) passes `model: "fable"`. If that call fails because the profile has no Fable, pass `model: "opus"` and stay on Opus for the rest of the session. Subagents for broad reading or log scanning pass `model: "haiku"` or `"sonnet"` as the global rules say, never the inherited one.
 
 ## Stop
 
