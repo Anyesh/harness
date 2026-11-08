@@ -33,7 +33,7 @@ if [[ $profile == opencode ]]; then
     die "a Claude profile is named opencode, so the profile opencode is ambiguous"
   fi
   model=${CREW_OPENCODE_MODEL:-anthropic/claude-opus-5-5}
-  review_model=${CREW_OPENCODE_REVIEW_MODEL:-anthropic/claude-fable-5-1}
+  review_model=${CREW_OPENCODE_REVIEW_MODEL:-anthropic/claude-opus-5-5}
   command -v opencode >/dev/null || die "opencode unavailable: opencode is not on PATH"
   models=$(timeout 30 opencode models anthropic 2>&1) ||
     die "opencode unavailable: opencode models anthropic failed: ${models//$'\n'/ }"

@@ -306,8 +306,8 @@ assert "opencode is unattended with notify off and the push URLs dead" \
    [[ $(grep -cxF -- --env "$FAKE_STATE/create.args") -eq 12 ]] && ! grep -q "^CLAUDE_" "$FAKE_STATE/create.args"'
 assert "the opencode config allows edit, bash, webfetch and external_directory and denies question" \
   '[[ $(config | jq -c ".permission") == "{\"edit\":\"allow\",\"bash\":\"allow\",\"webfetch\":\"allow\",\"external_directory\":\"allow\",\"question\":\"deny\"}" ]]'
-assert "the opencode config defines the crew-review subagent on Fable" \
-  'config | jq -e ".agent[\"crew-review\"] | .mode == \"subagent\" and .model == \"anthropic/claude-fable-5-1\" and (.description | length > 0)" >/dev/null'
+assert "the opencode config defines the crew-review subagent on Opus" \
+  'config | jq -e ".agent[\"crew-review\"] | .mode == \"subagent\" and .model == \"anthropic/claude-opus-5-5\" and (.description | length > 0)" >/dev/null'
 assert "a usage file left by an earlier pane with the same id is removed, others kept" \
   '[[ ! -e $USAGE/pane-w1_p9.json && -e $USAGE/pane-w1_p8.json ]]'
 
