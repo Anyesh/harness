@@ -57,9 +57,13 @@ board_row() {
   [[ -n $branch && -n $into && $row == *$'\t'* ]] || die "board row for $id lacks a branch or into"
 }
 
-# write_merged <item dir> <branch> <tip> <merged sha> <into>
+# write_merged <item dir> <branch> <tip> <merged sha> <into>; a merged file
+# that already says so is left alone, since crew-sweep reads its mtime as the
+# landing time.
 write_merged() {
-  printf 'branch %s\ntip %s\nmerged %s\ninto %s\n' "$2" "$3" "$4" "$5" >"$1/merged"
+  local body
+  body=$(printf 'branch %s\ntip %s\nmerged %s\ninto %s' "$2" "$3" "$4" "$5")
+  [[ -f $1/merged && $(<"$1/merged") == "$body" ]] || printf '%s\n' "$body" >"$1/merged"
 }
 
 field() { sed -n "s/^$2 //p" "$1" 2>/dev/null | tail -n 1; }
@@ -489,9 +493,10 @@ settle_member() {
 }
 
 claim_followers() {
-  local t fid fdir row fbranch finto f msg refused
+  local t fid fdir row fbranch finto f msg refused claimed
   while IFS=$'\t' read -r t fid; do
     refused=
+    claimed=
     fdir=$crew/items/$fid
     f=$fdir/merging
     row=$(row_of "$fid") || continue
@@ -500,13 +505,16 @@ claim_followers() {
     [[ -n $fbranch && $finto == "$into" ]] || continue
     lock_marker "$fdir"
     if [[ $(crew_merge_state "$f" 2>/dev/null) == queued ]] && grep -q '^ticket ' "$f"; then
+      claimed=1
       add_member "$fid" "$fdir" "$fbranch" "$(field "$f" tip)" "$t" "$(field "$f" pid) $(field "$f" start)"
       printf 'pid %s\nstart %s\ntip %s\nticket %s\nowner %s\nleader %s\n' "$$" "$start" "$(field "$f" tip)" "$t" "${m_owner[-1]}" "$id" |
         write_marker "$fdir"
       if msg=$(refusal_of "$fid" "$fdir" "$fbranch" "${m_tip[-1]}"); then refused=1; fi
     fi
     unlock_marker
-    if [[ -n $refused ]]; then
+    if [[ -z $claimed ]]; then
+      continue
+    elif [[ -n $refused ]]; then
       settle_member $((${#m_id[@]} - 1)) failed "$msg"
     elif g merge-base --is-ancestor "${m_tip[-1]}" "refs/heads/$into"; then
       m_merged[-1]=$(landed_at "$fdir" "${m_tip[-1]}")
@@ -591,7 +599,7 @@ gate() {
 # Fast-forwards the target to the merge of the last of members $@, after
 # recording each member's merge in its marker for --settle.
 land() {
-  local i f last=${*: -1}
+  local i f settle_hint last=${*: -1}
   target_ok
   [[ $(g -C "$target" rev-parse HEAD) == "$base" ]] || die "$into moved during check; $into unchanged, rerun"
   for i in "$@"; do
@@ -601,8 +609,9 @@ land() {
     unlock_marker
   done
   trap '' HUP TERM
-  g -C "$target" merge -q --ff-only --no-autostash "${m_merged[last]}"
-  [[ $(g rev-parse "refs/heads/$into") == "${m_merged[last]}" ]] || die "refs/heads/$into is not ${m_merged[last]} after the fast-forward; run crew-merge --settle for each of: $(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)"
+  settle_hint="run crew-merge --settle for each of: $(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)"
+  g -C "$target" merge -q --ff-only --no-autostash "${m_merged[last]}" || die "the fast-forward of $into to ${m_merged[last]} failed; $settle_hint"
+  [[ $(g rev-parse "refs/heads/$into") == "${m_merged[last]}" ]] || die "refs/heads/$into is not ${m_merged[last]} after the fast-forward; $settle_hint"
   for i in "$@"; do settle_member "$i" landed "" "$glog"; done
   trap 'on_signal 129' HUP
   trap 'on_signal 143' TERM

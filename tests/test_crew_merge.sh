@@ -764,9 +764,10 @@ set_check 'exit 0'
 : >"$TMP_DIR/gates"
 set_check "echo ran >>'$TMP_DIR/gates'"
 before63=$(merged_sha 63)
+touch -d @1 "$CREW/items/63/merged"
 rc=0
 run_merge 63 >"$TMP_DIR/out" 2>&1 || rc=$?
-assert "a rerun of an item already in the target prints its merge commit without a gate" '[[ $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out") == "$before63" && $(merged_sha 63) == "$before63" && ! -s $TMP_DIR/gates ]] && no_markers 63'
+assert "a rerun of an item already in the target prints its merge commit without a gate" '[[ $(stat -c %Y "$CREW/items/63/merged") -eq 1 && $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out") == "$before63" && $(merged_sha 63) == "$before63" && ! -s $TMP_DIR/gates ]] && no_markers 63'
 new_item 72
 git -C "$MAIN" merge -q --ff-only "w/72"
 rc=0
@@ -786,8 +787,22 @@ kill "$HOLDER"
 wait_queued
 assert "a leader whose item landed exits 0 with its merge commit when a later fast-forward fails" '[[ ${RCS[0]} -eq 0 && $(tail -n 1 "$TMP_DIR/out68") == "$(merged_sha 68)" && -n $(merged_sha 68) ]]'
 assert "the item whose fast-forward failed is left cut for --settle" '[[ ${RCS[1]} -eq 0 && ${RCS[2]} -eq 1 && ${RCS[3]} -eq 1 ]] && grep -q -- "--settle 71" "$TMP_DIR/out71" && [[ $(crew_merge_state "$(marker 71)") == cut* ]]'
+assert "the leader names the items to settle when a fast-forward fails" 'grep -q -- "--settle for each of: 71" "$TMP_DIR/out68"'
 command rm "$MAIN/f-71"
 settle 71
+set_check 'exit 0'
+
+new_item 73
+new_item 74
+git -C "$MAIN" merge -q --ff-only "w/74"
+in_target=$(git -C "$MAIN" rev-parse main)
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 73 74)"
+hold_lock
+queue_merges 73 74
+kill "$HOLDER"
+wait_queued
+assert "a batched item already in the target lands at the target head without joining the gate" '[[ ${RCS[*]} == "0 0" && $(merged_sha 74) == "$in_target" && $(tail -n 1 "$TMP_DIR/out74") == "$in_target" && $(tr -d "\n" <"$TMP_DIR/gates") == "73 " ]] && no_markers 73 74'
 set_check 'exit 0'
 
 new_item 67
@@ -800,6 +815,24 @@ assert "the queue ticket is whole microseconds under a comma-decimal locale" 'gr
 kill "$HOLDER"
 wait_queued
 assert "a run under a comma-decimal locale lands" '[[ ${RCS[0]} -eq 0 && -f $CREW/items/67/merged ]]'
+
+new_item 75
+new_item 77
+git -C "$MAIN" merge -q --ff-only "w/77"
+printf 'verdict: changes\nreviewed: %s\n' "$(tip_of 77)" >"$CREW/items/77/review.md"
+new_item 78
+sleep 60 &
+old_run=$!
+PIDS+=("$old_run")
+printf 'pid %s\nstart %s\ntip %s\nqueued %s\n' "$old_run" "$(crew_pid_start "$old_run")" "$(tip_of 78)" "$((EPOCHSECONDS + 600))" >"$(marker 78)"
+hold_lock
+queue_merges 75 77
+kill "$HOLDER"
+wait_queued
+assert "a marker the batch did not claim never settles the item claimed before it" '[[ ${RCS[*]} == "0 1" && ! -e $CREW/items/77/merged ]] && grep -q verdict "$TMP_DIR/out77"'
+assert "an old-format queued marker is left for its own run" '[[ $(crew_merge_state "$(marker 78)") == queued ]]'
+kill "$old_run"
+command rm -f "$(marker 78)"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
