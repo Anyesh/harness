@@ -1097,7 +1097,7 @@ export CREW_QUIET=100
 NOW=$(date +%s)
 OLD=$((NOW - 1000))
 rm -rf "$CREW/items" "$CREW/.sweep-seen"
-mkdir -p "$CREW/items"/{1..7}
+mkdir -p "$CREW/items"/{1..9}
 sleep 300 &
 LIVE=$!
 PIDS+=("$LIVE")
@@ -1108,8 +1108,12 @@ for i in 2 3; do
 done
 printf 'pid %s\nstart 1\ntip %040d\n' "$LIVE" 0 >"$CREW/items/7/merging"
 touch -d "@$OLD" "$CREW/items/7/merging"
-{ for i in 1 2 3 4 5 6 7; do row "$i" assigned "x-w$i" "$OLD"; done; } >"$CREW/board.tsv"
-agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 idle' 'x-w5 idle' 'x-w6 idle' 'x-w7 idle'
+for i in 8:2 9:3; do
+  printf 'pid %s\nstart %s\ntip %040d\nticket 1\nowner 1 1\nleader %s\n' "$LIVE" "$live_start" 0 "${i#*:}" >"$CREW/items/${i%:*}/merging"
+  touch -d "@$OLD" "$CREW/items/${i%:*}/merging"
+done
+{ for i in 1 2 3 4 5 6 7 8 9; do row "$i" assigned "x-w$i" "$OLD"; done; } >"$CREW/board.tsv"
+agents 'x-w1 idle' 'x-w2 working' 'x-w3 working' 'x-w4 idle' 'x-w5 idle' 'x-w6 idle' 'x-w7 idle' 'x-w8 working' 'x-w9 working'
 ticket "$HQ" 1 450
 ticket "$HQ" merge-2 200
 ticket "$LW" 5
@@ -1119,6 +1123,7 @@ PIDS+=("$!")
 sweep 0
 assert "an item id in the heavy queue is HEAVY-WAIT with its minutes, never IDLE or QUIET" 'has "WORKER x-w1 item 1 idle on ? HEAVY-WAIT 7m"'
 assert "a running merge whose merge id queues is HEAVY-WAIT, not QUIET for an old merging file" 'has "WORKER x-w2 item 2 working on ? MERGING HEAVY-WAIT 3m"'
+assert "an item batched by a leader whose merge id queues is HEAVY-WAIT, not QUIET" 'has "WORKER x-w8 item 8 working on ? MERGING HEAVY-WAIT 3m"'
 assert "a live light.wait ticket is LIGHT-WAIT, never IDLE or QUIET" 'has "WORKER x-w5 item 5 idle on ? LIGHT-WAIT"'
 assert "a light.wait ticket whose pid was reused is ignored" 'has "WORKER x-w6 item 6 idle on ? IDLE QUIET"'
 assert "a worker outside both queues keeps IDLE QUIET" 'has "WORKER x-w4 item 4 idle on ? IDLE QUIET"'
@@ -1127,9 +1132,11 @@ mkdir "$HLOCK"
 printf 'merge-3\tgate\t%s\n' "$((NOW - 10))" >"$HLOCK/holder"
 sweep 0
 assert "a running merge holding the slot is HEAVY-HOLD, QUIET measured from the hold" 'has "WORKER x-w3 item 3 working on ? MERGING HEAVY-HOLD"'
+assert "an item batched by the leader holding the slot measures QUIET from the hold" 'has "WORKER x-w9 item 9 working on ? MERGING"'
 printf 'merge-3\tgate\t%s\n' "$((NOW - 200))" >"$HLOCK/holder"
 sweep 0
 assert "a merge hold older than CREW_QUIET is QUIET" 'has "WORKER x-w3 item 3 working on ? MERGING HEAVY-HOLD QUIET"'
+assert "an item batched by a leader with an old hold is QUIET" 'has "WORKER x-w9 item 9 working on ? MERGING QUIET"'
 printf '4\tbrowser\t%s\n' "$((NOW - 2000))" >"$HLOCK/holder"
 sweep 0
 assert "an idle item-id holder is IDLE HEAVY-HOLD, not QUIET before CREW_HEAVY_LONG" 'has "WORKER x-w4 item 4 idle on ? IDLE HEAVY-HOLD"'

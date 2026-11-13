@@ -24,7 +24,17 @@ queue_wait=${CREW_MERGE_QUEUE_WAIT:-10800}
 
 die() {
   printf 'crew-merge: %s\n' "$*" >&2
+  exit_if_landed
   exit 1
+}
+
+# A batch leader whose own item already landed reports that landing whatever
+# stops it later, so its worker never reruns an item that is in the target.
+exit_if_landed() {
+  [[ -n ${leading:-} && ${m_result[0]:-} == landed ]] || return 0
+  printf 'crew-merge: %s landed before the rest of its batch was resolved\n' "$id" >&2
+  printf '%s\n' "${m_merged[0]}"
+  exit 0
 }
 
 busy() {
@@ -71,7 +81,10 @@ lock_marker() {
   exec {marker_lock}>"$1/.marker.lock"
   flock -w 10 "$marker_lock" || die "cannot lock $1/.marker.lock"
 }
-unlock_marker() { exec {marker_lock}>&-; }
+unlock_marker() {
+  exec {marker_lock}>&-
+  marker_lock=
+}
 
 # A rename replaces the file whole, so a sweep or a waiting run never reads
 # half of one.
@@ -235,13 +248,16 @@ release_claims() {
   done
 }
 
-# Removes our own marker unless the fast-forward began; a marker with a merged
-# line stays for --settle.
+# Removes our own marker once our item landed or unless its fast-forward began;
+# a marker with a merged line stays for --settle.
 cleanup() {
+  if [[ -n ${marker_lock:-} ]]; then unlock_marker; fi
   heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
   if [[ -n $leading ]]; then release_claims; fi
-  if [[ -n $wrote_marker && -f $item/merging ]] &&
+  if [[ ${m_result[0]:-} == landed ]]; then
+    rm -f "$item/merging"
+  elif [[ -n $wrote_marker && -f $item/merging ]] &&
     [[ $(field "$item/merging" pid) == "$$" ]] &&
     ! grep -q '^merged ' "$item/merging"; then
     rm -f "$item/merging"
@@ -249,6 +265,7 @@ cleanup() {
 }
 on_signal() {
   if [[ -n $napper ]]; then kill "$napper" 2>/dev/null || true; fi
+  exit_if_landed
   exit "$1"
 }
 trap cleanup EXIT
@@ -258,7 +275,7 @@ trap 'on_signal 143' TERM
 # so a run that sees no older queued marker is the head of the queue.
 exec {ticket_lock}>"$common/crew-merge.ticket.lock"
 flock -w 10 "$ticket_lock" || die "cannot lock $common/crew-merge.ticket.lock"
-ticket=${EPOCHREALTIME/./}
+ticket=${EPOCHREALTIME//[!0-9]/}
 queued_marker "$$" "$start" "$tip" "$ticket" | write_marker "$item"
 wrote_marker=1
 exec {ticket_lock}>&-
@@ -406,6 +423,10 @@ refusal_of() {
     echo "the last reviewed sha in $review is not the tip of $fbranch ($ftip)"
     return 0
   fi
+  if g merge-base --is-ancestor "$ftip" "refs/heads/$into" 2>/dev/null; then
+    echo "$fbranch at $ftip is already in $into"
+    return 0
+  fi
   holds_heavy_msg "$fid"
 }
 
@@ -451,10 +472,7 @@ settle_member() {
   if [[ $result == landed ]]; then
     write_merged "${m_dir[i]}" "${m_branch[i]}" "${m_tip[i]}" "${m_merged[i]}" "$into"
   fi
-  if ((i == 0)); then
-    [[ $result != landed ]] || rm -f "$item/merging"
-    return 0
-  fi
+  ((i != 0)) || return 0
   lock_marker "${m_dir[i]}"
   {
     printf 'owner %s\nresult %s\n' "${m_owner[i]}" "$result"
@@ -543,7 +561,9 @@ gate() {
     gates=$((gates + 1))
     glog=$runs/check-$id-batch$gates.log
   fi
-  for i in "$@"; do touch -c "${m_dir[i]}/merging"; done
+  for ((i = 0; i < ${#m_id[@]}; i++)); do
+    if ((i == 0)) || [[ -z ${m_result[i]} ]]; then touch -c "${m_dir[i]}/merging"; fi
+  done
   refuse_own_hold
   # heavy_held is set before acquire returns, so a HUP or TERM that lands as the
   # slot is taken still releases it; release refuses a slot someone else holds.

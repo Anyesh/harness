@@ -44,7 +44,8 @@
 #     either has a heavy.queue ticket, <m> minutes old; LIGHT-WAIT means a live
 #     light.wait ticket for the item; neither wait is ever IDLE or QUIET.
 #     QUIET means no progress for CREW_QUIET seconds (default 3600), for a running
-#     merge a merging file that old or a merge-<id> hold that old, and for an
+#     merge a merging file that old or a merge-<id> hold that old (the batch
+#     leader's, for an item another run batched), and for an
 #     item-id holder no progress or hold for CREW_HEAVY_LONG seconds
 #   SPARE <name> <herdr status> on <profile>[ holds <id>][ CONTEXT <n>k]
 #                                   a live crew worker owning no assigned row; holds
@@ -507,17 +508,23 @@ load_heavy() {
   done
 }
 
+# heavy_wait_since <id> [<gate id>]: the gate id is the batch leader for an
+# item another crew-merge run claimed.
 heavy_wait_since() {
-  local a=${heavy_waiting[$1]:-} b=${heavy_waiting["merge-$1"]:-}
+  local a=${heavy_waiting[$1]:-} b=${heavy_waiting["merge-${2:-$1}"]:-}
   if [[ -z $a ]] || { [[ -n $b ]] && ((b < a)); }; then a=$b; fi
   [[ -n $a ]] && echo "$a"
 }
 
 worker_line() {
   local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc
-  local item="$crew/items/$id" merge_state since heavy= waiting=0 quiet_from= quiet_limit=$quiet
+  local item="$crew/items/$id" merge_state since heavy= waiting=0 quiet_from= quiet_limit=$quiet gate=$id lead
   merge_state=$(crew_merge_state "$item/merging")
-  if since=$(heavy_wait_since "$id"); then
+  if [[ $merge_state == running ]]; then
+    lead=$(awk '$1 == "leader" { v = $2 } END { print v }' "$item/merging" 2>/dev/null)
+    [[ -z $lead ]] || gate=$lead
+  fi
+  if since=$(heavy_wait_since "$id" "$gate"); then
     heavy=" HEAVY-WAIT $(((EPOCHSECONDS - since) / 60))m"
     waiting=1
   elif [[ $heavy_holder == "$id" || ($heavy_holder == "merge-$id" && $merge_state == running) ]]; then
@@ -531,7 +538,7 @@ worker_line() {
     flags+=" MERGING"
   elif [[ $merge_state == running ]]; then
     flags+=" MERGING"
-    if [[ $heavy_holder == "merge-$id" ]]; then
+    if [[ $heavy_holder == "merge-$gate" ]]; then
       quiet_from=$heavy_held_since
     else
       quiet_from=$(stat -c %Y "$item/merging" 2>/dev/null)

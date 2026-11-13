@@ -741,6 +741,41 @@ kill "$HOLDER"
 wait_queued
 assert "a batch refuses a follower whose review does not name its tip and lands the rest" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 1 && -f $CREW/items/62/merged && ! -e $CREW/items/61/merged ]] && grep -q reviewed "$TMP_DIR/out61" && no_markers 61 62'
 
+new_item 63
+new_item 64
+new_item 65
+new_item 66
+: >"$TMP_DIR/gates"
+command rm -f "$TMP_DIR/started" "$TMP_DIR/status.snap"
+set_check "$(gate_items 63 64 65 66)
+if [[ -e f-65 && ! -e f-66 && ! -e '$TMP_DIR/started' ]]; then '$CM' --status >'$TMP_DIR/status.snap'; touch '$TMP_DIR/started'; sleep 2; fi
+if [[ -e f-65 ]]; then exit 1; fi"
+hold_lock
+queue_merges 63 64 65 66
+kill "$HOLDER"
+wait_for '[[ -e $TMP_DIR/started ]]'
+kill -TERM "${QP[0]}"
+wait_queued
+assert "a leader whose item landed early in a bisect keeps its marker while it gates the rest" 'grep -qx "RUNNING 63" "$TMP_DIR/status.snap"'
+assert "a leader stopped after its own item landed exits 0 with its merge commit" '[[ ${RCS[0]} -eq 0 && $(tail -n 1 "$TMP_DIR/out63") == "$(merged_sha 63)" && -n $(merged_sha 63) ]]'
+assert "the rest of that batch lands or is cut in the next batch" '[[ ${RCS[*]} == "0 0 1 0" && -f $CREW/items/66/merged && ! -e $CREW/items/65/merged ]] && no_markers 63 64 65 66 && no_leftover'
+set_check 'exit 0'
+
+rc=0
+run_merge 63 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "refuses an item whose tip is already in the target" '[[ $rc -eq 1 ]] && grep -q "already in main" "$TMP_DIR/out" && no_markers 63'
+
+new_item 67
+hold_lock
+(cd "$(wt_of 67)" && LC_ALL=de_DE.UTF-8 exec "$CM" 67) >"$TMP_DIR/out67" 2>&1 &
+QP=("$!")
+PIDS+=("$!")
+wait_for "grep -q '^queued ' '$(marker 67)' 2>/dev/null"
+assert "the queue ticket is whole microseconds under a comma-decimal locale" 'grep -Eqx "ticket [0-9]{16,}" "$(marker 67)"'
+kill "$HOLDER"
+wait_queued
+assert "a run under a comma-decimal locale lands" '[[ ${RCS[0]} -eq 0 && -f $CREW/items/67/merged ]]'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
