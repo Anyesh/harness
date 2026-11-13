@@ -761,9 +761,34 @@ assert "a leader stopped after its own item landed exits 0 with its merge commit
 assert "the rest of that batch lands or is cut in the next batch" '[[ ${RCS[*]} == "0 0 1 0" && -f $CREW/items/66/merged && ! -e $CREW/items/65/merged ]] && no_markers 63 64 65 66 && no_leftover'
 set_check 'exit 0'
 
+: >"$TMP_DIR/gates"
+set_check "echo ran >>'$TMP_DIR/gates'"
+before63=$(merged_sha 63)
 rc=0
 run_merge 63 >"$TMP_DIR/out" 2>&1 || rc=$?
-assert "refuses an item whose tip is already in the target" '[[ $rc -eq 1 ]] && grep -q "already in main" "$TMP_DIR/out" && no_markers 63'
+assert "a rerun of an item already in the target prints its merge commit without a gate" '[[ $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out") == "$before63" && $(merged_sha 63) == "$before63" && ! -s $TMP_DIR/gates ]] && no_markers 63'
+new_item 72
+git -C "$MAIN" merge -q --ff-only "w/72"
+rc=0
+run_merge 72 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "an item whose tip is already in the target lands at the target head without a gate" '[[ $rc -eq 0 && $(merged_sha 72) == "$(git -C "$MAIN" rev-parse main)" && $(tail -n 1 "$TMP_DIR/out") == "$(merged_sha 72)" && ! -s $TMP_DIR/gates ]] && no_markers 72'
+set_check 'exit 0'
+
+new_item 68
+new_item 69
+new_item 70
+new_item 71
+echo untracked >"$MAIN/f-71"
+set_check "if [[ -e f-70 ]]; then exit 1; fi"
+hold_lock
+queue_merges 68 69 70 71
+kill "$HOLDER"
+wait_queued
+assert "a leader whose item landed exits 0 with its merge commit when a later fast-forward fails" '[[ ${RCS[0]} -eq 0 && $(tail -n 1 "$TMP_DIR/out68") == "$(merged_sha 68)" && -n $(merged_sha 68) ]]'
+assert "the item whose fast-forward failed is left cut for --settle" '[[ ${RCS[1]} -eq 0 && ${RCS[2]} -eq 1 && ${RCS[3]} -eq 1 ]] && grep -q -- "--settle 71" "$TMP_DIR/out71" && [[ $(crew_merge_state "$(marker 71)") == cut* ]]'
+command rm "$MAIN/f-71"
+settle 71
+set_check 'exit 0'
 
 new_item 67
 hold_lock

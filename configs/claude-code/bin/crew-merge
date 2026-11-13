@@ -24,17 +24,7 @@ queue_wait=${CREW_MERGE_QUEUE_WAIT:-10800}
 
 die() {
   printf 'crew-merge: %s\n' "$*" >&2
-  exit_if_landed
   exit 1
-}
-
-# A batch leader whose own item already landed reports that landing whatever
-# stops it later, so its worker never reruns an item that is in the target.
-exit_if_landed() {
-  [[ -n ${leading:-} && ${m_result[0]:-} == landed ]] || return 0
-  printf 'crew-merge: %s landed before the rest of its batch was resolved\n' "$id" >&2
-  printf '%s\n' "${m_merged[0]}"
-  exit 0
 }
 
 busy() {
@@ -249,8 +239,11 @@ release_claims() {
 }
 
 # Removes our own marker once our item landed or unless its fast-forward began;
-# a marker with a merged line stays for --settle.
+# a marker with a merged line stays for --settle. A leader whose own item landed
+# exits 0 with its merge commit whatever stopped it later, so its worker never
+# reruns an item that is in the target.
 cleanup() {
+  local rc=$?
   if [[ -n ${marker_lock:-} ]]; then unlock_marker; fi
   heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
@@ -262,10 +255,14 @@ cleanup() {
     ! grep -q '^merged ' "$item/merging"; then
     rm -f "$item/merging"
   fi
+  if ((rc != 0)) && [[ -n $leading && ${m_result[0]:-} == landed ]]; then
+    printf 'crew-merge: %s landed before the rest of its batch was resolved\n' "$id" >&2
+    printf '%s\n' "${m_merged[0]}"
+    exit 0
+  fi
 }
 on_signal() {
   if [[ -n $napper ]]; then kill "$napper" 2>/dev/null || true; fi
-  exit_if_landed
   exit "$1"
 }
 trap cleanup EXIT
@@ -423,10 +420,6 @@ refusal_of() {
     echo "the last reviewed sha in $review is not the tip of $fbranch ($ftip)"
     return 0
   fi
-  if g merge-base --is-ancestor "$ftip" "refs/heads/$into" 2>/dev/null; then
-    echo "$fbranch at $ftip is already in $into"
-    return 0
-  fi
   holds_heavy_msg "$fid"
 }
 
@@ -441,6 +434,17 @@ target_ok() {
   done
   if g -C "$target" rev-parse -q --verify MERGE_AUTOSTASH >/dev/null; then
     die "$target has a leftover MERGE_AUTOSTASH"
+  fi
+}
+
+# The merge commit an item whose tip is already in the target landed at: the
+# one its merged file names for that tip, else the target's head.
+landed_at() {
+  local f=$1/merged
+  if [[ -f $f && $(field "$f" tip) == "$2" && -n $(field "$f" merged) ]]; then
+    field "$f" merged
+  else
+    g rev-parse "refs/heads/$into"
   fi
 }
 
@@ -502,7 +506,12 @@ claim_followers() {
       if msg=$(refusal_of "$fid" "$fdir" "$fbranch" "${m_tip[-1]}"); then refused=1; fi
     fi
     unlock_marker
-    if [[ -n $refused ]]; then settle_member $((${#m_id[@]} - 1)) failed "$msg"; fi
+    if [[ -n $refused ]]; then
+      settle_member $((${#m_id[@]} - 1)) failed "$msg"
+    elif g merge-base --is-ancestor "${m_tip[-1]}" "refs/heads/$into"; then
+      m_merged[-1]=$(landed_at "$fdir" "${m_tip[-1]}")
+      settle_member $((${#m_id[@]} - 1)) landed
+    fi
   done < <(
     for f in "$crew"/items/*/merging; do
       [[ -f $f && $f != "$item/merging" ]] || continue
@@ -593,7 +602,7 @@ land() {
   done
   trap '' HUP TERM
   g -C "$target" merge -q --ff-only --no-autostash "${m_merged[last]}"
-  [[ $(g rev-parse "refs/heads/$into") == "${m_merged[last]}" ]] || die "refs/heads/$into is not ${m_merged[last]} after the fast-forward; see $item/merging"
+  [[ $(g rev-parse "refs/heads/$into") == "${m_merged[last]}" ]] || die "refs/heads/$into is not ${m_merged[last]} after the fast-forward; run crew-merge --settle for each of: $(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)"
   for i in "$@"; do settle_member "$i" landed "" "$glog"; done
   trap 'on_signal 129' HUP
   trap 'on_signal 143' TERM
@@ -647,6 +656,14 @@ target_ok
 [[ -x $crew/check ]] || die "no executable check at $crew/check"
 
 add_member "$id" "$item" "$branch" "$tip" "$ticket" "$$ $start"
+if g merge-base --is-ancestor "$tip" "refs/heads/$into"; then
+  m_merged[0]=$(landed_at "$item" "$tip")
+  write_merged "$item" "$branch" "$tip" "${m_merged[0]}" "$into"
+  rm -f "$item/merging"
+  echo "crew-merge: $branch at $tip is already in $into" >&2
+  printf '%s\n' "${m_merged[0]}"
+  exit 0
+fi
 leading=1
 claim_followers
 if ((${#m_id[@]} > 1)); then
