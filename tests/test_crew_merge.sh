@@ -643,6 +643,21 @@ assert "the cut item never reaches the target" '! git -C "$MAIN" merge-base --is
 assert "the cut run shows the failing log and names it" 'grep -q bad-45 "$TMP_DIR/out45" && grep -q "log: $RUNS/" "$TMP_DIR/out45"'
 assert "bisect gates the whole batch first and the bad item alone at last" '[[ $(head -n 1 "$TMP_DIR/gates") == "43 44 45 46 " ]] && grep -qx "45 " "$TMP_DIR/gates" && (($(wc -l <"$TMP_DIR/gates") <= 4))'
 assert "a bisected batch leaves no marker and no merge worktree" 'no_markers 43 44 45 46 && no_leftover'
+
+new_item 79
+new_item 80
+new_item 81
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 79 80 81)
+if [[ -e f-79 ]]; then echo bad-79; exit 1; fi"
+hold_lock
+queue_merges 79 80 81
+kill "$HOLDER"
+wait_queued
+assert "bisect cuts a bad first item and lands the rest" '[[ ${RCS[*]} == "1 0 0" && -f $CREW/items/80/merged && -f $CREW/items/81/merged && ! -e $CREW/items/79/merged ]]'
+assert "after the cut, bisect gates every remaining item together once" '[[ $(tr "\n" "|" <"$TMP_DIR/gates") == "79 80 81 |79 80 |79 |80 81 |" ]]'
+assert "the leader logs each gate with its items and each red result" '[[ $(grep -c "^crew-merge: check on " "$TMP_DIR/out79") -eq 4 && $(grep -c "^crew-merge: check red on " "$TMP_DIR/out79") -eq 3 ]]'
+assert "a batched follower names the batch it joined" 'grep -q "^crew-merge: 80 joined the batch of 79" "$TMP_DIR/out80"'
 set_check 'exit 0'
 
 commit_shared() {

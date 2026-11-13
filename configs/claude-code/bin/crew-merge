@@ -8,9 +8,10 @@
 # Runs queue in the order they started. The run that takes the merge lock leads
 # a batch: it claims every queued item with the same target, merges them in
 # queue order, runs check once and fast-forwards the target once. A red batch
-# is bisected until the failing item is cut; an item that conflicts with an
-# earlier one in the batch is queued again for the next batch. Each claimed run
-# waits for the outcome the leader writes to items/<id>/merge-outcome.
+# is bisected until the failing item is cut, and the items left are gated
+# together again; an item that conflicts with an earlier one in the batch is
+# queued again for the next batch. Each claimed run waits for the outcome the
+# leader writes to items/<id>/merge-outcome.
 #
 # Exit status: 0 done, 1 refused or failed, 2 usage, 3 another run is merging
 # the item.
@@ -352,7 +353,7 @@ take_outcome() {
 }
 
 wait_turn() {
-  local deadline=$((EPOCHSECONDS + queue_wait)) st
+  local deadline=$((EPOCHSECONDS + queue_wait)) st joined=
   while :; do
     take_outcome
     lock_marker "$item"
@@ -360,6 +361,11 @@ wait_turn() {
     case $st in
     own) ;;
     claimed)
+      if [[ -z $joined ]]; then
+        joined=$(field "$item/merging" leader)
+        joined=${joined:-another run}
+        echo "crew-merge: $id joined the batch of $joined; its leader's run reports each check" >&2
+      fi
       unlock_marker
       nap
       deadline=$((EPOCHSECONDS + queue_wait))
@@ -368,6 +374,7 @@ wait_turn() {
     orphaned)
       queued_marker "$$" "$start" "$tip" "$ticket" | write_marker "$item"
       unlock_marker
+      joined=
       echo "crew-merge: the batch leader holding $id died before its fast-forward; queued again" >&2
       continue
       ;;
@@ -571,7 +578,7 @@ gates=0
 
 # Runs check on the temp worktree for members $@ and sets grc and glog.
 gate() {
-  local i
+  local i ids t0
   if (($# == 1)); then
     glog=$runs/check-${m_id[$1]}.log
   else
@@ -582,6 +589,8 @@ gate() {
     if ((i == 0)) || [[ -z ${m_result[i]} ]]; then touch -c "${m_dir[i]}/merging"; fi
   done
   refuse_own_hold
+  ids=$(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)
+  printf 'crew-merge: check on %s(log: %s)\n' "$ids" "$glog" >&2
   # heavy_held is set before acquire returns, so a HUP or TERM that lands as the
   # slot is taken still releases it; release refuses a slot someone else holds.
   if ((heavy_slots)); then
@@ -591,9 +600,15 @@ gate() {
       die "no heavy slot for the merge gate; $into unchanged"
     }
   fi
+  t0=$EPOCHSECONDS
   grc=0
   (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 "$crew/check") >"$glog" 2>&1 {lock}>&- || grc=$?
   heavy_release
+  if ((grc)); then
+    printf 'crew-merge: check red on %safter %d s\n' "$ids" $((EPOCHSECONDS - t0)) >&2
+  else
+    printf 'crew-merge: check green on %safter %d s\n' "$ids" $((EPOCHSECONDS - t0)) >&2
+  fi
 }
 
 # Fast-forwards the target to the merge of the last of members $@, after
@@ -617,36 +632,42 @@ land() {
   trap 'on_signal 143' TERM
 }
 
-# resolve <known red> <red log> <member>...: lands members that pass check and
-# cuts the one that fails it, gating halves of a red batch. When the first half
-# landed whole, the second half on top of it is the batch that already failed.
+# resolve <member>...: gates the members merged together and lands them on
+# green. On red it bisects for the first failing member, landing each passing
+# first half on the way; once the half before an untested rest has landed,
+# that rest is the batch that already failed and is not gated again. The
+# failing member is cut and every member left is gated together again.
 resolve() {
-  local known=$1 red_log=$2 h i all
-  shift 2
-  local -a mine a b
-  build "$@"
-  ((${#chain[@]})) || return 0
-  ((${#chain[@]} == $#)) || known=0
-  mine=("${chain[@]}")
-  if ((!known)); then
-    gate "${mine[@]}"
+  local i red_log
+  local -a all=("$@") pending lo a
+  while :; do
+    pending=()
+    for i in "${all[@]}"; do [[ -n ${m_result[i]} ]] || pending+=("$i"); done
+    ((${#pending[@]})) || return 0
+    build "${pending[@]}"
+    ((${#chain[@]})) || continue
+    gate "${chain[@]}"
     if ((grc == 0)); then
-      land "${mine[@]}"
-      return 0
+      land "${chain[@]}"
+      continue
     fi
+    lo=("${chain[@]}")
     red_log=$glog
-  fi
-  if ((${#mine[@]} == 1)); then
-    settle_member "${mine[0]}" failed "check failed on ${m_branch[mine[0]]} merged into $into; $into unchanged (log: $red_log)" "$red_log"
-    return 0
-  fi
-  h=$(((${#mine[@]} + 1) / 2))
-  a=("${mine[@]:0:h}")
-  b=("${mine[@]:h}")
-  resolve 0 "" "${a[@]}"
-  all=1
-  for i in "${a[@]}"; do [[ ${m_result[i]} == landed ]] || all=0; done
-  if ((all)); then resolve 1 "$red_log" "${b[@]}"; else resolve 0 "" "${b[@]}"; fi
+    while ((${#lo[@]} > 1)); do
+      a=("${lo[@]:0:(${#lo[@]} + 1)/2}")
+      build "${a[@]}"
+      [[ ${chain[*]} == "${a[*]}" ]] || continue 2
+      gate "${a[@]}"
+      if ((grc == 0)); then
+        land "${a[@]}"
+        lo=("${lo[@]:${#a[@]}}")
+      else
+        lo=("${a[@]}")
+        red_log=$glog
+      fi
+    done
+    settle_member "${lo[0]}" failed "check failed on ${m_branch[lo[0]]} merged into $into; $into unchanged (log: $red_log)" "$red_log"
+  done
 }
 
 wait_turn
@@ -682,7 +703,7 @@ members=()
 for ((i = 0; i < ${#m_id[@]}; i++)); do
   [[ -n ${m_result[i]} ]] || members+=("$i")
 done
-resolve 0 "" "${members[@]}"
+resolve "${members[@]}"
 
 case ${m_result[0]} in
 landed)
