@@ -36,6 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 export CREW_RUNS_DIR="$TMP_DIR/runs"
+export CREW_MERGE_POLL=0.2
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
 . "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"
@@ -246,7 +247,7 @@ p15=$!
 wait "$p14" || rc14=$?
 wait "$p15" || rc15=$?
 assert "two concurrent runs both land" '[[ $rc14 -eq 0 && $rc15 -eq 0 ]] && git -C "$MAIN" merge-base --is-ancestor "$(tip_of 14)" main && git -C "$MAIN" merge-base --is-ancestor "$(tip_of 15)" main'
-assert "two concurrent runs serialize their checks" '[[ $(tr "\n" " " <"$TMP_DIR/serial") == "start end start end " ]]'
+assert "two concurrent runs never overlap their checks" '[[ $(tr "\n" " " <"$TMP_DIR/serial") =~ ^(start\ end\ )+$ ]]'
 set_check 'exit 0'
 
 FAKE="$TMP_DIR/fakebin"
@@ -576,6 +577,169 @@ assert "--status reports RUNNING, QUEUED, CUT with its sha, and STALE" 'grep -qx
 command rm -f "$CREW"/items/*/merging
 status_out=$(cd "$MAIN" && "$CM" --status)
 assert "--status prints nothing when no item is merging" '[[ -z $status_out ]]'
+
+queue_merges() {
+  local id
+  QP=()
+  for id in "$@"; do
+    start_merge "$id" "$TMP_DIR/out$id"
+    QP+=("$BG")
+    wait_for "grep -q '^queued ' '$(marker "$id")' 2>/dev/null"
+  done
+}
+wait_queued() {
+  local p r
+  RCS=()
+  for p in "${QP[@]}"; do
+    r=0
+    wait "$p" || r=$?
+    RCS+=("$r")
+  done
+}
+gate_items() {
+  printf "for i in %s; do if [[ -e f-\$i ]] && ! git -C '%s' cat-file -e HEAD:f-\$i 2>/dev/null; then printf '%%s ' \$i; fi; done >>'%s'; echo >>'%s'" "$*" "$MAIN" "$TMP_DIR/gates" "$TMP_DIR/gates"
+}
+merged_sha() { awk '$1 == "merged" {print $2}' "$CREW/items/$1/merged" 2>/dev/null; }
+no_markers() {
+  local id
+  for id; do [[ ! -e $(marker "$id") ]] || return 1; done
+}
+reflog_count() { git -C "$MAIN" reflog show refs/heads/main | wc -l | tr -d ' '; }
+
+new_item 40
+new_item 41
+new_item 42
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 40 41 42)
+'$CM' --status >'$TMP_DIR/status.snap'"
+before=$(git -C "$MAIN" rev-parse main)
+flog=$(reflog_count)
+hold_lock
+queue_merges 40 41 42
+kill "$HOLDER"
+wait_queued
+assert "a batch of three queued items lands every one" '[[ ${RCS[*]} == "0 0 0" ]]'
+assert "a batch runs check once on all its items merged together" '[[ $(cat "$TMP_DIR/gates") == "40 41 42 " ]]'
+assert "a batch lands the items in queue order, each with its own merge commit" '[[ $(git -C "$MAIN" rev-parse main^2) == "$(tip_of 42)" && $(git -C "$MAIN" rev-parse main^1^2) == "$(tip_of 41)" && $(git -C "$MAIN" rev-parse main^1^1^2) == "$(tip_of 40)" && $(git -C "$MAIN" rev-parse main^1^1^1) == "$before" ]]'
+assert "each batched item gets a merged file naming its own merge commit" '[[ $(merged_sha 42) == "$(git -C "$MAIN" rev-parse main)" && $(merged_sha 41) == "$(git -C "$MAIN" rev-parse main^1)" && $(merged_sha 40) == "$(git -C "$MAIN" rev-parse main^1^1)" ]]'
+assert "each batched run prints its own merge commit" '[[ $(tail -n 1 "$TMP_DIR/out40") == "$(merged_sha 40)" && $(tail -n 1 "$TMP_DIR/out41") == "$(merged_sha 41)" && $(tail -n 1 "$TMP_DIR/out42") == "$(merged_sha 42)" ]]'
+assert "a batch lands with one fast-forward of the target" '[[ $(reflog_count) -eq $((flog + 1)) ]]'
+assert "--status lists every batched item as RUNNING during the gate" 'grep -qx "RUNNING 40" "$TMP_DIR/status.snap" && grep -qx "RUNNING 41" "$TMP_DIR/status.snap" && grep -qx "RUNNING 42" "$TMP_DIR/status.snap"'
+assert "a landed batch leaves no marker and no merge worktree" 'no_markers 40 41 42 && no_leftover'
+
+new_item 43
+new_item 44
+new_item 45
+new_item 46
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 43 44 45 46)
+if [[ -e f-45 ]]; then echo bad-45; exit 1; fi"
+hold_lock
+queue_merges 43 44 45 46
+kill "$HOLDER"
+wait_queued
+assert "bisect lands the good items of a red batch and cuts the bad one" '[[ ${RCS[*]} == "0 0 1 0" && -f $CREW/items/43/merged && -f $CREW/items/44/merged && -f $CREW/items/46/merged && ! -e $CREW/items/45/merged ]]'
+assert "the cut item never reaches the target" '! git -C "$MAIN" merge-base --is-ancestor "$(tip_of 45)" main'
+assert "the cut run shows the failing log and names it" 'grep -q bad-45 "$TMP_DIR/out45" && grep -q "log: $RUNS/" "$TMP_DIR/out45"'
+assert "bisect gates the whole batch first and the bad item alone at last" '[[ $(head -n 1 "$TMP_DIR/gates") == "43 44 45 46 " ]] && grep -qx "45 " "$TMP_DIR/gates" && (($(wc -l <"$TMP_DIR/gates") <= 4))'
+assert "a bisected batch leaves no marker and no merge worktree" 'no_markers 43 44 45 46 && no_leftover'
+set_check 'exit 0'
+
+commit_shared() {
+  echo "$2" >"$(wt_of "$1")/shared"
+  git -C "$(wt_of "$1")" add shared
+  git -C "$(wt_of "$1")" commit -q -m "shared $1"
+  printf 'verdict: green\nreviewed: %s\n' "$(tip_of "$1")" >"$CREW/items/$1/review.md"
+}
+new_item 47
+commit_shared 47 forty-seven
+new_item 48
+commit_shared 48 forty-eight
+new_item 49
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 47 48 49)"
+hold_lock
+queue_merges 47 48 49
+kill "$HOLDER"
+wait_queued
+assert "an item conflicting with an earlier batched item drops out and the rest land" '[[ ${RCS[0]} -eq 0 && ${RCS[2]} -eq 0 && -f $CREW/items/47/merged && -f $CREW/items/49/merged ]]'
+assert "the dropped item is not gated with the batch" '[[ $(head -n 1 "$TMP_DIR/gates") == "47 49 " ]]'
+assert "the dropped item runs in the next batch, where its conflict with the target refuses it" '[[ ${RCS[1]} -eq 1 && ! -e $CREW/items/48/merged ]] && grep -q conflict "$TMP_DIR/out48" && no_markers 47 48 49 && no_leftover'
+
+SLOW="$TMP_DIR/slowflock"
+mkdir -p "$SLOW"
+printf '#!/usr/bin/env bash\nsleep 1\nexec %q "$@"\n' "$(command -v flock)" >"$SLOW/flock"
+chmod +x "$SLOW/flock"
+for t in 1 2; do
+  git -C "$MAIN" worktree add -q -b "fifo$t" "$TMP_DIR/fifo$t" main
+  new_item "5$t" "fifo$t"
+done
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 51 52)"
+hold_lock
+(cd "$(wt_of 51)" && PATH="$SLOW:$PATH" exec "$CM" 51) >"$TMP_DIR/out51" 2>&1 &
+QP=("$!")
+PIDS+=("$!")
+wait_for "grep -q '^queued ' '$(marker 51)' 2>/dev/null"
+start_merge 52 "$TMP_DIR/out52"
+QP+=("$BG")
+sleep 2
+kill "$HOLDER"
+wait_queued
+assert "queued runs take the merge lock in the order they queued, not the order they reach it" '[[ ${RCS[*]} == "0 0" && $(tr -d "\n" <"$TMP_DIR/gates") == "51 52 " ]]'
+
+new_item 55
+new_item 56
+: >"$TMP_DIR/gates"
+command rm -f "$TMP_DIR/started"
+set_check "$(gate_items 55 56)
+if [[ ! -e '$TMP_DIR/started' ]]; then touch '$TMP_DIR/started'; sleep 2; fi"
+hold_lock
+queue_merges 55 56
+kill "$HOLDER"
+wait_for '[[ -e $TMP_DIR/started ]]'
+kill -TERM "${QP[0]}"
+wait_queued
+assert "a batch leader stopped by TERM lands nothing and its follower lands in the next batch" '[[ ${RCS[0]} -eq 143 && ${RCS[1]} -eq 0 && ! -e $CREW/items/55/merged && -f $CREW/items/56/merged ]]'
+assert "the follower's next batch holds only itself" '[[ $(tr -d "\n" <"$TMP_DIR/gates") == "55 56 56 " ]] && no_markers 55 56 && no_leftover'
+
+new_item 57
+new_item 58
+: >"$TMP_DIR/gates"
+command rm -f "$TMP_DIR/started"
+set_check "$(gate_items 57 58)
+if [[ ! -e '$TMP_DIR/started' ]]; then touch '$TMP_DIR/started'; sleep 2; fi"
+hold_lock
+queue_merges 57 58
+kill "$HOLDER"
+wait_for '[[ -e $TMP_DIR/started ]]'
+kill -KILL "${QP[0]}"
+wait_queued
+assert "a follower whose batch leader was killed requeues itself and lands" '[[ ${RCS[0]} -eq 137 && ${RCS[1]} -eq 0 && -f $CREW/items/58/merged && ! -e $CREW/items/57/merged ]]'
+assert "the killed leader's own marker is left stale for --settle" '[[ $(crew_merge_state "$(marker 57)") == stale ]]'
+settle 57
+
+new_item 59
+new_item 60
+command rm -f "$TMP_DIR/started"
+set_check "if [[ ! -e '$TMP_DIR/started' ]]; then touch '$TMP_DIR/started'; sleep 2; fi"
+hold_lock
+queue_merges 59 60
+kill "$HOLDER"
+wait_for '[[ -e $TMP_DIR/started ]]'
+kill -TERM "${QP[1]}"
+wait_queued
+assert "a batched follower stopped by TERM still lands with its batch" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 143 && -f $CREW/items/59/merged && -f $CREW/items/60/merged ]] && no_markers 59 60'
+set_check 'exit 0'
+
+new_item 61
+printf 'verdict: green\nreviewed: %s\n' "$(git -C "$MAIN" rev-parse main)" >"$CREW/items/61/review.md"
+new_item 62
+hold_lock
+queue_merges 62 61
+kill "$HOLDER"
+wait_queued
+assert "a batch refuses a follower whose review does not name its tip and lands the rest" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 1 && -f $CREW/items/62/merged && ! -e $CREW/items/61/merged ]] && grep -q reviewed "$TMP_DIR/out61" && no_markers 61 62'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
