@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Usage: crew-lesson add <rule>
+#        crew-lesson similar <text>
+#        crew-lesson size
+#
+# The lead's way to add a line under ## Lessons in the crew's brief.md. add
+# prints the existing lines nearest the rule, refuses a rule whose words overlap
+# one line by CREW_LESSON_DUP_PCT (default 60) or more, and refuses one that
+# would take the section past CREW_LESSONS_MAX_BYTES (default 8192), so a new
+# lesson is merged into older ones or replaces them instead of piling up.
+# Overlap is the share of distinct words of four or more letters the two lines
+# have in common out of all the words either has.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-lesson: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2,4s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+crew=$(crew_dir) || die "not inside a git repository"
+brief=$crew/brief.md
+crew_read_thresholds "$crew/thresholds"
+max_bytes=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
+dup_pct=$((10#$(crew_threshold CREW_LESSON_DUP_PCT 60)))
+
+section_bytes() {
+  [[ -f $brief ]] || {
+    echo 0
+    return
+  }
+  awk '/^## Lessons$/ {f = 1; next} f && /^## / {f = 0} f {n += length($0) + 1} END {print n + 0}' "$brief"
+}
+
+# Prints `<line number>\t<overlap %>\t<line>` for each lesson line overlapping
+# the text by at least the given percent, highest first.
+nearest() {
+  [[ -f $brief ]] || return 0
+  TEXT=$1 MIN=$2 awk '
+    function words(s, set,   n, i, w, parts) {
+      n = split(tolower(s), parts, /[^a-z0-9_]+/)
+      for (i = 1; i <= n; i++) if (length(parts[i]) >= 4) set[parts[i]] = 1
+    }
+    BEGIN { words(ENVIRON["TEXT"], q); for (w in q) nq++ }
+    /^## Lessons$/ {f = 1; next}
+    f && /^## / {f = 0}
+    f && /^- / {
+      delete l; nl = 0; both = 0
+      words($0, l)
+      for (w in l) { nl++; if (w in q) both++ }
+      all = nq + nl - both
+      if (all == 0) next
+      pct = int(100 * both / all)
+      if (pct >= ENVIRON["MIN"] + 0) printf "%d\t%d%%\t%s\n", NR, pct, $0
+    }' "$brief" | sort -t$'\t' -k2,2nr | head -n 3
+}
+
+similar() {
+  (($# == 1)) || usage
+  nearest "$1" 20
+}
+
+size() {
+  (($# == 0)) || usage
+  local bytes
+  bytes=$(section_bytes)
+  echo "$bytes/$max_bytes bytes"
+  ((bytes <= max_bytes))
+}
+
+add() {
+  (($# == 1)) || usage
+  local rule=$1 line near top t
+  [[ $rule != *$'\n'* ]] || die "a rule is one line"
+  rule=${rule#- }
+  [[ -n ${rule//[[:space:]]/} ]] || die "the rule is empty"
+  [[ $rule =~ \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]] || rule="$rule ($(date +%F))"
+  line="- $rule"
+
+  near=$(nearest "$line" 20)
+  if [[ -n $near ]]; then
+    printf 'nearest lessons:\n%s\n' "$near"
+  fi
+  top=$(nearest "$line" "$dup_pct" | head -n 1)
+  if [[ -n $top ]]; then
+    die "repeats line ${top%%$'\t'*} (${top#*$'\t'}): merge the new point into that line instead"
+  fi
+  local bytes
+  bytes=$(section_bytes)
+  if ((bytes + ${#line} + 1 > max_bytes)); then
+    die "lessons are $bytes bytes and this line would pass $max_bytes: merge or retire lines first"
+  fi
+
+  t=$(mktemp "$crew/.brief.XXXXXX") || die "cannot write a temp file in $crew"
+  if [[ -f $brief ]] && grep -qx '## Lessons' "$brief"; then
+    LINE=$line awk '
+      { lines[NR] = $0 }
+      /^## Lessons$/ { start = NR }
+      start && NR > start && /^## / && !end { end = NR }
+      END {
+        if (!end) end = NR + 1
+        last = start
+        for (i = start + 1; i < end; i++) if (lines[i] != "") last = i
+        for (i = 1; i <= NR; i++) {
+          print lines[i]
+          if (i == last) print ENVIRON["LINE"]
+        }
+      }' "$brief" >"$t" || {
+      rm -f "$t"
+      die "cannot write $brief"
+    }
+  else
+    {
+      if [[ -f $brief ]]; then
+        cat "$brief"
+        printf '\n'
+      fi
+      printf '## Lessons\n\n%s\n' "$line"
+    } >"$t" || {
+      rm -f "$t"
+      die "cannot write $brief"
+    }
+  fi
+  mv -f "$t" "$brief" || {
+    rm -f "$t"
+    die "cannot write $brief"
+  }
+}
+
+(($# >= 1)) || usage
+cmd=$1
+shift
+case $cmd in
+  add) add "$@" ;;
+  similar) similar "$@" ;;
+  size) size "$@" ;;
+  *) usage ;;
+esac
