@@ -6,8 +6,8 @@
 #
 # Output lines:
 #   SUPERSEDED                      crew-role answered none; stop acting as lead
-#   ALL-DONE                        every board row is done or blocked; POOL, SPARE
-#                                   and LEFTOVER lines come first unless herdr fails
+#   ALL-DONE                        every board row is done or blocked; POOL, SPARE,
+#                                   OLDLEAD and LEFTOVER lines come first unless herdr fails
 #   ERROR <step>: <message>         a failed crew-role or herdr call, retried
 #   CHANGED <path> / REMOVED <path> an item's merged file or report.md that differs
 #                                   from the last sweep; a report counts only when its
@@ -52,6 +52,11 @@
 #                                   names a blocked row it owns
 #   SPARE <label> no agent          a crew worker's tab with no live agent of that
 #                                   name, unless an assigned row names it (GONE)
+#   OLDLEAD <tab label> <herdr status|no agent>
+#                                   a tab of an earlier lead: labelled <slug>-old<N> or
+#                                   <slug>-l<N>, or holding an agent named
+#                                   <slug>-old<N>, with no agent in the current lead's
+#                                   pane (crew/lead); informational like SPARE
 #   POOL <profile> <crew>/<all>/<cap> session <x>% week <y>%[ FULL]
 #     for each claude-profile name and default: live crew workers and all live
 #     Claude agents on it, CREW_WORKERS_PER_PROFILE, and its usage (?% unknown);
@@ -150,16 +155,16 @@ check_role() {
   for ((i = 1; i <= retries; i++)); do
     if role_once; then
       case $REPLY in
-      lead) return 0 ;;
-      none)
-        echo SUPERSEDED
-        exit 0
-        ;;
-      worker)
-        echo "ERROR crew-role: this session is a crew worker, not the lead"
-        exit 1
-        ;;
-      *) REPLY="unexpected answer: $REPLY" ;;
+        lead) return 0 ;;
+        none)
+          echo SUPERSEDED
+          exit 0
+          ;;
+        worker)
+          echo "ERROR crew-role: this session is a crew worker, not the lead"
+          exit 1
+          ;;
+        *) REPLY="unexpected answer: $REPLY" ;;
       esac
     fi
     echo "ERROR crew-role: $REPLY"
@@ -302,20 +307,21 @@ load_seen() {
 
 # Every agent herdr lists, in any workspace, one line each in agent_rows with
 # fields split by \037: name (empty when unnamed), status, usage key, then the
-# session's profile, context tokens and context window, ? when unknown. The
+# session's profile, context tokens and context window, ? when unknown, then
+# the pane id and tab id. The
 # usage key is the session id, or pane-<pane id> for an opencode agent, which
 # herdr lists without one; that agent is on opencode before its first reply.
 agent_rows=
 load_agents() {
-  local name status sid kind pane usage
+  local name status sid kind pane tab usage
   agent_rows=$(
-    jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?, .agent, .pane_id] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
-      while IFS=$'\037' read -r name status sid kind pane; do
+    jq -r '.result.agents[] | [.name, .agent_status, .agent_session.value?, .agent, .pane_id, .tab_id] | map(. // "" | tostring) | join("\u001f")' <<<"$1" |
+      while IFS=$'\037' read -r name status sid kind pane tab; do
         if [[ $kind == opencode && -z $sid && -n $pane ]]; then sid=$(crew_pane_usage_key "$pane"); fi
         if ! usage=$(crew_session_usage "$sid") || [[ -z $usage ]]; then
           if [[ $kind == opencode ]]; then usage=$'opencode\t?\t?'; else usage=$'?\t?\t?'; fi
         fi
-        printf '%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}"
+        printf '%s\037%s\037%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}" "$pane" "$tab"
       done
   )
 }
@@ -413,8 +419,8 @@ save_usage_seen() {
   for key in "${!usage_seen[@]}"; do
     v=${usage_seen[$key]}
     case $key in
-    limit\ *) ((v > EPOCHSECONDS)) || continue ;;
-    context\ *) [[ -f $usage_dir/${key#context }.json ]] || continue ;;
+      limit\ *) ((v > EPOCHSECONDS)) || continue ;;
+      context\ *) [[ -f $usage_dir/${key#context }.json ]] || continue ;;
     esac
     printf '%s\t%s\n' "$key" "$v"
   done >"$limits.tmp"
@@ -434,8 +440,8 @@ note_limits() {
 }
 
 note_contexts() {
-  local name _status sid profile tokens window
-  while IFS=$'\037' read -r name _status sid profile tokens window; do
+  local name _status sid profile tokens window _rest
+  while IFS=$'\037' read -r name _status sid profile tokens window _rest; do
     [[ $name =~ $crew_re && -n $sid && -z ${usage_seen["context $sid"]:-} ]] || continue
     context_k "$tokens" "$window" "$profile" >/dev/null || continue
     usage_seen["context $sid"]=$EPOCHSECONDS
@@ -593,8 +599,8 @@ load_owners() {
   while IFS=$'\037' read -r id status owner _rest; do
     [[ -n $owner ]] || continue
     case $status in
-    assigned) [[ -n ${assigned_to[$owner]:-} ]] || assigned_to[$owner]=$id ;;
-    blocked) [[ -n ${blocked_to[$owner]:-} ]] || blocked_to[$owner]=$id ;;
+      assigned) [[ -n ${assigned_to[$owner]:-} ]] || assigned_to[$owner]=$id ;;
+      blocked) [[ -n ${blocked_to[$owner]:-} ]] || blocked_to[$owner]=$id ;;
     esac
   done < <(crew_board "$board")
 }
@@ -610,6 +616,7 @@ report_spares() {
     echo "$line"
   done <<<"$agent_rows"
   report_empty_tabs
+  report_old_leads
 }
 
 # Tabs come from one herdr attempt; when it fails the lines wait for the next
@@ -621,6 +628,26 @@ report_empty_tabs() {
     [[ $label =~ $crew_re && -z ${assigned_to[$label]:-} ]] || continue
     agent_fields "$label" || echo "SPARE $label no agent"
   done < <(jq -r '.result.tabs[]? | .label | strings' <<<"$out" 2>/dev/null | awk '!seen[$0]++')
+}
+
+# A tab of an earlier lead: labelled <slug>-old<N> or <slug>-l<N>, or holding an
+# agent named <slug>-old<N>, with none of its agents in the current lead's pane.
+# The current lead's tab keeps its -l<N> label, so with no known lead pane
+# nothing is flagged. The status is that of the tab's first agent.
+report_old_leads() {
+  local lead_pane _session out id label
+  [[ -r $crew/lead ]] || return 0
+  IFS=$'\t' read -r lead_pane _session <"$crew/lead" || true
+  [[ -n $lead_pane ]] || return 0
+  out=$(timeout 10 herdr tab list 2>/dev/null) || return 0
+  while IFS=$'\t' read -r id label; do
+    awk -F'\037' -v id="$id" -v label="$label" -v lead="$lead_pane" -v re="^$slug-(old|l)[0-9]+\$" -v agent_re="^$slug-old[0-9]+\$" '
+      $8 == id { held++; if (!status) status = $2; if ($7 == lead) is_lead = 1; if ($1 ~ agent_re) old_agent = 1 }
+      END {
+        if (is_lead || !(label ~ re || old_agent)) exit
+        print "OLDLEAD " label " " (held ? status : "no agent")
+      }' <<<"$agent_rows"
+  done < <(jq -r '.result.tabs[]? | select(.tab_id and (.label | strings)) | [.tab_id, .label] | join("\t")' <<<"$out" 2>/dev/null)
 }
 
 # opencode can run a worker when it is installed and holds an Anthropic
@@ -876,16 +903,16 @@ save_alerts() {
 resource_keys() {
   local disk_re='^disk (.+) [0-9]+ GB free(, critical)? \('
   case $1 in
-  memory\ *) keys=(memory) ;;
-  load\ *) keys=(load) ;;
-  io\ *) keys=(io) ;;
-  *)
-    keys=()
-    if [[ $1 =~ $disk_re ]]; then
-      keys=("disk ${BASH_REMATCH[1]}")
-      [[ -z ${BASH_REMATCH[2]} ]] || keys+=("disk ${BASH_REMATCH[1]} critical")
-    fi
-    ;;
+    memory\ *) keys=(memory) ;;
+    load\ *) keys=(load) ;;
+    io\ *) keys=(io) ;;
+    *)
+      keys=()
+      if [[ $1 =~ $disk_re ]]; then
+        keys=("disk ${BASH_REMATCH[1]}")
+        [[ -z ${BASH_REMATCH[2]} ]] || keys+=("disk ${BASH_REMATCH[1]} critical")
+      fi
+      ;;
   esac
 }
 

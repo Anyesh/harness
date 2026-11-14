@@ -157,14 +157,16 @@ set_role() {
 # agents 'name status [session] [kind]' ...; agent N sits in pane wB:pN. A name
 # of null makes an unnamed agent, a session of - leaves agent_session out as
 # herdr does for opencode, and without a session the agent gets one with no
-# usage file. The kind defaults to claude.
+# usage file. The kind defaults to claude. A fifth field names the tab the
+# agent sits in, matching the tab id tabs gives that label; without it the
+# agent is in tab wB:t1.
 agents() {
-  local a name status sid kind pane=0
+  local a name status sid kind tab pane=0
   for a in "$@"; do
-    read -r name status sid kind <<<"$a"
+    read -r name status sid kind tab <<<"$a"
     pane=$((pane + 1))
-    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" --arg sid "${sid:-s-p$pane}" --arg k "${kind:-claude}" \
-      '{name: (if $n == "null" then null else $n end), agent: $k, pane_id: $p, tab_id: "wB:t1", agent_status: $s}
+    jq -n --arg n "$name" --arg s "$status" --arg p "wB:p$pane" --arg sid "${sid:-s-p$pane}" --arg k "${kind:-claude}" --arg t "${tab:+t-$tab}" \
+      '{name: (if $n == "null" then null else $n end), agent: $k, pane_id: $p, tab_id: (if $t == "" then "wB:t1" else $t end), agent_status: $s}
         + (if $sid == "-" then {} else {agent_session: {value: $sid}} end)'
   done | jq -s '{result: {agents: .}}' >"$FAKE_STATE/agents.json"
 }
@@ -956,6 +958,23 @@ assert "a SPARE that owns a blocked row holds it" 'has "SPARE $S-w3 idle on work
 assert "a SPARE over the context threshold has CONTEXT" 'has "SPARE $S-w5 idle on work CONTEXT 450k"'
 assert "a worker tab with no agent is SPARE no agent" 'has "SPARE $S-w6 no agent"'
 assert "no SPARE for an assigned worker, an old lead, the lead or a GONE owner's tab" '! has_re "^SPARE ($S-w1|$S-old1|$S-lead|$S-w4) " && has "GONE $S-w4"'
+
+echo "old leads"
+reset_usage
+: >"$CREW/board.tsv"
+printf 'wB:p2\ts-p2\n' >"$CREW/lead"
+agents "$S-old1 idle - claude $S-old1-tab" "$S-lead working - claude $S-l2" "$S-w1 idle - claude $S-w1" "$S-old2 working - claude $S-l1" "other idle - claude other-tab"
+tabs "$S-old1-tab" "$S-l2" "$S-l3" "$S-l4" "$S-w1" "$S-l1" "$S-w9" "other-tab" "scratch"
+sweep 0
+assert "an old lead's tab is flagged with its agent status" 'has "OLDLEAD $S-old1-tab idle"'
+assert "the current lead's own tab is never flagged" '! has_re "^OLDLEAD $S-l2 "'
+assert "a successor-labelled tab that is not the lead is flagged with no agent" 'has "OLDLEAD $S-l3 no agent" && has "OLDLEAD $S-l4 no agent"'
+assert "a successor-labelled tab holding an old-named agent is flagged with that agent's status" 'has "OLDLEAD $S-l1 working"'
+assert "worker and unrelated tabs are not OLDLEAD" '! has_re "^OLDLEAD ($S-w1|$S-w9|other-tab|scratch) "'
+assert "OLDLEAD lines do not end a wait" '[[ $RC -eq 0 ]] && ! has_re "^(CHANGED|WOKE)"'
+rm -f "$CREW/lead"
+sweep 0
+assert "with no lead file nothing is flagged OLDLEAD" '! has_re "^OLDLEAD "'
 
 echo "leftovers"
 reset_usage
