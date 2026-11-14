@@ -133,7 +133,7 @@ session_soft=$((10#$(crew_threshold CREW_SESSION_SOFT_PCT 70)))
 session_hard=$((10#$(crew_threshold CREW_SESSION_HARD_PCT 90)))
 week_soft=$((10#$(crew_threshold CREW_WEEK_SOFT_PCT 85)))
 week_hard=$((10#$(crew_threshold CREW_WEEK_HARD_PCT 95)))
-context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 200)))
+context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 300)))
 opencode_context_k_limit=$((10#$(crew_threshold CREW_OPENCODE_CONTEXT_K 200)))
 profile_cap=$((10#$(crew_threshold CREW_WORKERS_PER_PROFILE 5)))
 

@@ -783,8 +783,8 @@ reset_usage() {
 reset_usage
 printf 'work\nplay\n' >"$FAKE_STATE/profiles"
 { for i in 1 2 3 4 5 6 7; do row "$i" assigned "$S-w$i" "$NOW"; done; } >"$CREW/board.tsv"
-usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
-usage u3 work 200000 1000000 10 "$HOUR" 10 "$WEEK"
+usage u1 work 250000 1000000 10 "$HOUR" 10 "$WEEK"
+usage u3 work 300000 1000000 10 "$HOUR" 10 "$WEEK"
 usage u4 play 170000 200000 10 "$HOUR" 10 "$WEEK"
 usage u5 play 199000 null 10 "$HOUR" 10 "$WEEK"
 usage u6 play 199000 0 10 "$HOUR" 10 "$WEEK"
@@ -792,9 +792,9 @@ usage u7 work null null null null null null
 agents "$S-w1 working u1" "$S-w2 working u2" "$S-w3 idle u3" "$S-w4 working u4" \
   "$S-w5 working u5" "$S-w6 working u6" "$S-w7 working u7"
 sweep 30
-assert "a worker shows the profile of its session" 'has "WORKER $S-w1 item 1 working on work"'
+assert "a worker shows the profile of its session, with no CONTEXT below the 300k default" 'has "WORKER $S-w1 item 1 working on work"'
 assert "a worker whose session has no usage file is on ?" 'has "WORKER $S-w2 item 2 working on ?"'
-assert "CONTEXT at the token threshold comes before IDLE" 'has "WORKER $S-w3 item 3 idle on work CONTEXT 200k IDLE"'
+assert "CONTEXT at the token threshold comes before IDLE" 'has "WORKER $S-w3 item 3 idle on work CONTEXT 300k IDLE"'
 assert "CONTEXT at 80% of a 200k window" 'has "WORKER $S-w4 item 4 working on play CONTEXT 170k"'
 assert "a null or 0 context window gives no CONTEXT" 'has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
 assert "null figures give no CONTEXT and no error" 'has "WORKER $S-w7 item 7 working on work" && [[ $RC -eq 0 ]] && ! has_re "^ERROR"'
