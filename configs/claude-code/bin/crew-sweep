@@ -36,7 +36,7 @@
 #     the profile is ? until the session's statusline writes its usage file, and
 #     opencode for an opencode agent, whose plugin writes it by pane;
 #     CONTEXT means at least CREW_CONTEXT_K thousand tokens (CREW_OPENCODE_CONTEXT_K,
-#     default 300, on opencode) or 80% of the session's context window, and ends
+#     default 200, on opencode) or 80% of the session's context window, and ends
 #     the wait once per session;
 #     a DIALOG line is followed by the owner's screen, each line indented two spaces;
 #     MERGING means a running or queued crew-merge; HEAVY-HOLD means the item id,
@@ -125,8 +125,8 @@ session_soft=$((10#$(crew_threshold CREW_SESSION_SOFT_PCT 70)))
 session_hard=$((10#$(crew_threshold CREW_SESSION_HARD_PCT 90)))
 week_soft=$((10#$(crew_threshold CREW_WEEK_SOFT_PCT 85)))
 week_hard=$((10#$(crew_threshold CREW_WEEK_HARD_PCT 95)))
-context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 400)))
-opencode_context_k_limit=$((10#$(crew_threshold CREW_OPENCODE_CONTEXT_K 300)))
+context_k_limit=$((10#$(crew_threshold CREW_CONTEXT_K 200)))
+opencode_context_k_limit=$((10#$(crew_threshold CREW_OPENCODE_CONTEXT_K 200)))
 profile_cap=$((10#$(crew_threshold CREW_WORKERS_PER_PROFILE 5)))
 
 role_once() {

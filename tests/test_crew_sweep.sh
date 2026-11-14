@@ -770,17 +770,17 @@ reset_usage
 printf 'work\nplay\n' >"$FAKE_STATE/profiles"
 { for i in 1 2 3 4 5 6 7; do row "$i" assigned "$S-w$i" "$NOW"; done; } >"$CREW/board.tsv"
 usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
-usage u3 work 400000 1000000 10 "$HOUR" 10 "$WEEK"
+usage u3 work 200000 1000000 10 "$HOUR" 10 "$WEEK"
 usage u4 play 170000 200000 10 "$HOUR" 10 "$WEEK"
-usage u5 play 399000 null 10 "$HOUR" 10 "$WEEK"
-usage u6 play 399000 0 10 "$HOUR" 10 "$WEEK"
+usage u5 play 199000 null 10 "$HOUR" 10 "$WEEK"
+usage u6 play 199000 0 10 "$HOUR" 10 "$WEEK"
 usage u7 work null null null null null null
 agents "$S-w1 working u1" "$S-w2 working u2" "$S-w3 idle u3" "$S-w4 working u4" \
   "$S-w5 working u5" "$S-w6 working u6" "$S-w7 working u7"
 sweep 30
 assert "a worker shows the profile of its session" 'has "WORKER $S-w1 item 1 working on work"'
 assert "a worker whose session has no usage file is on ?" 'has "WORKER $S-w2 item 2 working on ?"'
-assert "CONTEXT at the token threshold comes before IDLE" 'has "WORKER $S-w3 item 3 idle on work CONTEXT 400k IDLE"'
+assert "CONTEXT at the token threshold comes before IDLE" 'has "WORKER $S-w3 item 3 idle on work CONTEXT 200k IDLE"'
 assert "CONTEXT at 80% of a 200k window" 'has "WORKER $S-w4 item 4 working on play CONTEXT 170k"'
 assert "a null or 0 context window gives no CONTEXT" 'has "WORKER $S-w5 item 5 working on play" && has "WORKER $S-w6 item 6 working on play"'
 assert "null figures give no CONTEXT and no error" 'has "WORKER $S-w7 item 7 working on work" && [[ $RC -eq 0 ]] && ! has_re "^ERROR"'
@@ -868,21 +868,21 @@ pane_usage() {
 reset_usage
 printf 'work\n' >"$FAKE_STATE/profiles"
 { for i in 1 2 3 4; do row "$i" assigned "$S-w$i" "$NOW"; done; } >"$CREW/board.tsv"
-usage u1 work 300000 1000000 10 "$HOUR" 10 "$WEEK"
-pane_usage 2 300000
-pane_usage 4 299000
+usage u1 work 199000 1000000 10 "$HOUR" 10 "$WEEK"
+pane_usage 2 200000
+pane_usage 4 199000
 agents "$S-w1 working u1" "$S-w2 working - opencode" "$S-w3 working - opencode" "$S-w4 idle - opencode"
 sweep 30
-assert "an opencode worker reads its usage by pane and flags CONTEXT at 300k" 'has "WORKER $S-w2 item 2 working on opencode CONTEXT 300k"'
-assert "a Claude worker at 300k keeps the 400k threshold" 'has "WORKER $S-w1 item 1 working on work"'
-assert "an opencode worker below 300k has no CONTEXT" 'has "WORKER $S-w4 item 4 idle on opencode IDLE"'
+assert "an opencode worker reads its usage by pane and flags CONTEXT at 200k" 'has "WORKER $S-w2 item 2 working on opencode CONTEXT 200k"'
+assert "a Claude worker below 200k has no CONTEXT" 'has "WORKER $S-w1 item 1 working on work"'
+assert "an opencode worker below 200k has no CONTEXT" 'has "WORKER $S-w4 item 4 idle on opencode IDLE"'
 assert "an opencode worker with no usage file is on opencode" 'has "WORKER $S-w3 item 3 working on opencode"'
 assert "the opencode CONTEXT wakes the sweep once by name" '[[ $ELAPSED -lt 5000 ]] && ! has TIMEOUT && has "WOKE context $S-w2" && [[ $(grep -c "^WOKE" <<<"$OUT") -eq 1 ]]'
 assert "the alert is recorded under the pane key" 'grep -q "^context pane-wB_p2	" "$CREW/.sweep-limits"'
 sweep 1
-assert "an alerted opencode CONTEXT prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && ! has_re "^WOKE" && has "WORKER $S-w2 item 2 working on opencode CONTEXT 300k"'
+assert "an alerted opencode CONTEXT prints without waking" '[[ $ELAPSED -ge 1000 ]] && has TIMEOUT && ! has_re "^WOKE" && has "WORKER $S-w2 item 2 working on opencode CONTEXT 200k"'
 CREW_OPENCODE_CONTEXT_K=1 sweep 0
-assert "CREW_OPENCODE_CONTEXT_K sets the opencode threshold only" 'has "WORKER $S-w4 item 4 idle on opencode CONTEXT 299k IDLE" && has "WORKER $S-w1 item 1 working on work"'
+assert "CREW_OPENCODE_CONTEXT_K sets the opencode threshold only" 'has "WORKER $S-w4 item 4 idle on opencode CONTEXT 199k IDLE" && has "WORKER $S-w1 item 1 working on work"'
 assert "no POOL opencode line without opencode on PATH" '! has_re "^POOL opencode"'
 echo '{"anthropic":{"type":"api","key":"k"}}' >"$OPENCODE_AUTH"
 PATH="$OPENCODE_BIN:$PATH" sweep 0
