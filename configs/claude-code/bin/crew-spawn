@@ -9,15 +9,40 @@ die() {
   exit 4
 }
 
+usage="usage: crew-spawn [--lead] --model <model> --effort <low|medium|high|xhigh|max> <name> <profile>"
 lead=0
-if [[ ${1-} == --lead ]]; then
-  lead=1
+model_arg=
+effort=
+while (($#)); do
+  case $1 in
+    --lead) lead=1 ;;
+    --model)
+      (($# > 1)) || die "$usage"
+      model_arg=$2
+      shift
+      ;;
+    --effort)
+      (($# > 1)) || die "$usage"
+      effort=$2
+      shift
+      ;;
+    --*) die "$usage" ;;
+    *) break ;;
+  esac
   shift
-fi
-(($# == 2)) || die "usage: crew-spawn [--lead] <name> <profile>"
+done
+(($# == 2)) || die "$usage"
 name=$1
 profile=$2
 [[ $name =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || die "invalid agent name: $name"
+[[ -z $model_arg || $model_arg =~ ^[a-z0-9/._-]+$ ]] || die "invalid model: $model_arg"
+if [[ $profile == opencode ]]; then
+  [[ -z $effort ]] || die "opencode takes no --effort; its model's variant sets it"
+else
+  [[ -n $model_arg ]] || die "a Claude session needs --model, so it never inherits the profile's default model; $usage"
+  [[ -n $effort ]] || die "a Claude session needs --effort, so it never inherits the profile's default effort; $usage"
+  [[ $effort =~ ^(low|medium|high|xhigh|max)$ ]] || die "unknown effort level: $effort"
+fi
 
 end=$((SECONDS + ${CREW_SPAWN_DEADLINE:-540}))
 prompt_timeout=${CREW_SPAWN_PROMPT_TIMEOUT:-120}
@@ -32,7 +57,7 @@ if [[ $profile == opencode ]]; then
   if grep -qxF opencode < <(claude-profile names 2>/dev/null); then
     die "a Claude profile is named opencode, so the profile opencode is ambiguous"
   fi
-  model=${CREW_OPENCODE_MODEL:-anthropic/claude-opus-5-5}
+  model=${model_arg:-${CREW_OPENCODE_MODEL:-anthropic/claude-opus-5-5}}
   review_model=${CREW_OPENCODE_REVIEW_MODEL:-anthropic/claude-opus-5-5}
   command -v opencode >/dev/null || die "opencode unavailable: opencode is not on PATH"
   models=$(timeout 30 opencode models anthropic 2>&1) ||
@@ -126,7 +151,7 @@ case $? in
   2) die "the shell in pane $pane did not reach its prompt" ;;
 esac
 
-if [[ $kind == opencode ]]; then agent_args=(-m "$model"); else agent_args=(--dangerously-skip-permissions); fi
+if [[ $kind == opencode ]]; then agent_args=(-m "$model"); else agent_args=(--dangerously-skip-permissions --model "$model_arg" --effort "$effort"); fi
 rc=
 for ((try = 1; try <= tries; try++)); do
   left=$((end - SECONDS))

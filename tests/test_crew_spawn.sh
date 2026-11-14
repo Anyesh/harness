@@ -157,7 +157,7 @@ starts() { if [[ -f $FAKE_STATE/start.log ]]; then wc -l <"$FAKE_STATE/start.log
 
 echo "env and tab create"
 reset
-spawn r-w1 p1
+spawn --model opus --effort medium r-w1 p1
 assert "exits 0 and prints the pane" '[[ $RC -eq 0 ]] && has "pane w1:p9"'
 assert "tab gets the label, main checkout and no focus" \
   '[[ $(after --label) == r-w1 && $(after --cwd) == "$MAIN" ]] && arg --no-focus'
@@ -173,17 +173,17 @@ assert "push URLs reset then dead for each remote" \
 assert "every env value follows its own --env" \
   '[[ $(grep -cxF -- --env "$FAKE_STATE/create.args") -eq 13 ]]'
 assert "agent start with skip-permissions after the end-of-options marker" \
-  '[[ $(cat "$FAKE_STATE/start.log") == "r-w1 --kind claude --pane w1:p9 --timeout 120000 -- --dangerously-skip-permissions" ]]'
+  '[[ $(cat "$FAKE_STATE/start.log") == "r-w1 --kind claude --pane w1:p9 --timeout 120000 -- --dangerously-skip-permissions --model opus --effort medium" ]]'
 
 echo "default profile"
 reset
-spawn r-w2 default
+spawn --model opus --effort medium r-w2 default
 assert "default profile runs no claude-profile and adds no profile env" \
   '[[ $RC -eq 0 && ! -f $FAKE_STATE/profile.calls ]] && ! grep -q "^CLAUDE_" "$FAKE_STATE/create.args"'
 
 echo "lead mode"
 reset
-spawn --lead r-l1 p1
+spawn --lead --model opus --effort medium r-l1 p1
 assert "lead exits 0, prints the pane and starts the agent" \
   '[[ $RC -eq 0 && $(starts) -eq 1 ]] && has "pane w1:p9" && [[ $(after --label) == r-l1 ]]'
 assert "lead passes neither unattended nor notify off" \
@@ -198,11 +198,11 @@ reset
 NOREMOTE_LEAD="$TMP_DIR/noremote-lead"
 git init -q "$NOREMOTE_LEAD"
 RC=0
-OUT=$(cd "$NOREMOTE_LEAD" && "$SPAWN" --lead r-l2 default 2>&1) || RC=$?
+OUT=$(cd "$NOREMOTE_LEAD" && "$SPAWN" --lead --model opus --effort medium r-l2 default 2>&1) || RC=$?
 assert "lead with no profile env and no remotes passes no env at all" \
   '[[ $RC -eq 0 ]] && ! grep -qxF -- --env "$FAKE_STATE/create.args"'
 reset
-spawn --lead r-l3
+spawn --lead --model opus --effort medium r-l3
 assert "lead without a profile is a usage error with no herdr call" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
 
@@ -211,82 +211,82 @@ reset
 NOREMOTE="$TMP_DIR/noremote"
 git init -q "$NOREMOTE"
 RC=0
-OUT=$(cd "$NOREMOTE" && "$SPAWN" r-w3 default 2>&1) || RC=$?
+OUT=$(cd "$NOREMOTE" && "$SPAWN" --model opus --effort medium r-w3 default 2>&1) || RC=$?
 assert "no remotes means no GIT_CONFIG env" \
   '[[ $RC -eq 0 ]] && ! grep -q "^GIT_CONFIG" "$FAKE_STATE/create.args"'
 
 echo "unknown profile"
 reset
-spawn r-w4 nope
+spawn --model opus --effort medium r-w4 nope
 assert "a failing claude-profile stops before tab create" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
 
 echo "existing agent or tab"
 reset
 touch "$FAKE_STATE/agent-r-w5"
-spawn r-w5 default
+spawn --model opus --effort medium r-w5 default
 assert "an existing agent prints exists and exits 3 with no tab create" \
   '[[ $RC -eq 3 ]] && has "exists r-w5" && [[ ! -f $FAKE_STATE/create.args ]]'
 reset
 echo '{"result":{"tabs":[{"label":"other","tab_id":"w1:t1"},{"label":"r-w6","tab_id":"w1:t2"}]}}' >"$FAKE_STATE/tabs.json"
-spawn r-w6 default
+spawn --model opus --effort medium r-w6 default
 assert "an existing tab label prints exists and exits 3 with no tab create" \
   '[[ $RC -eq 3 ]] && has "exists r-w6" && [[ ! -f $FAKE_STATE/create.args ]]'
 reset
 touch "$FAKE_STATE/get_fail"
-spawn r-w7 default
+spawn --model opus --effort medium r-w7 default
 assert "a failing agent get is an error, not a missing agent" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && ! has "exists r-w7"'
 
 echo "prompt poll"
 reset
 printf 'busy\nbusy\n' >"$FAKE_STATE/pi.queue"
-spawn r-w8 default
+spawn --model opus --effort medium r-w8 default
 assert "agent start waits until the shell is at its prompt" \
   '[[ $RC -eq 0 && $(tr "\n" " " <"$FAKE_STATE/events") == "pi busy pi busy pi prompt start " ]]'
 reset
 echo busy >"$FAKE_STATE/pi"
-CREW_SPAWN_PROMPT_TIMEOUT=1 spawn r-w9 default
+CREW_SPAWN_PROMPT_TIMEOUT=1 spawn --model opus --effort medium r-w9 default
 assert "no prompt within the timeout: pane printed, no start, exit 4" \
   '[[ $RC -eq 4 ]] && has "pane w1:p9" && [[ $(starts) -eq 0 ]]'
 
 echo "retries"
 reset
 printf '1\n1\n0\n' >"$FAKE_STATE/start.rc"
-spawn r-w10 default
+spawn --model opus --effort medium r-w10 default
 assert "retried while the shell is at its prompt" '[[ $RC -eq 0 && $(starts) -eq 3 ]]'
 reset
 printf '1\n' >"$FAKE_STATE/start.rc"
 echo claude,prompt >"$FAKE_STATE/start.after"
-spawn r-w11 default
+spawn --model opus --effort medium r-w11 default
 assert "no retry once claude is in the foreground; status passes through" \
   '[[ $RC -eq 1 && $(starts) -eq 1 ]] && has "pane w1:p9"'
 reset
 printf '1\n' >"$FAKE_STATE/start.rc"
 echo native,prompt >"$FAKE_STATE/start.after"
-spawn r-w17 default
+spawn --model opus --effort medium r-w17 default
 assert "the native install counts as claude by its argv0" \
   '[[ $RC -eq 1 && $(starts) -eq 1 ]]'
 reset
 printf '1\n' >"$FAKE_STATE/start.rc"
 echo busy,busy,claude >"$FAKE_STATE/start.after"
-spawn r-w12 default
+spawn --model opus --effort medium r-w12 default
 assert "a failed start waits out a busy foreground before deciding" \
   '[[ $RC -eq 1 && $(tr "\n" " " <"$FAKE_STATE/events") == "pi prompt start pi busy pi busy pi claude " ]]'
 reset
 printf '2\n2\n2\n2\n' >"$FAKE_STATE/start.rc"
-spawn r-w13 default
+spawn --model opus --effort medium r-w13 default
 assert "three tries at most, and the last failure status passes through" \
   '[[ $RC -eq 2 && $(starts) -eq 3 ]] && has "pane w1:p9"'
 
 echo "deadline"
 reset
-CREW_SPAWN_DEADLINE=5 spawn r-w14 default
+CREW_SPAWN_DEADLINE=5 spawn --model opus --effort medium r-w14 default
 assert "agent start timeout is capped by the time left" \
   '[[ $RC -eq 0 ]] && t=$(sed -n "s/.*--timeout \([0-9]*\) .*/\1/p" "$FAKE_STATE/start.log") && ((t > 0 && t <= 5000))'
 reset
 printf '1\n1\n1\n' >"$FAKE_STATE/start.rc"
-CREW_SPAWN_START_MS=7 spawn r-w15 default
+CREW_SPAWN_START_MS=7 spawn --model opus --effort medium r-w15 default
 assert "agent start timeout is configurable" \
   '[[ $(head -n 1 "$FAKE_STATE/start.log") == *"--timeout 7 --"* ]]'
 
@@ -358,12 +358,38 @@ assert "claude in the foreground is not the opencode agent: busy until the promp
 
 echo "usage"
 reset
-spawn r-w16
+spawn --model opus --effort medium r-w16
 assert "missing profile is a usage error with no herdr call" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
-spawn Bad_Name default
+spawn --model opus --effort medium Bad_Name default
 assert "a name herdr would reject fails before any herdr call" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+
+echo "model and effort"
+reset
+spawn r-w20 p1
+assert "a Claude worker without --model is refused before any herdr call" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q -- "--model" <<<"$OUT"'
+spawn --model opus r-w20 p1
+assert "a Claude worker without --effort is refused" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q -- "--effort" <<<"$OUT"'
+spawn --lead --model opus r-l20 p1
+assert "a lead without --effort is refused" '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+spawn --model opus --effort extreme r-w20 p1
+assert "an unknown effort level is refused" '[[ $RC -eq 4 ]] && grep -q extreme <<<"$OUT"'
+spawn --model "opus;rm" --effort low r-w20 p1
+assert "a model name with shell characters is refused" '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+reset
+spawn --effort low --model sonnet r-w21 p1
+assert "the options go in any order and reach agent start" \
+  '[[ $RC -eq 0 && $(cat "$FAKE_STATE/start.log") == *"-- --dangerously-skip-permissions --model sonnet --effort low" ]]'
+reset
+spawn --effort high r-o20 opencode
+assert "an opencode worker refuses --effort" '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+reset
+spawn --model anthropic/claude-fable-5-1 r-o21 opencode
+assert "--model overrides the opencode model" \
+  '[[ $RC -eq 0 ]] && grep -q -- "-m anthropic/claude-fable-5-1" "$FAKE_STATE/start.log"'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
