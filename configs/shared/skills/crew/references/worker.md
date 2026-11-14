@@ -58,6 +58,10 @@ Write `$crew/items/<id>/report.md` with a `status:` line (`done`, `question`, `b
 
 When `$crew/items/<id>/report-only` exists, the item is an end-to-end check or report that lands nothing and its stop point is "reported": there is no review and no `crew-merge`; your findings go in `report.md`. From the main checkout, when `git -C "$main" rev-list --count <into>..w/<id>` prints 0, run `git -C "$main" worktree remove "$main/.claude/worktrees/w-<id>"` without `--force`, then `git -C "$main" update-ref -d refs/heads/w/<id> <its tip>`, then `(cd "$main" && crew-clean-build <id>)`, and report `done`. Commits on the branch mean the item was not report-only, so report `question`. When the worktree refuses to go (untracked artifacts such as screenshots), report `done` anyway and name the worktree in the report, so `LEFTOVER` and the lead clean it up.
 
+## Leave nothing behind
+
+Before you report `done` or `handoff`, stop and remove everything you started that the next owner does not need: stacks and their containers, dev servers, detached runs, remote resources on any host, temp files and side worktrees. A `handoff` keeps only what the successor needs, named in `handoff.md`. Name anything you could not remove, and why, in `report.md`.
+
 ## Handoff
 
 On a `[crew] hand off now` prompt (your profile or your context is near its limit), stop at a safe point: no half-written file and no merge running. Let background commands finish or stop them. Write `$crew/items/<id>/handoff.md` with what is done, what is next, open review findings, and which commands ran and where their logs are. Leave the worktree as it is, uncommitted changes included, report `status: handoff`, and stop. A worker that takes over an item reads its `handoff.md` first.
