@@ -5,6 +5,10 @@
 #        crew-merge --settle <item> clear the marker a dead run left, writing the
 #                                   merged file when its fast-forward had landed
 #
+# Before a run queues, an executable $crew/preflight runs on a throwaway merge
+# of the item onto its target after the items already queued, and a failure
+# refuses the item without a ticket or a gate.
+#
 # Runs queue in the order they started. The run that takes the merge lock leads
 # a batch: it claims every queued item with the same target, merges them in
 # queue order, runs check once and fast-forwards the target once. A red batch
@@ -198,16 +202,8 @@ refuse_own_hold() {
 }
 refuse_own_hold
 
-lock_marker "$item"
-if state=$(crew_merge_state "$item/merging"); then
-  case $state in
-  running | queued) busy "item $id is already merging ($state); see crew-merge --status" ;;
-  cut\ *) die "a dead run of $id was cut off after its fast-forward began (${state#cut }); run crew-merge --settle $id first" ;;
-  esac
-fi
-rm -f "$item/merge-outcome"
-
 tmp=
+ptmp=
 wrote_marker=
 napper=
 heavy_held=
@@ -252,6 +248,7 @@ cleanup() {
   if [[ -n ${marker_lock:-} ]]; then unlock_marker; fi
   heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
+  drop_trial
   if [[ -n $leading ]]; then release_claims; fi
   if [[ ${m_result[0]:-} == landed ]]; then
     rm -f "$item/merging"
@@ -273,6 +270,130 @@ on_signal() {
 trap cleanup EXIT
 trap 'on_signal 129' HUP
 trap 'on_signal 143' TERM
+
+unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
+for v in $(compgen -e); do
+  if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
+done
+
+# Prints why item $1 cannot land with branch $3 at tip $4, or fails when it can.
+refusal_of() {
+  local fid=$1 review=$2/review.md fbranch=$3 ftip=$4 last
+  if [[ ! -f $review ]]; then
+    echo "no review at $review"
+    return 0
+  fi
+  last=$(sed -n '/^verdict:/{s/^verdict:[[:space:]]*//;s/[[:space:]]*$//;p}' "$review" | tail -n 1)
+  if [[ $last != green ]]; then
+    echo "the last verdict in $review is not green"
+    return 0
+  fi
+  last=$(sed -n '/^reviewed:/{s/^reviewed:[[:space:]]*//;s/[[:space:]]*$//;p}' "$review" | tail -n 1)
+  if [[ $last != "$ftip" ]]; then
+    echo "the last reviewed sha in $review is not the tip of $fbranch ($ftip)"
+    return 0
+  fi
+  holds_heavy_msg "$fid"
+}
+
+# Prints "<ticket>\t<id>" for every other item's marker whose state matches
+# the regex $1, oldest ticket first.
+markers_in() {
+  local f fid
+  for f in "$crew"/items/*/merging; do
+    [[ -f $f && $f != "$item/merging" ]] || continue
+    [[ $(crew_merge_state "$f" 2>/dev/null) =~ $1 ]] || continue
+    fid=${f%/merging}
+    printf '%s\t%s\n' "$(ticket_of "$f")" "${fid##*/}"
+  done | sort -n -k1,1
+}
+
+drop_trial() {
+  if [[ -n $ptmp && -d $ptmp ]]; then g worktree remove --force "$ptmp" || rm -rf "$ptmp"; fi
+  ptmp=
+}
+
+# Runs $crew/preflight in a throwaway merge of the item onto its target after
+# every item queued or gating for that target, so a clash with the target or
+# with the batch ahead is refused before the item takes a queue ticket. It runs
+# before any lock, since the hook can take minutes.
+preflight() {
+  local hook=$crew/preflight limit=${CREW_PREFLIGHT_TIMEOUT:-3600} stale t fid row qbranch qtip base log prc=0 t0 i
+  local -a qids=() qbranches=() qtips=() clashes=()
+  [[ -e $hook ]] || return 0
+  [[ -x $hook ]] || die "preflight at $hook is not executable"
+  [[ $limit =~ ^[1-9][0-9]*$ ]] || die "CREW_PREFLIGHT_TIMEOUT must be a whole number of seconds"
+  g rev-parse -q --verify "refs/heads/$into^{commit}" >/dev/null || die "no branch $into"
+  if g merge-base --is-ancestor "$tip" "refs/heads/$into"; then return 0; fi
+  # A trial past both this run's timeout and the default belongs to a killed run.
+  stale=$(((limit > 3600 ? limit : 3600) + 600))
+  while IFS= read -r t; do
+    g worktree remove --force "$t" || rm -rf "$t"
+  done < <(find "$runs" -maxdepth 1 -type d -name 'preflight-*' -mmin +$((stale / 60)))
+  g worktree prune
+  ptmp=$(mktemp -d "$runs/preflight-XXXXXX")
+  g worktree add -q --detach "$ptmp" "refs/heads/$into"
+  while IFS=$'\t' read -r t fid; do
+    row=$(row_of "$fid") || continue
+    qbranch=${row%%$'\t'*}
+    [[ -n $qbranch && ${row#*$'\t'} == "$into" ]] || continue
+    qtip=$(field "$crew/items/$fid/merging" tip)
+    [[ $qtip =~ ^[0-9a-f]{40,64}$ ]] || continue
+    if g -C "$ptmp" merge -q --no-ff --no-edit -m "Merge branch '$qbranch' into $into" "$qtip" >/dev/null 2>&1; then
+      qids+=("$fid")
+      qbranches+=("$qbranch")
+      qtips+=("$qtip")
+    else
+      g -C "$ptmp" merge --abort
+    fi
+  done < <(markers_in '^(queued|running)$')
+  base=$(g -C "$ptmp" rev-parse HEAD)
+  if ! g -C "$ptmp" merge -q --no-ff --no-edit -m "Merge branch '$branch' into $into" "$tip" >/dev/null 2>&1; then
+    g -C "$ptmp" merge --abort
+    g merge-tree --write-tree "refs/heads/$into" "$tip" >/dev/null 2>&1 || die "$branch conflicts with $into; rebase onto $into"
+    for i in "${!qids[@]}"; do
+      g merge-tree --write-tree "${qtips[i]}" "$tip" >/dev/null 2>&1 || clashes+=("queued item ${qids[i]} (${qbranches[i]})")
+    done
+    ((${#clashes[@]})) || clashes=("the items queued for $into together (${qids[*]})")
+    die "$branch conflicts with ${clashes[*]}; rebase onto $into once it lands"
+  fi
+  log=$runs/preflight-$id.log
+  printf 'crew-merge: preflight on %s%s (log: %s)\n' "$id" "${qids:+ after queued ${qids[*]}}" "$log" >&2
+  t0=$EPOCHSECONDS
+  (cd "$ptmp" && exec env "${unset_env[@]}" CREW_PREFLIGHT=1 CREW_PREFLIGHT_ITEM="$id" CREW_PREFLIGHT_BASE="$base" \
+    CREW_PREFLIGHT_TARGET="$into" CREW_PREFLIGHT_QUEUED="${qids[*]}" timeout -k 10 "$limit" "$hook") >"$log" 2>&1 || prc=$?
+  drop_trial
+  if ((prc == 124)); then
+    tail -n 40 "$log" >&2
+    die "preflight timed out after $limit s (log: $log)"
+  elif ((prc)); then
+    tail -n 40 "$log" >&2
+    die "preflight refused $id (log: $log)"
+  fi
+  printf 'crew-merge: preflight passed on %s after %d s\n' "$id" $((EPOCHSECONDS - t0)) >&2
+}
+
+refuse_merging() {
+  local state
+  state=$(crew_merge_state "$item/merging") || return 0
+  case $state in
+  running | queued) busy "item $id is already merging ($state); see crew-merge --status" ;;
+  cut\ *) die "a dead run of $id was cut off after its fast-forward began (${state#cut }); run crew-merge --settle $id first" ;;
+  esac
+}
+
+# Checked before the preflight too, so a rerun of a merging item exits 3 at once
+# instead of running the hook against the items queued behind it.
+lock_marker "$item"
+refuse_merging
+unlock_marker
+if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
+preflight
+
+lock_marker "$item"
+refuse_merging
+rm -f "$item/merge-outcome"
+
 # The ticket lock makes every marker visible before a later ticket is drawn,
 # so a run that sees no older queued marker is the head of the queue.
 exec {ticket_lock}>"$common/crew-merge.ticket.lock"
@@ -414,26 +535,6 @@ wait_turn() {
   done
 }
 
-# Prints why item $1 cannot land with branch $3 at tip $4, or fails when it can.
-refusal_of() {
-  local fid=$1 review=$2/review.md fbranch=$3 ftip=$4 last
-  if [[ ! -f $review ]]; then
-    echo "no review at $review"
-    return 0
-  fi
-  last=$(sed -n '/^verdict:/{s/^verdict:[[:space:]]*//;s/[[:space:]]*$//;p}' "$review" | tail -n 1)
-  if [[ $last != green ]]; then
-    echo "the last verdict in $review is not green"
-    return 0
-  fi
-  last=$(sed -n '/^reviewed:/{s/^reviewed:[[:space:]]*//;s/[[:space:]]*$//;p}' "$review" | tail -n 1)
-  if [[ $last != "$ftip" ]]; then
-    echo "the last reviewed sha in $review is not the tip of $fbranch ($ftip)"
-    return 0
-  fi
-  holds_heavy_msg "$fid"
-}
-
 target_ok() {
   [[ $(g -C "$target" symbolic-ref -q HEAD) == "refs/heads/$into" ]] || die "$target does not have $into checked out"
   [[ -z $(g -C "$target" status --porcelain --untracked-files=no) ]] || die "$target has uncommitted changes"
@@ -527,14 +628,7 @@ claim_followers() {
       m_merged[-1]=$(landed_at "$fdir" "${m_tip[-1]}")
       settle_member $((${#m_id[@]} - 1)) landed
     fi
-  done < <(
-    for f in "$crew"/items/*/merging; do
-      [[ -f $f && $f != "$item/merging" ]] || continue
-      [[ $(crew_merge_state "$f" 2>/dev/null) == queued ]] || continue
-      fid=${f%/merging}
-      printf '%s\t%s\n' "$(ticket_of "$f")" "${fid##*/}"
-    done | sort -n -k1,1
-  )
+  done < <(markers_in '^queued$')
 }
 
 new_tmp() {
@@ -570,10 +664,6 @@ build() {
   done
 }
 
-unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
-for v in $(compgen -e); do
-  if [[ $v == GIT_CONFIG_* ]]; then unset_env+=(-u "$v"); fi
-done
 gates=0
 
 # Runs check on the temp worktree for members $@ and sets grc and glog.

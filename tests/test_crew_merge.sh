@@ -748,10 +748,10 @@ assert "a batched follower stopped by TERM still lands with its batch" '[[ ${RCS
 set_check 'exit 0'
 
 new_item 61
-printf 'verdict: green\nreviewed: %s\n' "$(git -C "$MAIN" rev-parse main)" >"$CREW/items/61/review.md"
 new_item 62
 hold_lock
 queue_merges 62 61
+printf 'verdict: green\nreviewed: %s\n' "$(git -C "$MAIN" rev-parse main)" >"$CREW/items/61/review.md"
 kill "$HOLDER"
 wait_queued
 assert "a batch refuses a follower whose review does not name its tip and lands the rest" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 1 && -f $CREW/items/62/merged && ! -e $CREW/items/61/merged ]] && grep -q reviewed "$TMP_DIR/out61" && no_markers 61 62'
@@ -834,7 +834,6 @@ assert "a run under a comma-decimal locale lands" '[[ ${RCS[0]} -eq 0 && -f $CRE
 new_item 75
 new_item 77
 git -C "$MAIN" merge -q --ff-only "w/77"
-printf 'verdict: changes\nreviewed: %s\n' "$(tip_of 77)" >"$CREW/items/77/review.md"
 new_item 78
 sleep 60 &
 old_run=$!
@@ -842,12 +841,120 @@ PIDS+=("$old_run")
 printf 'pid %s\nstart %s\ntip %s\nqueued %s\n' "$old_run" "$(crew_pid_start "$old_run")" "$(tip_of 78)" "$((EPOCHSECONDS + 600))" >"$(marker 78)"
 hold_lock
 queue_merges 75 77
+printf 'verdict: changes\nreviewed: %s\n' "$(tip_of 77)" >"$CREW/items/77/review.md"
 kill "$HOLDER"
 wait_queued
 assert "a marker the batch did not claim never settles the item claimed before it" '[[ ${RCS[*]} == "0 1" && ! -e $CREW/items/77/merged ]] && grep -q verdict "$TMP_DIR/out77"'
 assert "an old-format queued marker is left for its own run" '[[ $(crew_merge_state "$(marker 78)") == queued ]]'
 kill "$old_run"
 command rm -f "$(marker 78)"
+
+set_preflight() {
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n%s\n' "$1" >"$CREW/preflight"
+  chmod +x "$CREW/preflight"
+}
+no_preflight_leftover() {
+  ! git -C "$MAIN" worktree list --porcelain | grep -qF "worktree $RUNS/preflight-" &&
+    ! compgen -G "$RUNS/preflight-*/" >/dev/null
+}
+
+new_item 82
+: >"$TMP_DIR/gates"
+set_check "echo gated >>'$TMP_DIR/gates'"
+set_preflight 'echo pf-says-no; exit 1'
+hold_lock
+t0=$SECONDS
+refuses "an item whose preflight fails" 82 "pf-says-no"
+assert "a failing preflight refuses before queueing, without the merge lock or a gate" '((SECONDS - t0 < 10)) && [[ ! -s $TMP_DIR/gates ]] && no_preflight_leftover'
+kill "$HOLDER"
+assert "the refusal names the preflight log" 'grep -q "preflight refused 82 (log: $RUNS/preflight-82.log)" "$TMP_DIR/out"'
+set_check 'exit 0'
+
+new_item 83
+set_preflight "{ git rev-parse HEAD^1 HEAD^2; echo \"\$CREW_PREFLIGHT_BASE \$CREW_PREFLIGHT_ITEM [\$CREW_PREFLIGHT_QUEUED]\"; ls f-*; } >'$TMP_DIR/pf.snap'
+env >'$TMP_DIR/pfenv.snap'"
+before=$(git -C "$MAIN" rev-parse main)
+rc=0
+(cd "$(wt_of 83)" && exec env HARNESS_UNATTENDED=1 HARNESS_NOTIFY=0 "${PB[@]}" "$CM" 83) >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "an item whose preflight passes lands" '[[ $rc -eq 0 && -f $CREW/items/83/merged ]]'
+assert "preflight runs on the item merged onto its target" '[[ $(sed -n 1p "$TMP_DIR/pf.snap") == "$before" && $(sed -n 2p "$TMP_DIR/pf.snap") == "$(tip_of 83)" ]] && grep -qx "f-83" "$TMP_DIR/pf.snap"'
+assert "preflight gets the commit before the item, the item and an empty queue" '[[ $(sed -n 3p "$TMP_DIR/pf.snap") == "$before 83 []" ]]'
+assert "preflight sees CREW_PREFLIGHT but no HARNESS_ or GIT_CONFIG_ variable" 'grep -qx "CREW_PREFLIGHT=1" "$TMP_DIR/pfenv.snap" && ! grep -q "^HARNESS_UNATTENDED=\|^HARNESS_NOTIFY=\|^GIT_CONFIG_" "$TMP_DIR/pfenv.snap"'
+assert "a passing preflight leaves no trial worktree" 'no_preflight_leftover && no_leftover'
+
+new_item 84
+new_item 85
+command rm -f "$TMP_DIR/pf.snap"
+set_preflight "if [[ \$CREW_PREFLIGHT_ITEM == 85 ]]; then { echo \"\$CREW_PREFLIGHT_QUEUED\"; git rev-parse HEAD^1^2 HEAD^2; } >'$TMP_DIR/pf.snap'; fi"
+hold_lock
+queue_merges 84 85
+kill "$HOLDER"
+wait_queued
+assert "items queued behind a preflight land" '[[ ${RCS[*]} == "0 0" ]]'
+assert "preflight merges the items already queued for the target before the item" '[[ $(sed -n 1p "$TMP_DIR/pf.snap") == 84 && $(sed -n 2p "$TMP_DIR/pf.snap") == "$(tip_of 84)" && $(sed -n 3p "$TMP_DIR/pf.snap") == "$(tip_of 85)" ]]'
+
+new_item 86
+commit_shared 86 eighty-six
+new_item 87
+commit_shared 87 eighty-seven
+new_item 88
+commit_shared 88 eighty-eight
+: >"$TMP_DIR/pfran"
+set_preflight "echo \$CREW_PREFLIGHT_ITEM >>'$TMP_DIR/pfran'"
+hold_lock
+queue_merges 86
+t0=$SECONDS
+refuses "an item that conflicts with a queued item" 87 "conflicts with queued item 86 (w/86)"
+assert "a conflict with a queued item refuses without running preflight or waiting" '((SECONDS - t0 < 10)) && [[ $(cat "$TMP_DIR/pfran") == 86 ]] && no_preflight_leftover'
+kill "$HOLDER"
+wait_queued
+assert "the queued item lands" '[[ ${RCS[*]} == 0 && -f $CREW/items/86/merged ]]'
+refuses "an item that conflicts with its target" 88 "w/88 conflicts with main"
+assert "a conflict with the target refuses without running preflight" '[[ $(cat "$TMP_DIR/pfran") == 86 ]] && no_preflight_leftover'
+
+new_item 90
+new_item 91
+command rm -f "$TMP_DIR/pf.snap" "$TMP_DIR/gating" "$TMP_DIR/go"
+set_preflight "if [[ \$CREW_PREFLIGHT_ITEM == 91 ]]; then { echo \"\$CREW_PREFLIGHT_QUEUED\"; git rev-parse HEAD^1^2; } >'$TMP_DIR/pf.snap'; fi"
+set_check "if [[ -e f-90 && ! -e f-91 ]]; then : >'$TMP_DIR/gating'; while [[ ! -e '$TMP_DIR/go' ]]; do sleep 0.1; done; fi"
+start_merge 90 "$TMP_DIR/out90"
+QP=("$BG")
+wait_for '[[ -e $TMP_DIR/gating ]]'
+start_merge 91 "$TMP_DIR/out91"
+QP+=("$BG")
+wait_for "grep -q '^queued ' '$(marker 91)' 2>/dev/null"
+: >"$TMP_DIR/go"
+wait_queued
+assert "preflight merges an item whose gate is running before the item" '[[ ${RCS[*]} == "0 0" && $(sed -n 1p "$TMP_DIR/pf.snap") == 90 && $(sed -n 2p "$TMP_DIR/pf.snap") == "$(tip_of 90)" ]]'
+set_check 'exit 0'
+
+new_item 92
+: >"$TMP_DIR/pfran"
+set_preflight "echo \$CREW_PREFLIGHT_ITEM >>'$TMP_DIR/pfran'"
+hold_lock
+queue_merges 92
+rc=0
+run_merge 92 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a rerun of a queued item exits 3 without running preflight" '[[ $rc -eq 3 && $(cat "$TMP_DIR/pfran") == 92 ]] && grep -q "already merging" "$TMP_DIR/out"'
+kill "$HOLDER"
+wait_queued
+assert "the queued item still lands" '[[ ${RCS[*]} == 0 && -f $CREW/items/92/merged ]]'
+
+new_item 89
+set_preflight 'exit 0'
+chmod -x "$CREW/preflight"
+refuses "a preflight that is not executable" 89 "not executable"
+
+set_preflight "sleep 30 &
+echo \$! >'$BG_PID_FILE'
+wait"
+export CREW_PREFLIGHT_TIMEOUT=1
+t0=$SECONDS
+refuses "a preflight that runs past its timeout" 89 "timed out after 1 s"
+unset CREW_PREFLIGHT_TIMEOUT
+assert "a timed-out preflight is stopped with its children" '((SECONDS - t0 < 10)) && ! kill -0 "$(cat "$BG_PID_FILE")" 2>/dev/null && no_preflight_leftover'
+: >"$BG_PID_FILE"
+command rm -f "$CREW/preflight"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
