@@ -249,10 +249,43 @@ claude_mcp() {
   done
 }
 
+claude_lsp_install() {
+  local label="$1" probe="$2" tool="$3"
+  shift 3
+  if command -v "$probe" &>/dev/null && "$probe" --version &>/dev/null; then
+    log_skip "$label" "already installed"
+  elif ! command -v "$tool" &>/dev/null; then
+    log_warn "$tool not found, skipping $label (its LSP plugin will not start)"
+  elif [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would run: $tool $*"
+  elif "$tool" "$@" >/dev/null 2>&1; then
+    log_success "installed $label"
+  else
+    log_error "failed to install $label"
+  fi
+}
+
+claude_lsp_servers() {
+  local plugins_file="$REPO_ROOT/configs/claude-code/plugins.list"
+  [[ -f "$plugins_file" ]] || return 0
+  local line plugin
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*([a-z-]+-lsp)@ ]] || continue
+    plugin="${BASH_REMATCH[1]}"
+    case "$plugin" in
+      pyright-lsp) claude_lsp_install pyright pyright-langserver uv tool install pyright ;;
+      rust-analyzer-lsp) claude_lsp_install rust-analyzer rust-analyzer rustup component add rust-analyzer ;;
+      typescript-lsp) claude_lsp_install typescript-language-server typescript-language-server npm install -g --registry https://registry.npmjs.org/ typescript typescript-language-server ;;
+      *) log_warn "no server installer for $plugin" ;;
+    esac
+  done <"$plugins_file"
+}
+
 claude_install() {
   claude_mods
   if [[ "$NO_PLUGINS" == "false" ]]; then
     claude_plugins
+    claude_lsp_servers
   else
     log_skip "plugins" "--no-plugins flag"
   fi
