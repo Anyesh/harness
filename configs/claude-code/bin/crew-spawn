@@ -82,6 +82,33 @@ labelled=$(jq --arg l "$name" '[.result.tabs[] | select(.label == $l)] | length'
   die "cannot read herdr tab list: $tabs"
 ((labelled == 0)) || exists
 
+# herdr reports Claude's first-run screens and its login screen as a ready
+# agent, so a profile that would open on either is refused before its tab.
+check_claude_ready() {
+  local state=$HOME/.claude.json setup="run claude-profile sync $profile" login="claude-$profile auth login" status logged rc
+  if [[ $profile == default ]]; then
+    setup="start claude once and finish its setup"
+    login="claude auth login"
+  else
+    state=$(sed -n 's/^CLAUDE_CONFIG_DIR=//p' <<<"$profile_env")
+    [[ -n $state ]] || die "claude-profile env $profile printed no CLAUDE_CONFIG_DIR"
+    state+=/.claude.json
+  fi
+  jq -e '.hasCompletedOnboarding == true' "$state" >/dev/null 2>&1 ||
+    die "profile $profile has not finished Claude's first-run setup; $setup"
+  status=$(timeout 30 env -u CLAUDE_CONFIG_DIR -u CLAUDE_PROFILE -u ANTHROPIC_API_KEY -u CLAUDE_CODE_OAUTH_TOKEN \
+    "${profile_vars[@]}" claude auth status 2>/dev/null </dev/null)
+  rc=$?
+  ((rc != 124)) || die "claude auth status for profile $profile timed out"
+  # auth status exits 1 when signed out but still prints its JSON.
+  logged=$(jq -r '.loggedIn' <<<"$status" 2>/dev/null) || logged=
+  case $logged in
+    true) ;;
+    false) die "profile $profile is not signed in; run $login" ;;
+    *) die "cannot read claude auth status for profile $profile: ${status//$'\n'/ }" ;;
+  esac
+}
+
 envs=()
 ((lead)) || envs=(--env HARNESS_UNATTENDED=1 --env HARNESS_NOTIFY=0)
 if [[ $kind == opencode ]]; then
@@ -91,11 +118,16 @@ if [[ $kind == opencode ]]; then
       description: "Reviews a change, plan or decision and advises; use it for every review, advice or second opinion."}}
   }') || die "cannot build the opencode config"
   envs+=(--env "OPENCODE_CONFIG_CONTENT=$oc_config")
-elif [[ $profile != default ]]; then
-  profile_env=$(claude-profile env "$profile") || die "claude-profile env $profile failed"
+else
+  profile_env=
+  if [[ $profile != default ]]; then
+    profile_env=$(claude-profile env "$profile") || die "claude-profile env $profile failed"
+  fi
+  profile_vars=()
   while IFS= read -r kv; do
-    [[ -n $kv ]] && envs+=(--env "$kv")
+    [[ -n $kv ]] && profile_vars+=("$kv") && envs+=(--env "$kv")
   done <<<"$profile_env"
+  check_claude_ready
 fi
 remotes=$(git -C "$main" remote) || die "git remote failed in $main"
 n=0
@@ -116,16 +148,14 @@ if [[ $kind == opencode ]]; then
   rm -f "$(crew_usage_dir)/$(crew_pane_usage_key "$pane").json"
 fi
 
-# The native Claude install's process is named by its version (2.1.318) and
-# opencode's by its binary (opencode.exe); argv0 names either.
 shell_state() {
   local info
   info=$(timeout 10 herdr pane process-info --pane "$pane" 2>/dev/null) || {
     echo other
     return
   }
-  jq -r --arg k "$kind" '.result.process_info
-    | if any(.foreground_processes[]?; ((.name // "") | sub("\\.exe$"; "")) == $k or ((.argv0 // "") | split("/") | last) == $k)
+  jq -r --arg k "$kind" "$(crew_jq_agent_proc)"'.result.process_info
+    | if any(.foreground_processes[]?; agent_proc($k))
       then "agent"
       elif (.shell_pid | type) == "number" and .shell_pid == .foreground_process_group_id
       then "prompt"

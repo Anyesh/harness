@@ -80,6 +80,7 @@ assert "entries missing from main are not linked" '[[ ! -e "$P/agents" && ! -L "
 assert "handoffs are not linked, they live outside every profile" '[[ ! -e "$P/handoffs" && ! -L "$P/handoffs" ]]'
 assert "mcp servers copied" '[[ "$(jq -r ".mcpServers|keys|join(\",\")" "$P/.claude.json")" == "second-brain,web-strip" ]]'
 assert "main account not copied" '[[ "$(jq -r ".oauthAccount // \"none\"" "$P/.claude.json")" == none ]]'
+assert "main without onboarding seeds nothing" '[[ "$(jq -c "[.hasCompletedOnboarding, .lastOnboardingVersion]" "$P/.claude.json")" == "[null,null]" ]]'
 assert "launcher is executable" '[[ -x "$LAUNCHER" ]]'
 assert "launcher sets config dir and profile" '[[ "$(claude-work --version)" == "cfg=$P profile=work args=--version" ]]'
 assert "declined sign-in does not call login" '! grep -q "args=auth login" <<<"$out"'
@@ -110,6 +111,19 @@ assert "new main entry linked on sync" '[[ -L "$P/agents" ]]'
 assert "new main mcp server merged on sync" '[[ "$(jq -r ".mcpServers.markitdown.command" "$P/.claude.json")" == uvx ]]'
 assert "real file in profile not clobbered" '[[ ! -L "$P/settings.json" && "$(jq -r .own "$P/settings.json")" == true ]]'
 assert "real file reported" 'grep -q "settings.json" <<<"$out"'
+
+echo "=== onboarding seeded from main ==="
+jq '.hasCompletedOnboarding = true | .lastOnboardingVersion = "2.1.300"' "$HOME/.claude.json" >"$TMP_DIR/j" && mv "$TMP_DIR/j" "$HOME/.claude.json"
+printf 'n\n' | bash "$TOOL" onb >/dev/null 2>&1
+assert "create seeds onboarding from main" '[[ "$(jq -c "[.hasCompletedOnboarding, .lastOnboardingVersion]" "$HOME/.claude-onb/.claude.json")" == "[true,\"2.1.300\"]" ]]'
+assert "seeding does not copy the main account" '[[ "$(jq -r ".oauthAccount // \"none\"" "$HOME/.claude-onb/.claude.json")" == none ]]'
+bash "$TOOL" sync work >/dev/null 2>&1
+assert "sync seeds an existing profile" '[[ "$(jq -c "[.hasCompletedOnboarding, .lastOnboardingVersion]" "$P/.claude.json")" == "[true,\"2.1.300\"]" ]]'
+assert "sync seeding keeps profile mcp servers" '[[ "$(jq -r ".mcpServers.local.command" "$P/.claude.json")" == x ]]'
+jq '.lastOnboardingVersion = "1.0.0"' "$P/.claude.json" >"$TMP_DIR/j" && mv "$TMP_DIR/j" "$P/.claude.json"
+bash "$TOOL" sync work >/dev/null 2>&1
+assert "an onboarded profile is left as is" '[[ "$(jq -r .lastOnboardingVersion "$P/.claude.json")" == 1.0.0 ]]'
+bash "$TOOL" remove onb <<<onb >/dev/null 2>&1
 
 echo "=== list ==="
 out=$(bash "$TOOL" list 2>&1)

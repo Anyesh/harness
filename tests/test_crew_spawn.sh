@@ -77,8 +77,8 @@ case "$1 $2" in
   prompt) fg=100 procs='[{"name":"zsh","pid":100}]' ;;
   busy) fg=200 procs='[{"name":"direnv","pid":200}]' ;;
   claude) fg=300 procs='[{"name":"claude","pid":300}]' ;;
-  native) fg=300 procs='[{"name":"2.1.318","argv0":"claude","pid":300}]' ;;
-  opencode) fg=300 procs='[{"name":"opencode.exe","argv0":"/opt/homebrew/bin/opencode","pid":300}]' ;;
+  native) fg=300 procs='[{"name":"2.1.318","argv":["claude","--model","opus"],"pid":300}]' ;;
+  opencode) fg=300 procs='[{"name":"opencode.exe","argv":["/opt/homebrew/bin/opencode"],"pid":300}]' ;;
   ocname) fg=300 procs='[{"name":"opencode","pid":300}]' ;;
   esac
   printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s,"foreground_processes":%s}}}\n' "$fg" "$procs"
@@ -115,7 +115,21 @@ if [[ $1 == names ]]; then
   exit 0
 fi
 [[ "$1 $2" == "env p1" ]] || exit 1
-printf 'CLAUDE_PROFILE=p1\nCLAUDE_CONFIG_DIR=/x/p 1\n'
+printf 'CLAUDE_PROFILE=p1\nCLAUDE_CONFIG_DIR=%s\n' "$P1_DIR"
+EOF
+# Fake claude: `auth status` prints <config dir>/auth-status, or a signed-in
+# status when it is absent, and exits 1 for a signed-out one like the real CLI.
+cat >"$FAKE_BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+echo "${CLAUDE_CONFIG_DIR-unset} ${CLAUDE_PROFILE-unset} $*" >>"$FAKE_STATE/claude.calls"
+[[ "$1 $2" == "auth status" ]] || exit 9
+f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/auth-status
+if [[ -f $f ]]; then
+  cat "$f"
+  ! grep -q '"loggedIn": *false' "$f"
+else
+  echo '{"loggedIn": true, "authMethod": "claude.ai"}'
+fi
 EOF
 # Fake opencode: `models anthropic` prints $FAKE_STATE/models, or both crew
 # models when it is absent, and fails while models_fail exists.
@@ -129,7 +143,7 @@ if [[ -f $FAKE_STATE/models_fail ]]; then
 fi
 cat "$FAKE_STATE/models" 2>/dev/null || printf 'anthropic/claude-fable-5-1\nanthropic/claude-opus-5-5\n'
 EOF
-chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/claude-profile" "$OPENCODE_BIN/opencode"
+chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/claude-profile" "$FAKE_BIN/claude" "$OPENCODE_BIN/opencode"
 
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
@@ -138,9 +152,15 @@ git -C "$REPO" remote add upstream https://example.invalid/u.git
 mkdir -p "$REPO/sub"
 MAIN=$(cd "$REPO" && pwd -P)
 
+export HOME="$TMP_DIR/home"
+export P1_DIR="$TMP_DIR/p 1"
+ONBOARDED='{"hasCompletedOnboarding": true, "lastOnboardingVersion": "2.1.300"}'
+
 reset() {
-  command rm -rf "$FAKE_STATE"
-  mkdir -p "$FAKE_STATE"
+  command rm -rf "$FAKE_STATE" "$HOME" "$P1_DIR"
+  mkdir -p "$FAKE_STATE" "$HOME/.claude" "$P1_DIR"
+  echo "$ONBOARDED" >"$HOME/.claude.json"
+  echo "$ONBOARDED" >"$P1_DIR/.claude.json"
   echo '{"result":{"tabs":[{"label":"other","tab_id":"w1:t1"}]}}' >"$FAKE_STATE/tabs.json"
   echo prompt >"$FAKE_STATE/pi"
 }
@@ -163,7 +183,7 @@ assert "tab gets the label, main checkout and no focus" \
   '[[ $(after --label) == r-w1 && $(after --cwd) == "$MAIN" ]] && arg --no-focus'
 assert "unattended and notify off" 'arg HARNESS_UNATTENDED=1 && arg HARNESS_NOTIFY=0'
 assert "profile env passed, value with a space kept whole" \
-  'arg CLAUDE_PROFILE=p1 && arg "CLAUDE_CONFIG_DIR=/x/p 1"'
+  'arg CLAUDE_PROFILE=p1 && arg "CLAUDE_CONFIG_DIR=$P1_DIR"'
 assert "push URLs reset then dead for each remote" \
   'arg GIT_CONFIG_KEY_0=remote.origin.pushurl && arg GIT_CONFIG_VALUE_0= &&
    arg GIT_CONFIG_KEY_1=remote.origin.pushurl && arg GIT_CONFIG_VALUE_1=/nonexistent/crew-no-push &&
@@ -189,7 +209,7 @@ assert "lead exits 0, prints the pane and starts the agent" \
 assert "lead passes neither unattended nor notify off" \
   '[[ -f $FAKE_STATE/create.args ]] && ! grep -q "^HARNESS_" "$FAKE_STATE/create.args"'
 assert "lead keeps the profile env" \
-  'arg CLAUDE_PROFILE=p1 && arg "CLAUDE_CONFIG_DIR=/x/p 1"'
+  'arg CLAUDE_PROFILE=p1 && arg "CLAUDE_CONFIG_DIR=$P1_DIR"'
 assert "lead keeps the push URL overrides" \
   'arg GIT_CONFIG_KEY_1=remote.origin.pushurl && arg GIT_CONFIG_VALUE_1=/nonexistent/crew-no-push &&
    arg GIT_CONFIG_KEY_3=remote.upstream.pushurl && arg GIT_CONFIG_VALUE_3=/nonexistent/crew-no-push &&
@@ -205,6 +225,53 @@ reset
 spawn --lead --model opus --effort medium r-l3
 assert "lead without a profile is a usage error with no herdr call" \
   '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]]'
+
+echo "first-run setup and sign-in"
+reset
+spawn --model opus --effort medium r-c1 p1
+assert "a ready profile checks auth status in its own config dir without the lead's profile" \
+  '[[ $RC -eq 0 && $(cat "$FAKE_STATE/claude.calls") == "$P1_DIR p1 auth status" ]]'
+reset
+echo '{"lastOnboardingVersion": "2.1.300"}' >"$P1_DIR/.claude.json"
+spawn --model opus --effort medium r-c2 p1
+assert "a profile mid first-run setup exits 4 naming it, with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "first-run setup.*claude-profile sync p1" <<<"$OUT"'
+reset
+command rm -f "$P1_DIR/.claude.json"
+spawn --model opus --effort medium r-c3 p1
+assert "a profile with no state file exits 4 with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "first-run setup" <<<"$OUT"'
+reset
+echo '{"hasCompletedOnboarding": false}' >"$HOME/.claude.json"
+spawn --model opus --effort medium r-c4 default
+assert "a default profile mid first-run setup exits 4 with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "first-run setup" <<<"$OUT"'
+reset
+echo '{"loggedIn": false, "authMethod": "none"}' >"$P1_DIR/auth-status"
+spawn --model opus --effort medium r-c5 p1
+assert "a signed-out profile exits 4 naming its login command, with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "not signed in.*claude-p1 auth login" <<<"$OUT"'
+reset
+echo 'Error: something broke' >"$P1_DIR/auth-status"
+spawn --model opus --effort medium r-c6 p1
+assert "unparseable auth status exits 4 naming it, with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "auth status" <<<"$OUT"'
+reset
+mkdir -p "$TMP_DIR/leadcfg"
+echo '{}' >"$TMP_DIR/leadcfg/.claude.json"
+CLAUDE_CONFIG_DIR="$TMP_DIR/leadcfg" CLAUDE_PROFILE=lead spawn --model opus --effort medium r-c7 default
+assert "a lead in a profile checks default without its own config dir" \
+  '[[ $RC -eq 0 && $(cat "$FAKE_STATE/claude.calls") == "unset unset auth status" ]]'
+reset
+echo '{"loggedIn": false}' >"$HOME/.claude/auth-status"
+spawn --model opus --effort medium r-c8 default
+assert "a signed-out default profile exits 4 with no tab" \
+  '[[ $RC -eq 4 && ! -f $FAKE_STATE/create.args ]] && grep -q "not signed in" <<<"$OUT"'
+reset
+echo '{"hasCompletedOnboarding": false}' >"$HOME/.claude.json"
+spawn r-c9 opencode
+assert "opencode skips the first-run and sign-in checks" \
+  '[[ $RC -eq 0 && ! -f $FAKE_STATE/claude.calls ]]'
 
 echo "repo with no remotes"
 reset
@@ -265,7 +332,7 @@ reset
 printf '1\n' >"$FAKE_STATE/start.rc"
 echo native,prompt >"$FAKE_STATE/start.after"
 spawn --model opus --effort medium r-w17 default
-assert "the native install counts as claude by its argv0" \
+assert "the native install counts as claude by its argv[0]" \
   '[[ $RC -eq 1 && $(starts) -eq 1 ]]'
 reset
 printf '1\n' >"$FAKE_STATE/start.rc"

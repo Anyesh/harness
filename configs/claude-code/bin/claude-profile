@@ -133,6 +133,26 @@ merge_mcp_servers() {
   fi
 }
 
+# Without these keys Claude opens its first-run screens, which herdr reports as
+# a ready agent, so a crew worker started on the profile never gets its prompt.
+seed_onboarding() {
+  local dir="$1" state tmp
+  state="$dir/.claude.json"
+  [[ -f "$MAIN_STATE" ]] || return 0
+  jq -e '.hasCompletedOnboarding == true' "$MAIN_STATE" >/dev/null 2>&1 || return 0
+  [[ -f "$state" ]] || printf '{}\n' >"$state"
+  jq -e '.hasCompletedOnboarding == true' "$state" >/dev/null 2>&1 && return 0
+  tmp=$(mktemp "$state.XXXXXX")
+  if jq --slurpfile main "$MAIN_STATE" \
+    '. + ($main[0] | {hasCompletedOnboarding, lastOnboardingVersion} | with_entries(select(.value != null)))' \
+    "$state" >"$tmp"; then
+    mv "$tmp" "$state"
+  else
+    rm -f "$tmp"
+    warn "could not seed Claude's first-run setup into $state"
+  fi
+}
+
 write_launcher() {
   local name="$1" path
   path=$(launcher_path "$name")
@@ -170,6 +190,7 @@ create() {
   chmod 700 "$dir"
   link_shared "$dir"
   merge_mcp_servers "$dir"
+  seed_onboarding "$dir"
   write_launcher "$name"
   printf 'Profile %s ready at %s, start it with claude-%s\n' "$name" "$dir" "$name"
   [[ ":$PATH:" == *":$BIN_DIR:"* ]] || warn "$BIN_DIR is not on PATH, so claude-$name will not be found until it is"
@@ -215,6 +236,7 @@ sync() {
     fi
     link_shared "$dir"
     merge_mcp_servers "$dir"
+    seed_onboarding "$dir"
     printf 'synced %s\n' "$name"
   done < <(our_profiles)
 }
