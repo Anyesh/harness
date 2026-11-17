@@ -32,7 +32,7 @@
 #                                   a LIMIT or CONTEXT alert that is new on this sweep;
 #                                   the state lines repeat on every sweep without it
 #   GONE <owner>                    an assigned owner herdr no longer lists
-#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
+#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ NOWAKE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
 #     the profile is ? until the session's statusline writes its usage file, and
 #     opencode for an opencode agent, whose plugin writes it by pane;
 #     CONTEXT means at least CREW_CONTEXT_K thousand tokens (CREW_OPENCODE_CONTEXT_K,
@@ -43,6 +43,9 @@
 #     or the merge-<id> of a running merge, holds the heavy slot; HEAVY-WAIT means
 #     either has a heavy.queue ticket, <m> minutes old; LIGHT-WAIT means a live
 #     light.wait ticket for the item; neither wait is ever IDLE or QUIET.
+#     NOWAKE means an idle or done agent, with no report waiting on the lead,
+#     that has no shell as a direct child, so no background command of its own
+#     will wake it; waits and MERGING do not hide it.
 #     QUIET means no progress for CREW_QUIET seconds (default 3600), for a running
 #     merge a merging file that old or a merge-<id> hold that old (the batch
 #     leader's, for an item another run batched), and for an
@@ -308,7 +311,7 @@ load_seen() {
 # Every agent herdr lists, in any workspace, one line each in agent_rows with
 # fields split by \037: name (empty when unnamed), status, usage key, then the
 # session's profile, context tokens and context window, ? when unknown, then
-# the pane id and tab id. The
+# the pane id, tab id and herdr's agent kind. The
 # usage key is the session id, or pane-<pane id> for an opencode agent, which
 # herdr lists without one; that agent is on opencode before its first reply.
 agent_rows=
@@ -321,7 +324,7 @@ load_agents() {
         if ! usage=$(crew_session_usage "$sid") || [[ -z $usage ]]; then
           if [[ $kind == opencode ]]; then usage=$'opencode\t?\t?'; else usage=$'?\t?\t?'; fi
         fi
-        printf '%s\037%s\037%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}" "$pane" "$tab"
+        printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$name" "$status" "$sid" "${usage//$'\t'/$'\037'}" "$pane" "$tab" "$kind"
       done
   )
 }
@@ -354,9 +357,9 @@ agent_list() {
 agent_fields() {
   local fields
   [[ -n $1 ]] || return 1
-  fields=$(awk -F'\037' -v n="$1" '$1 == n { print $2 "\037" $4 "\037" $5 "\037" $6; f = 1; exit } END { exit !f }' <<<"$agent_rows") ||
+  fields=$(awk -F'\037' -v n="$1" '$1 == n { print $2 "\037" $4 "\037" $5 "\037" $6 "\037" $7 "\037" $9; f = 1; exit } END { exit !f }' <<<"$agent_rows") ||
     return 1
-  IFS=$'\037' read -r agent_status agent_profile agent_tokens agent_window <<<"$fields"
+  IFS=$'\037' read -r agent_status agent_profile agent_tokens agent_window agent_pane agent_kind <<<"$fields"
 }
 
 context_k() {
@@ -474,6 +477,34 @@ waits_on_answer() {
   report_since "$1" "$2" && [[ $(crew_report_status "$1") =~ ^(question|blocked|handoff)$ ]]
 }
 
+# A report newer than the row's update that says something other than
+# `working`, so the worker has stopped to wait on the lead or is finished.
+report_stops() {
+  report_since "$1" "$2" && [[ $(crew_report_word "$1") != working ]]
+}
+
+# pid ppid comm of every process, read at most once per sweep.
+ps_rows=
+ps_read=0
+# True when the agent in the pane has no shell as a direct child. Claude's Bash
+# tool, foreground or run_in_background, runs as a direct child shell, while
+# MCP servers' shells sit deeper and a nohup'd command is reparented away, so
+# only a direct child can wake the agent. Any failed lookup answers false.
+no_wake_source() {
+  local pane=$1 kind=$2 info pid
+  [[ -n $pane && -n $kind ]] || return 1
+  info=$(timeout 10 herdr pane process-info --pane "$pane" 2>/dev/null) || return 1
+  pid=$(jq -r --arg k "$kind" "$(crew_jq_agent_proc)"'
+    [.result.process_info.foreground_processes[]? | select(agent_proc($k)) | .pid] | first // empty' <<<"$info" 2>/dev/null) || return 1
+  [[ $pid =~ ^[0-9]+$ ]] || return 1
+  if ((! ps_read)); then
+    ps_read=1
+    ps_rows=$(ps -A -o pid=,ppid=,comm= 2>/dev/null) || ps_rows=
+  fi
+  [[ -n $ps_rows ]] || return 1
+  ! awk -v p="$pid" '$2 == p { c = $3; sub(/.*\//, "", c); sub(/^-/, "", c); if (c ~ /^(sh|bash|zsh|dash|fish)$/) { f = 1; exit } } END { exit !f }' <<<"$ps_rows"
+}
+
 last_progress() {
   local id=$1 branch=$2 latest=$3 item="$crew/items/$1" f t
   [[ $latest =~ ^[0-9]+$ ]] || latest=0
@@ -525,6 +556,8 @@ heavy_wait_since() {
 worker_line() {
   local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc
   local item="$crew/items/$id" merge_state since heavy= waiting=0 quiet_from= quiet_limit=$quiet gate=$id lead
+  local stalled=0
+  if [[ $status == idle || $status == "done" ]] && ! report_stops "$item/report.md" "$updated"; then stalled=1; fi
   merge_state=$(crew_merge_state "$item/merging")
   if [[ $merge_state == running ]]; then
     lead=$(awk '$1 == "leader" { v = $2 } END { print v }' "$item/merging" 2>/dev/null)
@@ -550,9 +583,7 @@ worker_line() {
       quiet_from=$(stat -c %Y "$item/merging" 2>/dev/null)
     fi
   else
-    if ((! waiting)) && [[ $status == idle || $status == done ]] && ! report_since "$item/report.md" "$updated"; then
-      flags+=" IDLE"
-    fi
+    if ((stalled && ! waiting)); then flags+=" IDLE"; fi
     if ! waits_on_answer "$item/report.md" "$updated"; then
       quiet_from=$(last_progress "$id" "$branch" "$updated")
       if [[ $heavy_holder == "$id" ]]; then
@@ -561,6 +592,7 @@ worker_line() {
       fi
     fi
   fi
+  if ((stalled)) && no_wake_source "$agent_pane" "$agent_kind"; then flags+=" NOWAKE"; fi
   flags+=$heavy
   if ((! waiting)) && quiet_since "$quiet_from" "$quiet_limit"; then flags+=" QUIET"; fi
   if [[ $status == blocked ]]; then

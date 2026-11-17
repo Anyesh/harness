@@ -58,7 +58,9 @@ export PATH="$FAKE_BIN:$(path_without opencode "$TMP_DIR")"
 # Fake herdr: `agent list` prints $FAKE_STATE/agents.json and fails while the
 # count in list_fail is above zero, or once the count in list_ok has run out;
 # `agent read` prints screen-<name>, or herdr's agent_not_found error with
-# exit 1 when that file is absent; `tab list` prints tabs.json.
+# exit 1 when that file is absent; `tab list` prints tabs.json; `pane
+# process-info --pane <pane>` logs the pane to pi.calls and reports the pid and
+# optional name in pi-<pane> as the foreground process, failing without it.
 cat >"$FAKE_BIN/herdr" <<'EOF'
 #!/usr/bin/env bash
 d=$FAKE_STATE
@@ -89,6 +91,16 @@ case "$1 $2" in
   fi
   ;;
 "tab list") cat "$d/tabs.json" ;;
+"pane process-info")
+  echo "$4" >>"$d/pi.calls"
+  [[ -f $d/pi-$4 ]] || {
+    echo '{"error":{"code":"pane_not_found"}}' >&2
+    exit 1
+  }
+  read -r pid name <"$d/pi-$4"
+  jq -n --argjson pid "$pid" --arg n "${name:-claude}" '{result: {process_info: {shell_pid: 1, foreground_process_group_id: $pid,
+    foreground_processes: [{argv: ["claude", "--model", "opus"], cmdline: "claude --model opus", cwd: "/", name: $n, pid: $pid}]}}}'
+  ;;
 *)
   echo "fake herdr: unexpected $*" >&2
   exit 2
@@ -1269,6 +1281,53 @@ echo "worker role"
 set_role worker
 sweep 0
 assert "a worker running the sweep gets an error, not SUPERSEDED" '[[ $RC -ne 0 ]] && ! has SUPERSEDED'
+
+echo "NOWAKE"
+set_role lead
+NOW=$EPOCHSECONDS
+bash -c 'sh -c "sleep 30; :"; :' &
+WITH_SHELL=$!
+bash -c 'sleep 30; :' &
+NO_SHELL=$!
+bash -c 'sleep 30; :' &
+NATIVE=$!
+PIDS+=("$WITH_SHELL" "$NO_SHELL" "$NATIVE")
+for _ in {1..50}; do
+  pgrep -P "$WITH_SHELL" -x sh >/dev/null && break
+  sleep 0.1
+done
+rm -f "$CREW/heavy.lock/holder" "$FAKE_STATE"/pi-* "$FAKE_STATE/pi.calls"
+rm -rf "$CREW/heavy.queue" "$CREW/light.wait"
+mkdir -p "$CREW/items/"{1..8}
+rm -f "$CREW/items/"{1..8}/{report.md,merging}
+{
+  for i in 1 2 3 4 5 6 7 8; do row "$i" assigned "x-w$i" "$NOW"; done
+} >"$CREW/board.tsv"
+agents 'x-w1 idle' 'x-w2 idle' 'x-w3 idle' 'x-w4 working' 'x-w5 idle' 'x-w6 done' 'x-w7 idle' 'x-w8 idle'
+echo "$NO_SHELL" >"$FAKE_STATE/pi-wB:p1"
+echo "$WITH_SHELL" >"$FAKE_STATE/pi-wB:p2"
+echo "$NO_SHELL" >"$FAKE_STATE/pi-wB:p3"
+printf 'pid %s\nstart %s\ntip %040d\n' "$NO_SHELL" "$(crew_pid_start "$NO_SHELL")" 0 >"$CREW/items/3/merging"
+echo "$NO_SHELL" >"$FAKE_STATE/pi-wB:p4"
+echo "$NATIVE 2.1.318" >"$FAKE_STATE/pi-wB:p6"
+echo "status: working on tests" >"$CREW/items/7/report.md"
+touch -d "@$((NOW + 5))" "$CREW/items/7/report.md"
+echo "$NO_SHELL" >"$FAKE_STATE/pi-wB:p8"
+echo "status: question" >"$CREW/items/8/report.md"
+touch -d "@$((NOW + 5))" "$CREW/items/8/report.md"
+sweep 1
+assert "an idle agent with no shell child is NOWAKE after IDLE" 'has "WORKER x-w1 item 1 idle on ? IDLE NOWAKE"'
+assert "an idle agent with a shell child is IDLE only" 'has "WORKER x-w2 item 2 idle on ? IDLE"'
+assert "MERGING hides IDLE but not NOWAKE" 'has "WORKER x-w3 item 3 idle on ? MERGING NOWAKE"'
+assert "a working agent is never checked" 'has "WORKER x-w4 item 4 working on ?" && ! grep -qx "wB:p4" "$FAKE_STATE/pi.calls"'
+assert "a failed process-info adds nothing" 'has "WORKER x-w5 item 5 idle on ? IDLE" && grep -qx "wB:p5" "$FAKE_STATE/pi.calls"'
+assert "a native install named by its version is found by argv" 'has "WORKER x-w6 item 6 done on ? IDLE NOWAKE"'
+assert "a newer working report no longer hides IDLE" 'has "WORKER x-w7 item 7 idle on ? IDLE"'
+assert "a report waiting on the lead is neither IDLE nor NOWAKE" 'has "WORKER x-w8 item 8 idle on ?"'
+pkill -P "$(pgrep -P "$WITH_SHELL" -x sh)" 2>/dev/null || true
+kill "$WITH_SHELL" "$NO_SHELL" "$NATIVE" 2>/dev/null || true
+pkill -P "$NO_SHELL" 2>/dev/null || true
+pkill -P "$NATIVE" 2>/dev/null || true
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

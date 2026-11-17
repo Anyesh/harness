@@ -43,6 +43,15 @@ crew_report_word() {
   return 0
 }
 
+# Prints a jq def true for a herdr foreground process running agent kind $k.
+# herdr names a native Claude install's process by its version (2.1.318) and
+# opencode's by its binary (opencode.exe); argv[0] names either.
+crew_jq_agent_proc() {
+  # shellcheck disable=SC2016
+  printf '%s\n' 'def agent_proc($k): ((.name // "") | sub("\\.exe$"; "")) == $k
+    or ((.argv[0] // .argv0 // "") | split("/") | last) == $k;'
+}
+
 # Epoch second a live process started, read through ps because macOS has no
 # /proc. lstart carries no zone, so both ps and date run in UTC; local time
 # would make a DST fall-back hour ambiguous. Needs GNU date for -d.
