@@ -1,0 +1,22 @@
+id = "workview"
+name = "workview"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+platforms = ["linux"]
+description = "Work across every repo, worktree and branch, grouped by ticket, with what waits on you flagged."
+
+# `plugin link` skips this, so modules/herdr.sh builds the linked checkout itself.
+[[build]]
+command = ["cargo", "build", "--release", "--locked"]
+
+[[panes]]
+id = "view"
+title = "workview"
+placement = "tab"
+command = ["target/release/workview"]
+
+[[actions]]
+id = "open"
+title = "workview: open"
+contexts = ["pane", "workspace"]
+command = ["target/release/workview", "--action", "open"]

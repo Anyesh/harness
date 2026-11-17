@@ -10,3 +10,4 @@ tools/web-strip/node_modules/
 .playwright-mcp/
 configs/claude-code/mods/**/.claude-plugin/types/
 configs/claude-code/mods/*/tsconfig.json
+tools/workview/target/
