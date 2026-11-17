@@ -199,6 +199,15 @@ herdr         herdr binary (sha256-pinned), config.toml, plugins pinned to
               running herdr server. godview (our own, prefix+alt+o) shows
               every agent with its subagents in one tab; it follows main
               instead of a pinned commit, so each install updates it.
+              workview (also ours, prefix+alt+w) is built from
+              tools/workview and linked as a local plugin; it shows work
+              across repos and worktrees, puts a tab-bar badge of pushes,
+              strays and removable worktrees in herdr, and has a CLI
+              (workview print tickets|push|worktrees, json, badge). It
+              reads ~/.config/harness/workview.toml (roots, plan_globs,
+              ignore_branches, active_days, stale_fetch_days,
+              removable_quiet_hours, tie_window_minutes,
+              transcript_globs).
 second-brain  latest second-brain binaries (cargo), MCP server
               registration, and the 30-minute peer sync (sb-sync.sh) as a
               systemd user timer, or on macOS the launch agent

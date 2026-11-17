@@ -34,6 +34,7 @@ herdr_install() {
   herdr_deploy_plugin_configs || rc=1
   herdr_retire_plugins || rc=1
   herdr_install_plugins || rc=1
+  herdr_install_workview || rc=1
   herdr_deploy_config || rc=1
   return $rc
 }
@@ -520,6 +521,48 @@ herdr_retire_plugins() {
   return $rc
 }
 
+herdr_workview_linked() {
+  "$1" plugin list --json 2>/dev/null |
+    jq -e --arg root "$2" 'any(.result.plugins[]?; .plugin_id == "workview" and .plugin_root == $root)' >/dev/null 2>&1
+}
+
+herdr_install_workview() {
+  local dir="$REPO_ROOT/tools/workview" missing declared out bin
+  if [[ "${NO_PLUGINS:-false}" == "true" ]]; then
+    log_skip "workview" "--no-plugins flag"
+    return 0
+  fi
+  declared=$(herdr_cargo_rust_version "$dir/Cargo.toml")
+  herdr_pin_covers workview rust "$dir/Cargo.toml" "$declared" HERDR_RUST_VERSION "$HERDR_RUST_VERSION" || return 1
+  missing=$(herdr_missing_needs cargo,cc)
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[dry-run] would build and link: workview${missing:+ (missing now: $missing)}"
+    return 0
+  fi
+  if [[ -n "$missing" ]]; then
+    log_warn "workview skipped: its build needs $missing"
+    return 0
+  fi
+  if ! out=$(cd "$dir" && herdr_with_toolchain cargo build --release --locked </dev/null 2>&1); then
+    log_error "workview build failed: $(tail -5 <<<"$out")"
+    return 1
+  fi
+  bin=$(herdr_bin)
+  if [[ -z "$bin" ]]; then
+    log_warn "workview built but not linked: herdr not found"
+  elif herdr_workview_linked "$bin" "$dir"; then
+    log_skip "workview plugin" "already linked to $dir"
+  elif out=$("$bin" plugin link "$dir" </dev/null 2>&1); then
+    log_success "linked: workview plugin"
+  else
+    log_error "workview plugin link failed: $(tail -5 <<<"$out")"
+    return 1
+  fi
+  mkdir -p "$HOME/.local/bin"
+  ln -sfn "$dir/target/release/workview" "$HOME/.local/bin/workview"
+  log_success "built: workview"
+}
+
 herdr_deploy_plugin_configs() {
   local src rel base="$REPO_ROOT/configs/herdr/plugins" rc=0
   while IFS= read -r src; do
@@ -577,7 +620,7 @@ EOF
     return 1
   fi
   local expected slug line
-  expected=("would install herdr $HERDR_VERSION" "would deploy: herdr config.toml")
+  expected=("would install herdr $HERDR_VERSION" "would deploy: herdr config.toml" "would build and link: workview")
   while IFS=$'\t' read -r slug _; do
     expected+=("would install: herdr plugin $slug")
   done < <(herdr_read_plugins "$REPO_ROOT/configs/herdr/plugins.tsv")

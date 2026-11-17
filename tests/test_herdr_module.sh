@@ -443,6 +443,68 @@ out=$(PATH="$FAKE_BIN:$ORIG_PATH" herdr_ensure_go "$WITHGO" 2>&1)
 assert "go is provided when a plugin needs it" 'grep -q "already on PATH" <<<"$out"'
 rm -f "$FAKE_BIN/go"
 
+echo "=== workview ==="
+
+WV_REPO="$TMP/wvrepo"
+WV_DIR="$WV_REPO/tools/workview"
+WV_BIN="$TMP/wvbin"
+mkdir -p "$WV_DIR" "$WV_BIN"
+printf '[package]\nname = "workview"\nrust-version = "1.88"\n' >"$WV_DIR/Cargo.toml"
+cat >"$WV_BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+echo "cargo $*" >>"$CALLS"
+mkdir -p target/release
+touch target/release/workview
+EOF
+printf '#!/bin/sh\n' >"$WV_BIN/cc"
+chmod +x "$WV_BIN/cargo" "$WV_BIN/cc"
+wv_install() { REPO_ROOT="$WV_REPO" PATH="$WV_BIN:$ORIG_PATH" herdr_install_workview 2>&1; }
+
+echo '{"result":{"plugins":[]}}' >"$PLUGIN_JSON"
+: >"$CALLS"
+rc=0
+out=$(wv_install) || rc=$?
+assert "workview: builds with the locked release profile" 'grep -qx "cargo build --release --locked" "$CALLS"'
+assert "workview: links when herdr does not list it" 'grep -qx "plugin link $WV_DIR" "$CALLS"'
+assert "workview: succeeds" '[[ $rc -eq 0 ]]'
+assert "workview: symlinks the binary into ~/.local/bin" \
+  '[[ -L "$HOME/.local/bin/workview" && "$(readlink "$HOME/.local/bin/workview")" == "$WV_DIR/target/release/workview" ]]'
+
+printf '{"result":{"plugins":[{"plugin_id":"workview","plugin_root":"%s"}]}}\n' "$WV_DIR" >"$PLUGIN_JSON"
+: >"$CALLS"
+out=$(wv_install)
+assert "workview: does not relink when already linked there" '! grep -q "plugin link" "$CALLS"'
+
+printf '{"result":{"plugins":[{"plugin_id":"workview","plugin_root":"/elsewhere"}]}}\n' >"$PLUGIN_JSON"
+: >"$CALLS"
+out=$(wv_install)
+assert "workview: relinks when linked from another root" 'grep -qx "plugin link $WV_DIR" "$CALLS"'
+
+command rm -f "$HOME/.local/bin/workview"
+: >"$CALLS"
+before=$(find "$HOME" | sort)
+rc=0
+out=$(DRY_RUN=true wv_install) || rc=$?
+after=$(find "$HOME" | sort)
+assert "workview dry run: names the step" 'grep -qF "[dry-run] would build and link: workview" <<<"$out"'
+assert "workview dry run: no cargo call, no link, nothing written" \
+  '[[ $rc -eq 0 && ! -s "$CALLS" && "$before" == "$after" && ! -e "$HOME/.local/bin/workview" ]]'
+
+: >"$CALLS"
+rc=0
+out=$(NO_PLUGINS=true wv_install) || rc=$?
+assert "workview --no-plugins: skipped without building" '[[ $rc -eq 0 && ! -s "$CALLS" ]] && grep -q "skip: workview" <<<"$out"'
+
+: >"$CALLS"
+rc=0
+out=$(REPO_ROOT="$WV_REPO" PATH="$NO_RUST_PATH" HOME="$TMP/nohome" herdr_install_workview 2>&1) || rc=$?
+assert "workview without cargo: warns and does not fail" '[[ $rc -eq 0 ]] && grep -q "workview skipped" <<<"$out"'
+assert "workview without cargo: nothing is run" '[[ ! -s "$CALLS" ]]'
+
+out=$(DRY_RUN=true REPO_ROOT="$WV_REPO" PATH="$NO_RUST_PATH" HOME="$TMP/nohome" herdr_install_workview 2>&1)
+assert "workview dry run without cargo: still names the step" \
+  'grep -qF "[dry-run] would build and link: workview (missing now: cargo" <<<"$out"'
+
 echo "=== retire ==="
 
 printf '{"result":{"plugins":[{"plugin_id":"usagebar"},{"plugin_id":"godview"}]}}\n' >"$PLUGIN_JSON"

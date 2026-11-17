@@ -9,6 +9,7 @@ status_indicators = "symbols"
 tab_bar_right = [
   { type = "zoom" },
   { type = "command", command = "free -h | awk '/^Mem/ {print \"mem \" $3 \"/\" $2}'", interval_seconds = 10, timeout_seconds = 2 },
+  { type = "command", command = "b=\"$HOME/.local/bin/workview\"; [ -x \"$b\" ] && \"$b\" badge", interval_seconds = 30, timeout_seconds = 5 },
   { type = "hostname" },
   { type = "datetime", format = "%a %H:%M" },
 ]
@@ -81,6 +82,12 @@ key = "prefix+alt+o"
 type = "plugin_action"
 command = "godview.open"
 description = "godview: every agent and its subagents"
+
+[[keys.command]]
+key = "prefix+alt+w"
+type = "plugin_action"
+command = "workview.open"
+description = "workview: work across repos and worktrees"
 
 [[keys.command]]
 key = "prefix+alt+l"
