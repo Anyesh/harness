@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Usage: crew-red <id> <command> [args...]
+#
+# Runs a worker's new failing test in the item's own worktree, before the fix,
+# and appends what it saw to $crew/items/<id>/red.log: the time, the command,
+# HEAD, the exit status, the changed files and the output tail. crew-merge
+# refuses an item with no such record unless the lead wrote items/<id>/no-test.
+# A run that passes, or whose command could not run (exit 126 or 127), is
+# refused and records nothing, as is a run off the item's board branch.
+#
+# Exit status: 0 red recorded, 1 refused, 2 usage.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-red: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+(($# >= 2)) || usage
+id=$1
+shift
+
+crew=$(crew_dir) || die "not inside a git repository"
+[[ -f $crew/board.tsv ]] || die "no board at $crew/board.tsv"
+branch=$(awk -F'\t' -v id="$id" '($1 "") == id "" {print $4; exit}' "$crew/board.tsv") || die "cannot read $crew/board.tsv"
+[[ -n $branch ]] || die "item $id is not on the board"
+current=$(git symbolic-ref -q --short HEAD) || current="a detached HEAD"
+[[ $current == "$branch" ]] || die "on $current, not $id's branch $branch; run crew-red from the item's worktree"
+
+out=$(mktemp)
+block=
+trap 'command rm -f "$out" ${block:+"$block"}' EXIT
+
+rc=0
+"$@" >"$out" 2>&1 </dev/null || rc=$?
+tail -n 30 "$out"
+echo "crew-red: exit $rc"
+
+((rc != 0)) || die "the test passed, so nothing was recorded; a red run must fail before the fix"
+((rc != 126 && rc != 127)) || die "the command could not run (exit $rc), which is no test failure; nothing was recorded"
+
+dir=$crew/items/$id
+log=$dir/red.log
+mkdir -p "$dir"
+block=$(mktemp "$dir/.red.log.XXXXXX")
+cmd=$(printf '%q ' "$@")
+{
+  [[ -f $log ]] && cat "$log"
+  printf 'red %s\n' "$(date -u +%FT%TZ)"
+  printf 'cmd %s\n' "${cmd% }"
+  printf 'head %s\n' "$(git rev-parse HEAD)"
+  printf 'exit %s\n' "$rc"
+  echo "changed:"
+  git -c status.relativePaths=false status --short | awk 'NR <= 40'
+  echo "output:"
+  tail -n 40 "$out"
+} >"$block"
+mv -f "$block" "$log"
+block=
+echo "crew-red: recorded the red run in $log"

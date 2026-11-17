@@ -5,6 +5,9 @@
 #        crew-merge --settle <item> clear the marker a dead run left, writing the
 #                                   merged file when its fast-forward had landed
 #
+# An item lands only with a crew-red record in items/<id>/red.log or a reason
+# in items/<id>/no-test.
+#
 # Before a run queues, an executable $crew/preflight runs on a throwaway merge
 # of the item onto its target after the items already queued, and a failure
 # refuses the item without a ticket or a gate.
@@ -278,7 +281,7 @@ done
 
 # Prints why item $1 cannot land with branch $3 at tip $4, or fails when it can.
 refusal_of() {
-  local fid=$1 review=$2/review.md fbranch=$3 ftip=$4 last
+  local fid=$1 review=$2/review.md fbranch=$3 ftip=$4 last no_test
   if [[ ! -f $review ]]; then
     echo "no review at $review"
     return 0
@@ -292,6 +295,17 @@ refusal_of() {
   if [[ $last != "$ftip" ]]; then
     echo "the last reviewed sha in $review is not the tip of $fbranch ($ftip)"
     return 0
+  fi
+  if ! crew_red_recorded "$crew" "$fid"; then
+    no_test=0
+    crew_no_test "$crew" "$fid" || no_test=$?
+    if ((no_test == 2)); then
+      echo "$2/no-test is empty; the lead writes the reason $fid has no test in it"
+      return 0
+    elif ((no_test != 0)); then
+      echo "no failing test recorded in $2/red.log: run crew-red $fid <test command> before the fix, or ask the lead for a no-test marker"
+      return 0
+    fi
   fi
   holds_heavy_msg "$fid"
 }

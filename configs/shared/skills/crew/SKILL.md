@@ -45,6 +45,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 - `heavy-priority`: optional, one item id per line, whose heavy-slot waiters are served with the merge gates (Heavy slot).
 - `light-slots`: optional, `N` or `N G`, whole numbers with N at least 1 and G at most N; it turns on `crew-light` (Heavy slot).
 - `items/<id>/report-only`: an empty marker intake writes for an item whose deliverable is a check or a report, which lands nothing and has no `merged` file.
+- `items/<id>/red.log` and `items/<id>/no-test`: `crew-red` appends a worker's failing test run to `red.log`, and `crew-merge` refuses an item with neither a `red.log` record nor a `no-test` file holding a reason. You write `no-test`, with the reason, for an item that has no behavior to test (docs, config), at intake or when a worker's `question` makes the case, and log `no-test <id> <reason>` in `rulings.md`; never write it just to get past a refusal.
 - `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
 - `items/<id>/build-dir`: when the repo gives items their own build output dirs, the item's resolved absolute dir (no template), whose last component is the id or `w-<id>`. `crew-clean-build <id>` deletes that dir when the item lands.
 - `lead-notes.md`: rules for you from reflection, and `## Proposed /crew changes` for every crew in any repo.

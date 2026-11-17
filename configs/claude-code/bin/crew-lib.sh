@@ -261,6 +261,18 @@ crew_report_only() {
   [[ -f $1/items/$2/report-only ]]
 }
 
+# True once crew-red has recorded a failing run of the item's test.
+crew_red_recorded() {
+  grep -q '^red ' "$1/items/$2/red.log" 2>/dev/null
+}
+
+# 0 when the lead exempted the item from crew-red with a reason, 1 when there
+# is no marker, 2 when the marker holds no reason.
+crew_no_test() {
+  [[ -f $1/items/$2/no-test ]] || return 1
+  grep -q '[^[:space:]]' "$1/items/$2/no-test" || return 2
+}
+
 # Heavy slots the crew in dir $1 enables: 0 without a heavy-slots file. Only one
 # slot is supported, so any content other than 1 fails with no output.
 crew_heavy_slots() {

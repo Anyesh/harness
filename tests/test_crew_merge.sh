@@ -84,6 +84,7 @@ new_item() {
   printf '%s\tassigned\tw1\tw/%s\t%s\t0\tdeliverable %s\n' "$id" "$id" "$into" "$id" >>"$CREW/board.tsv"
   mkdir -p "$CREW/items/$id"
   printf 'looks fine\nverdict: green\nreviewed: %s\n' "$tip" >"$CREW/items/$id/review.md"
+  printf 'red 2026-01-01T00:00:00Z\nexit 1\n' >"$CREW/items/$id/red.log"
 }
 
 tip_of() { git -C "$MAIN" rev-parse "refs/heads/w/$1"; }
@@ -151,6 +152,17 @@ refuses "a tip that is not the reviewed sha" 3 "reviewed"
 new_item 4
 printf 'verdict: green\nreviewed: %s\n' "$(tip_of 4 | cut -c1-12)" >"$CREW/items/4/review.md"
 refuses "an abbreviated reviewed sha" 4 "reviewed"
+
+new_item r1
+command rm "$CREW/items/r1/red.log"
+refuses "an item with no red run recorded" r1 "no failing test recorded in .*/red.log: run crew-red r1"
+printf 'changed:\n' >"$CREW/items/r1/red.log"
+refuses "a red.log without a red line" r1 "no failing test recorded"
+printf ' \n' >"$CREW/items/r1/no-test"
+refuses "an empty no-test marker" r1 "no-test is empty"
+printf 'docs only\n' >"$CREW/items/r1/no-test"
+run_merge r1 >"$TMP_DIR/out" 2>&1 || true
+assert "lands with a no-test reason and no red run" '[[ -f $CREW/items/r1/merged ]]'
 
 new_item 5
 command rm "$CREW/check"
@@ -755,6 +767,15 @@ printf 'verdict: green\nreviewed: %s\n' "$(git -C "$MAIN" rev-parse main)" >"$CR
 kill "$HOLDER"
 wait_queued
 assert "a batch refuses a follower whose review does not name its tip and lands the rest" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 1 && -f $CREW/items/62/merged && ! -e $CREW/items/61/merged ]] && grep -q reviewed "$TMP_DIR/out61" && no_markers 61 62'
+
+new_item r2
+new_item r3
+hold_lock
+queue_merges r3 r2
+command rm "$CREW/items/r2/red.log"
+kill "$HOLDER"
+wait_queued
+assert "a batch refuses a follower with no red run and lands the rest" '[[ ${RCS[0]} -eq 0 && ${RCS[1]} -eq 1 && -f $CREW/items/r3/merged && ! -e $CREW/items/r2/merged ]] && grep -q "no failing test recorded" "$TMP_DIR/outr2" && no_markers r2 r3'
 
 new_item 63
 new_item 64
