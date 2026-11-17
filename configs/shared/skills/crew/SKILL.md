@@ -43,7 +43,7 @@ While a crew runs, `crew-question-guard.sh` denies your `AskUserQuestion`, `Ente
 - `thresholds`: optional `KEY=value` lines, read by `crew-resources` and `crew-sweep` on every sweep so a resumed lead keeps them; a non-empty environment variable overrides a line. Keys: `CREW_DISK_MIN_GB`, `CREW_MEM_MIN_MB`, `CREW_LOAD_PER_CPU`, `CREW_IO_FULL_PCT`, and the whole-number keys `CREW_SESSION_SOFT_PCT` (70) and `CREW_WEEK_SOFT_PCT` (85), above which a profile takes no new work, `CREW_SESSION_HARD_PCT` (90) and `CREW_WEEK_HARD_PCT` (95), at which its workers hand off, `CREW_CONTEXT_K` (200, thousands of tokens of context before a worker hands off, since every turn re-reads the whole context), `CREW_OPENCODE_CONTEXT_K` (200, the same for opencode workers), `CREW_LESSONS_MAX_BYTES` (8192, the size limit of `brief.md`'s Lessons), `CREW_LESSON_DUP_PCT` (60, the word overlap at which `crew-lesson` calls a rule a repeat) and `CREW_WORKERS_PER_PROFILE` (5).
 - `heavy-slots`: optional, containing `1`; it turns on the heavy slot below.
 - `heavy-priority`: optional, one item id per line, whose heavy-slot waiters are served with the merge gates (Heavy slot).
-- `light-slots`: optional, a whole number of at least 1; it turns on `crew-light` (Heavy slot).
+- `light-slots`: optional, `N` or `N G`, whole numbers with N at least 1 and G at most N; it turns on `crew-light` (Heavy slot).
 - `items/<id>/report-only`: an empty marker intake writes for an item whose deliverable is a check or a report, which lands nothing and has no `merged` file.
 - `plan.md` and `items/<id>/spec.md`: the plan you were handed and each item's part of it (`references/intake.md`).
 - `items/<id>/build-dir`: when the repo gives items their own build output dirs, the item's resolved absolute dir (no template), whose last component is the id or `w-<id>`. `crew-clean-build <id>` deletes that dir when the item lands.
@@ -57,7 +57,7 @@ On a machine that cannot run a Docker stack, a browser check and the merge gate 
 
 Frontend-only items can share one prebuilt review stack on the target branch while each holds the slot, started by a repo script that refuses to start unless `crew-heavy holds <id>` exits 0. There is one stack per machine, so backend, migration and seed items build their own. A rebuild wipes seeded data, and a worker stops its dev server before it releases the slot. colima's forwarder can stop forwarding newly published ports, and `ssh -L` cannot bind 80 or 443 as a non-root user, so forward high ports only.
 
-With a whole number N in `$crew/light-slots`, workers run type checks, lint and unit tests through `crew-light <command...>`, which runs at most N at once and starts none while a live merge gate holds the heavy slot; commands already running go on, and `check` runs with `CREW_MERGE_GATE=1`, so it never waits on its own gate. The pause needs `heavy-slots`, because without it `crew-merge` takes no heavy slot.
+With `N` or `N G` in `$crew/light-slots`, workers run type checks, lint and unit tests through `crew-light <command...>`, which runs at most N at once and, while a live merge gate holds the heavy slot, starts a worker's command only in slots 1 to G (G defaults to 0, which pauses them all); commands already running go on, and `check` runs with `CREW_MERGE_GATE=1`, so it never waits on its own gate and fills slots from N down, leaving 1 to G to workers until it needs more than N minus G. The pause needs `heavy-slots`, because without it `crew-merge` takes no heavy slot.
 
 ## Workers
 

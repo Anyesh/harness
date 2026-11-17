@@ -90,7 +90,7 @@ light bash -c 'exit 5'
 assert "the exit status passes through" '[[ $RC -eq 5 ]]'
 
 echo "validation"
-for bad in 0 two -1; do
+for bad in 0 two -1 '2 3' '2 x' '2 1 1' '2 -1'; do
   printf '%s\n' "$bad" >"$CREW/light-slots"
   light true
   assert "light-slots holding $bad is refused" '[[ $RC -ne 0 && $OUT == *light-slots* ]]'
@@ -165,6 +165,33 @@ assert "a terminated waiter exits at once and removes its ticket" '[[ $rc -eq 14
 printf 'stack\tstack\t%s\n' "$EPOCHSECONDS" >"$CREW/heavy.lock/holder"
 light bash -c 'echo item-ok'
 assert "an item holding the heavy slot does not pause light commands" '[[ $RC -eq 0 && $OUT == item-ok ]]'
+
+echo "light slots kept for workers under a gate"
+printf '2 1\n' >"$CREW/light-slots"
+light bash -c 'echo split-ok'
+assert "light-slots holding two numbers is read as slots and gate slots" '[[ $RC -eq 0 && $OUT == split-ok ]]'
+held() { ! flock -n "$CREW/light.slots/$1.lock" true; }
+RC=0
+OUT=$(cd "$MAIN" && CREW_MERGE_GATE=1 "$LIGHT" bash -c "flock -n '$CREW/light.slots/2.lock' true || echo held2; flock -n '$CREW/light.slots/1.lock' true || echo held1" 2>&1) || RC=$?
+assert "with no gate running a gate command takes the top slot" '[[ $RC -eq 0 && $OUT == held2 ]]'
+
+printf 'merge-x\tmerge gate\t%s\n' "$EPOCHSECONDS" >"$CREW/heavy.lock/holder"
+bg_light m CREW_MERGE_GATE=1
+m=$BG
+assert "a gate command starts under its own gate" 'wait_for "started m"'
+assert "the gate command holds the top slot and leaves slot 1" 'held 2 && ! held 1'
+LIGHT_CWD=$WT bg_light w1
+w1=$BG
+assert "a worker command starts at once in the slot kept for workers" 'wait_for "started w1"'
+LIGHT_CWD=$WT bg_light w2
+w2=$BG
+sleep 1
+assert "a second worker command waits under the gate" '! started w2 && kill -0 "$w2"'
+assert "its wait message names the gate" 'grep -q "merge-x" "$TMP_DIR/w2.out"'
+stop_command w1
+assert "the waiter takes the worker slot once it frees" 'wait_for "started w2"'
+for n in m w1 w2; do stop_command "$n"; done
+for p in "$m" "$w1" "$w2"; do wait "$p" 2>/dev/null || true; done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

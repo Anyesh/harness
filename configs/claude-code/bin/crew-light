@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Usage: crew-light <command...>
 #
-# Runs the command under one of the N light slots set in <crew dir>/light-slots,
-# or at once when that file is missing. Slot i is a flock on
-# <crew dir>/light.slots/<i>.lock held by this wrapper, never by the command,
-# so the slot frees when the wrapper dies. No new slot is taken while a live
-# crew-merge gate (`merge-<id>`) holds the heavy slot, unless CREW_MERGE_GATE=1.
+# Runs the command under one of the light slots set in <crew dir>/light-slots,
+# or at once when that file is missing. The file holds `N` or `N G`: N slots in
+# all, of which slots 1..G (G defaults to 0) stay open to workers while a live
+# crew-merge gate (`merge-<id>`) holds the heavy slot. The gate's own runs
+# (CREW_MERGE_GATE=1) take slots from N down, so they leave 1..G free until they
+# need more than N - G. Slot i is a flock on <crew dir>/light.slots/<i>.lock
+# held by this wrapper, never by the command, so the slot frees when the wrapper
+# dies.
 # While it waits, a worker's run keeps a ticket in <crew dir>/light.wait named
 # like a heavy.queue ticket, `<epoch microseconds, zero-padded>.<pid>.<item>`.
 # Exits with the command's status.
@@ -21,8 +24,13 @@ die() {
 (($#)) || die "usage: crew-light <command...>"
 crew=$(crew_dir) || die "not inside a git repository"
 [[ -e $crew/light-slots ]] || exec "$@"
-slots=$(tr -d '[:space:]' <"$crew/light-slots") || die "cannot read $crew/light-slots"
-[[ $slots =~ ^[1-9][0-9]*$ ]] || die "$crew/light-slots must contain a whole number of at least 1"
+[[ -r $crew/light-slots ]] || die "cannot read $crew/light-slots"
+read -r -d '' -a fields <"$crew/light-slots" || true
+((${#fields[@]} == 1 || ${#fields[@]} == 2)) && [[ ${fields[0]} =~ ^[1-9][0-9]*$ && ${fields[1]:-0} =~ ^(0|[1-9][0-9]*)$ ]] ||
+  die "$crew/light-slots must contain N or N G: whole numbers, N at least 1"
+slots=${fields[0]}
+gate_slots=${fields[1]:-0}
+((gate_slots <= slots)) || die "$crew/light-slots keeps $gate_slots slots for workers under a gate but has only $slots"
 dir=$crew/light.slots
 poll=${CREW_LIGHT_POLL:-5}
 ticket=
@@ -38,7 +46,6 @@ fi
 
 gate_holder() {
   local holder
-  [[ ${CREW_MERGE_GATE:-} != 1 ]] || return 1
   holder=$(crew_heavy_hold "$crew" | cut -f1)
   [[ $holder == merge-* ]] || return 1
   [[ $(crew_merge_state "$crew/items/${holder#merge-}/merging" 2>/dev/null) == running ]] || return 1
@@ -46,8 +53,9 @@ gate_holder() {
 }
 
 take_slot() {
-  local i
-  for ((i = 1; i <= slots; i++)); do
+  local from=$1 to=$2 step=1 i
+  ((from <= to)) || step=-1
+  for ((i = from; i != to + step; i += step)); do
     exec {fd}>>"$dir/$i.lock"
     flock -n "$fd" && return 0
     exec {fd}>&-
@@ -81,14 +89,19 @@ wait_for_slot() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   while :; do
-    if holder=$(gate_holder); then
-      :
-    elif take_slot; then
-      break
+    holder=
+    if [[ ${CREW_MERGE_GATE:-} == 1 ]]; then
+      take_slot "$slots" 1 && break
+    elif holder=$(gate_holder); then
+      ((gate_slots)) && take_slot 1 "$gate_slots" && break
+    else
+      take_slot 1 "$slots" && break
     fi
     if [[ -n $ticket && ! -e $ticket ]]; then : >"$ticket"; fi
     if ((EPOCHSECONDS >= next_note)); then
-      if [[ -n $holder ]]; then
+      if [[ -n $holder ]] && ((gate_slots)); then
+        echo "crew-light: waiting, the merge gate of $holder leaves workers $gate_slots light slots and all are busy" >&2
+      elif [[ -n $holder ]]; then
         echo "crew-light: waiting for the merge gate of $holder" >&2
       else
         echo "crew-light: waiting, all $slots light slots are busy" >&2
