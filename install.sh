@@ -287,7 +287,7 @@ deploy_tools() {
   mkdir -p "$tools_dest"
 
   for tool_dir in "$tools_src"/*/; do
-    [[ ! -d "$tool_dir" ]] && continue
+    [[ -f "$tool_dir/package.json" ]] || continue
     local tool_name
     tool_name=$(basename "$tool_dir")
     local dest="$tools_dest/$tool_name"
