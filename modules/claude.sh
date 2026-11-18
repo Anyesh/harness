@@ -273,7 +273,7 @@ claude_lsp_servers() {
     [[ "$line" =~ ^[[:space:]]*([a-z-]+-lsp)@ ]] || continue
     plugin="${BASH_REMATCH[1]}"
     case "$plugin" in
-      pyright-lsp) claude_lsp_install pyright pyright-langserver uv tool install pyright ;;
+      pyright-lsp) claude_lsp_install pyright pyright uv tool install pyright ;;
       rust-analyzer-lsp) claude_lsp_install rust-analyzer rust-analyzer rustup component add rust-analyzer ;;
       typescript-lsp) claude_lsp_install typescript-language-server typescript-language-server npm install -g --registry https://registry.npmjs.org/ typescript typescript-language-server ;;
       *) log_warn "no server installer for $plugin" ;;

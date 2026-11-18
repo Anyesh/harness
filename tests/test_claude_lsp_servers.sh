@@ -48,7 +48,9 @@ make_stubs "$NO_UV" rustup npm
 NO_NPM="$TMP/nonpm"
 make_stubs "$NO_NPM" uv rustup
 HAVE="$TMP/have"
-make_stubs "$HAVE" uv rustup npm pyright-langserver rust-analyzer typescript-language-server
+make_stubs "$HAVE" uv rustup npm pyright pyright-langserver rust-analyzer typescript-language-server
+# The real pyright-langserver exits 1 on --version because it requires --stdio.
+printf '#!/bin/sh\nexit 1\n' >"$HAVE/pyright-langserver"
 
 DRY_RUN=false PATH="$ALL:$BASE_PATH" claude_lsp_servers >/dev/null 2>&1
 assert "installs pyright with uv tool" 'grep -qx "uv tool install pyright" "$ALL/calls.log"'
