@@ -256,6 +256,46 @@ crew_dir() {
   printf '%s/.claude/crew\n' "$main"
 }
 
+# The worktree of repo $1 that has refs/heads/$2 checked out, or nothing. A
+# prunable entry (its directory is gone) is skipped, so a caller that does not
+# prune agrees with crew-merge, which prunes first.
+crew_target_of() {
+  GIT_OPTIONAL_LOCKS=0 git -C "$1" worktree list --porcelain | awk -v b="branch refs/heads/$2" '
+    function flush() {
+      if (hit && !gone && !found) { print w; found = 1 }
+      hit = gone = 0
+    }
+    /^worktree / { flush(); w = substr($0, 10); next }
+    $0 == b { hit = 1 }
+    /^prunable/ { gone = 1 }
+    END { flush() }
+  '
+}
+
+# Prints the first reason crew-merge refuses to merge into branch $2 at
+# worktree $1 and fails; succeeds silently when it would merge.
+crew_target_problem() {
+  local wt=$1 into=$2 op
+  if [[ $(git -C "$wt" symbolic-ref -q HEAD) != "refs/heads/$into" ]]; then
+    echo "$wt does not have $into checked out"
+    return 1
+  fi
+  if [[ -n $(GIT_OPTIONAL_LOCKS=0 git -C "$wt" status --porcelain --untracked-files=no) ]]; then
+    echo "$wt has uncommitted changes"
+    return 1
+  fi
+  for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+    if [[ -e $(git -C "$wt" rev-parse --path-format=absolute --git-path "$op") ]]; then
+      echo "$wt has a leftover $op"
+      return 1
+    fi
+  done
+  if git -C "$wt" rev-parse -q --verify MERGE_AUTOSTASH >/dev/null; then
+    echo "$wt has a leftover MERGE_AUTOSTASH"
+    return 1
+  fi
+}
+
 # A report-only item lands nothing, so its done report stands in for a merge.
 crew_report_only() {
   [[ -f $1/items/$2/report-only ]]

@@ -154,7 +154,7 @@ EOF
 chmod +x "$FAKE_BIN/herdr" "$FAKE_BIN/crew-role" "$FAKE_BIN/crew-dagr" "$FAKE_BIN/claude-profile" "$FAKE_BIN/ps"
 
 REPO="$TMP_DIR/repo"
-git init -q "$REPO"
+git init -q -b main "$REPO"
 REPO=$(cd "$REPO" && pwd -P)
 CREW="$REPO/.claude/crew"
 mkdir -p "$CREW/items" "$REPO/sub"
@@ -549,6 +549,50 @@ sweep 1
 assert "an unparseable merging file is not MERGING" 'has "WORKER x-w8 item 8 idle on ? IDLE"'
 assert "an unparseable merging file is STALE-MERGE" 'has "STALE-MERGE 8"'
 rm "$CREW/items/8/merging"
+
+echo "merge targets"
+into_row() { printf '%s\t%s\t%s\tw/%s\t%s\t0\tdeliver item %s\n' "$1" "$2" "${4:-}" "$1" "$3" "$1"; }
+tgt() { git -C "$REPO" -c user.name=t -c user.email=t@example.com "$@"; }
+agents
+{ into_row 1 open main; } >"$CREW/board.tsv"
+sweep 0
+assert "a clean target checked out in the main checkout gives no TARGET line" '! has_re "^TARGET "'
+tgt symbolic-ref HEAD refs/heads/side
+sweep 0
+assert "a target the main checkout switched away from is not checked out" 'has "TARGET main: not checked out in any worktree; $REPO is on side"'
+tgt update-ref --no-deref HEAD "$(tgt commit-tree -m detached "$(tgt mktree </dev/null)")"
+sweep 0
+assert "a detached main checkout is named as such" 'has "TARGET main: not checked out in any worktree; $REPO is on a detached HEAD"'
+tgt symbolic-ref HEAD refs/heads/main
+echo x >"$REPO/tracked.txt"
+tgt add tracked.txt
+sweep 0
+assert "a target with tracked changes is reported with crew-merge's reason" 'has "TARGET main: $REPO has uncommitted changes"'
+tgt rm -q --cached tracked.txt
+rm "$REPO/tracked.txt"
+mh=$(tgt rev-parse --path-format=absolute --git-path MERGE_HEAD)
+tgt mktree </dev/null >"$mh"
+sweep 0
+assert "a target with a leftover MERGE_HEAD is reported" 'has "TARGET main: $REPO has a leftover MERGE_HEAD"'
+rm "$mh"
+{
+  into_row 1 open release
+  into_row 2 assigned release x-w2
+} >"$CREW/board.tsv"
+sweep 0
+assert "rows into one missing branch give one TARGET line" '[[ $(grep -c "^TARGET " <<<"$OUT") -eq 1 ]] && has "TARGET release: not checked out in any worktree; $REPO is on main"'
+mkdir -p "$CREW/items/4"
+touch "$CREW/items/4/report-only"
+{
+  into_row 1 open main
+  into_row 2 done gone-a x-w2
+  into_row 3 blocked gone-b x-w3
+  into_row 4 open gone-c
+  into_row 5 open ''
+} >"$CREW/board.tsv"
+sweep 0
+assert "done, blocked, report-only and into-less rows give no TARGET line" '! has_re "^TARGET "'
+rm -rf "$CREW/items/4"
 
 echo "herdr agent list failures"
 { row 1 assigned x-w1 "$NOW"; } >"$CREW/board.tsv"

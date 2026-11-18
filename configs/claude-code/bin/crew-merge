@@ -550,17 +550,8 @@ wait_turn() {
 }
 
 target_ok() {
-  [[ $(g -C "$target" symbolic-ref -q HEAD) == "refs/heads/$into" ]] || die "$target does not have $into checked out"
-  [[ -z $(g -C "$target" status --porcelain --untracked-files=no) ]] || die "$target has uncommitted changes"
-  local op
-  for op in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
-    if [[ -e $(g -C "$target" rev-parse --path-format=absolute --git-path "$op") ]]; then
-      die "$target has a leftover $op"
-    fi
-  done
-  if g -C "$target" rev-parse -q --verify MERGE_AUTOSTASH >/dev/null; then
-    die "$target has a leftover MERGE_AUTOSTASH"
-  fi
+  local msg
+  msg=$(crew_target_problem "$target" "$into") || die "$msg"
 }
 
 # The merge commit an item whose tip is already in the target landed at: the
@@ -784,7 +775,7 @@ done
 
 if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
 
-target=$(g worktree list --porcelain | awk -v b="branch refs/heads/$into" '/^worktree /{w = substr($0, 10)} $0 == b {print w}')
+target=$(crew_target_of . "$into")
 [[ -n $target ]] || die "$into is not checked out in any worktree"
 target_ok
 [[ -x $crew/check ]] || die "no executable check at $crew/check"

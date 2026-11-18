@@ -72,6 +72,10 @@
 #     landing finished, or a done report-only row whose report is done, with
 #     that left over; once each (.sweep-leftovers)
 #   STALE-MERGE <id>                an item whose merging file a dead crew-merge left
+#   TARGET <into>: not checked out in any worktree; <main checkout> is on <branch|a detached HEAD>
+#   TARGET <into>: <reason>         once per branch that open or assigned rows, report-only
+#                                   ones aside, merge into and crew-merge would refuse;
+#                                   the reason is crew-merge's
 #   READY <id>                      an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
 #                                   <dep>, waits on blocked <dep>, is in a cycle, or
@@ -796,6 +800,23 @@ report_stale_merges() {
   shopt -u nullglob
 }
 
+report_targets() {
+  local id status _owner _branch into _rest wt head problem
+  local -A checked=()
+  while IFS=$'\037' read -r id status _owner _branch into _rest; do
+    [[ ($status == open || $status == assigned) && -n $into && -z ${checked[$into]:-} ]] || continue
+    ! crew_report_only "$crew" "$id" || continue
+    checked[$into]=1
+    wt=$(crew_target_of "$main" "$into" 2>/dev/null) || continue
+    if [[ -z $wt ]]; then
+      head=$(GIT_OPTIONAL_LOCKS=0 git -C "$main" symbolic-ref -q --short HEAD) || head="a detached HEAD"
+      echo "TARGET $into: not checked out in any worktree; $main is on $head"
+    elif ! problem=$(crew_target_problem "$wt" "$into"); then
+      echo "TARGET $into: $problem"
+    fi
+  done < <(crew_board "$board")
+}
+
 # Open rows whose deps can all reach done are found by a fixpoint from the done
 # and assigned rows; the rest can never start and get a DEPS line. A dep on a
 # row with a status other than open, assigned, done or blocked counts as unknown,
@@ -1046,6 +1067,7 @@ report_spares
 report_pool
 report_leftovers
 report_stale_merges
+report_targets
 report_order
 report_heavy
 report_reflect

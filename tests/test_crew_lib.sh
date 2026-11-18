@@ -130,6 +130,18 @@ assert "a missing marker fails with no output" '! out=$(crew_merge_state "$TMP_D
 kill "$live"
 wait "$live" 2>/dev/null || true
 
+echo "merge targets"
+git -C "$MAIN" worktree add -q -b gone "$TMP_DIR/gone-wt"
+command rm -rf "$TMP_DIR/gone-wt"
+main_branch=$(git -C "$MAIN" symbolic-ref --short HEAD)
+assert "crew_target_of finds the main checkout's branch" '[[ $(crew_target_of "$MAIN" "$main_branch") == "$MAIN" ]]'
+assert "crew_target_of finds a branch checked out in a linked worktree" '[[ $(crew_target_of "$MAIN" w/1) == "$MAIN/.claude/worktrees/w-1" ]]'
+assert "crew_target_of prints nothing for a branch checked out nowhere" '[[ -z $(crew_target_of "$MAIN" nowhere) ]]'
+assert "crew_target_of skips a prunable worktree" '[[ -z $(crew_target_of "$MAIN" gone) ]]'
+git -C "$MAIN" worktree prune
+assert "crew_target_problem is silent for a ready target" '[[ -z $(crew_target_problem "$MAIN" "$main_branch") ]] && crew_target_problem "$MAIN" "$main_branch"'
+assert "crew_target_problem names the wrong branch" '! msg=$(crew_target_problem "$MAIN" other) && [[ $msg == "$MAIN does not have other checked out" ]]'
+
 echo "heavy queue"
 HC="$TMP_DIR/heavycrew"
 HQ="$HC/heavy.queue"
