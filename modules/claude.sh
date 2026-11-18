@@ -3,15 +3,15 @@
 source "$REPO_ROOT/lib/claude_profiles.sh"
 
 claude_check() {
-    if [[ "$HAS_CLAUDE" != "true" ]]; then
-        log_info "Claude Code not detected, skipping"
-        log_info "  Install: https://docs.anthropic.com/claude-code"
-        return 1
-    fi
-    if [[ ! -d "$CLAUDE_CONFIG_DIR" ]]; then
-        mkdir -p "$CLAUDE_CONFIG_DIR"
-    fi
-    return 0
+  if [[ "$HAS_CLAUDE" != "true" ]]; then
+    log_info "Claude Code not detected, skipping"
+    log_info "  Install: https://docs.anthropic.com/claude-code"
+    return 1
+  fi
+  if [[ ! -d "$CLAUDE_CONFIG_DIR" ]]; then
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+  fi
+  return 0
 }
 
 claude_plugins() {
@@ -60,7 +60,7 @@ claude_plugins() {
         fi
       fi
     fi
-  done < "$plugins_file"
+  done <"$plugins_file"
 
   # Dropping a line from plugins.list unregisters nothing, so a removed mod would linger
   # as an installed plugin whose marketplace entry is gone.
@@ -317,42 +317,42 @@ claude_install() {
 }
 
 claude_test() {
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
 
-    local orig_home="$HOME"
-    local orig_xdg="${XDG_CONFIG_HOME-}" had_xdg="${XDG_CONFIG_HOME+set}"
-    local orig_config="${CLAUDE_CONFIG_DIR:-}"
-    local orig_dry="$DRY_RUN"
-    local orig_force="$FORCE"
-    local orig_no_backup="$NO_BACKUP"
-    local orig_no_plugins="$NO_PLUGINS"
+  local orig_home="$HOME"
+  local orig_xdg="${XDG_CONFIG_HOME-}" had_xdg="${XDG_CONFIG_HOME+set}"
+  local orig_config="${CLAUDE_CONFIG_DIR:-}"
+  local orig_dry="$DRY_RUN"
+  local orig_force="$FORCE"
+  local orig_no_backup="$NO_BACKUP"
+  local orig_no_plugins="$NO_PLUGINS"
 
-    export HOME="$tmp_dir"
-    export XDG_CONFIG_HOME="$tmp_dir/.config"
-    CLAUDE_CONFIG_DIR="$tmp_dir/.claude"
-    DRY_RUN=true
-    FORCE=true
-    NO_BACKUP=true
-    NO_PLUGINS=true
-    mkdir -p "$CLAUDE_CONFIG_DIR"
+  export HOME="$tmp_dir"
+  export XDG_CONFIG_HOME="$tmp_dir/.config"
+  CLAUDE_CONFIG_DIR="$tmp_dir/.claude"
+  DRY_RUN=true
+  FORCE=true
+  NO_BACKUP=true
+  NO_PLUGINS=true
+  mkdir -p "$CLAUDE_CONFIG_DIR"
 
-    local output
-    output=$(claude_install 2>&1)
+  local output
+  output=$(claude_install 2>&1)
 
-    HOME="$orig_home"
-    if [[ -n "$had_xdg" ]]; then XDG_CONFIG_HOME="$orig_xdg"; else unset XDG_CONFIG_HOME; fi
-    CLAUDE_CONFIG_DIR="$orig_config"
-    DRY_RUN="$orig_dry"
-    FORCE="$orig_force"
-    NO_BACKUP="$orig_no_backup"
-    NO_PLUGINS="$orig_no_plugins"
-    rm -rf "$tmp_dir"
+  HOME="$orig_home"
+  if [[ -n "$had_xdg" ]]; then XDG_CONFIG_HOME="$orig_xdg"; else unset XDG_CONFIG_HOME; fi
+  CLAUDE_CONFIG_DIR="$orig_config"
+  DRY_RUN="$orig_dry"
+  FORCE="$orig_force"
+  NO_BACKUP="$orig_no_backup"
+  NO_PLUGINS="$orig_no_plugins"
+  rm -rf "$tmp_dir"
 
-    if ! echo "$output" | grep -q '\[dry-run\]'; then
-        log_error "claude_test: no dry-run output produced"
-        return 1
-    fi
+  if ! echo "$output" | grep -q '\[dry-run\]'; then
+    log_error "claude_test: no dry-run output produced"
+    return 1
+  fi
 
-    return 0
+  return 0
 }
