@@ -14,13 +14,13 @@
     "ttlMinutes": {
       "type": "number",
       "title": "Assumed cache lifetime (minutes)",
-      "description": "How long the prompt cache is assumed to live before any expiry has been observed; observed hits and misses adjust it.",
-      "default": 60
+      "description": "How long the prompt cache is assumed to live when a response does not report its cache lifetime (a proxy may not); hits and misses on such responses adjust it. Set 60 for a proxy configured for the 1-hour cache.",
+      "default": 5
     },
     "agentTtlMinutes": {
       "type": "number",
       "title": "Assumed subagent cache lifetime (minutes)",
-      "description": "How long a subagent's prompt cache is assumed to live before any expiry has been observed; observed hits and misses adjust it.",
+      "description": "How long a subagent's prompt cache is assumed to live when a response does not report its cache lifetime; hits and misses on such responses adjust it.",
       "default": 5
     }
   }

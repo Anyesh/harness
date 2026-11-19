@@ -37,8 +37,23 @@ type World = {
   sessionId: string
 }
 
-function usage(read: number, write: number): TurnUsage {
+function bareUsage(read: number, write: number): TurnUsage {
   return { input_tokens: 0, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: 10, model: OPUS }
+}
+
+// A response that wrote nothing reports no split, as the engine leaves it out.
+function tiered(read: number, write: number, fiveMin: number, oneHour: number): TurnUsage {
+  if (write === 0) return bareUsage(read, write)
+  return { ...bareUsage(read, write), ephemeral_5m_input_tokens: fiveMin, ephemeral_1h_input_tokens: oneHour }
+}
+
+// First-party shapes: the main thread writes the 1-hour cache and subagents the 5-minute one.
+function usage(read: number, write: number): TurnUsage {
+  return tiered(read, write, 0, write)
+}
+
+function agentUsage(read: number, write: number): TurnUsage {
+  return tiered(read, write, write, 0)
 }
 
 function world(on: On, env: Record<string, string> = { XDG_STATE_HOME: '/state', HOME: '/home/user' }): World {
@@ -285,7 +300,7 @@ describe('gate', () => {
 
   test('subagent steps do not gate the main thread', async ($, on) => {
     const w = world(on)
-    await step($, w, usage(0, 380_000), { agentId: 'agent-1' })
+    await step($, w, agentUsage(0, 380_000), { agentId: 'agent-1' })
     await complete($, 'agent-1')
     await w.clock.advance(72 * MINUTE)
     await submit($)
@@ -460,7 +475,7 @@ describe('step gate', () => {
   test('subagent steps never ask', async ($, on) => {
     const w = world(on)
     await waitedOn($, w, 72)
-    await step($, w, usage(0, 380_000), { agentId: 'a1', index: 1 })
+    await step($, w, agentUsage(0, 380_000), { agentId: 'a1', index: 1 })
     expect(w.asked).toEqual([])
   })
 
@@ -481,7 +496,7 @@ describe('last response per session', () => {
   test('each main step stores the last response under its session', async ($, on) => {
     const w = world(on)
     await warmed($, w, 1)
-    expect(w.stored['last:sess-1']).toEqual({ at: NOW, ctx: 380_000, model: OPUS })
+    expect(w.stored['last:sess-1']).toEqual({ at: NOW, ctx: 380_000, model: OPUS, ttlMs: 60 * MINUTE })
   })
 
   test('a stored response gates the first prompt after a restart', async ($, on) => {
@@ -493,11 +508,19 @@ describe('last response per session', () => {
     expect(w.asked[0]).toContain('idle 72m')
   })
 
-  test('a stored response teaches the TTL across a restart', async ($, on) => {
+  test('a stored response without a lifetime teaches the fallback across a restart', async ($, on) => {
     const w = world(on)
     w.stored['last:sess-1'] = idle(20)
-    await step($, w, usage(380_000, 0))
-    expect(w.stored.ttl).toEqual({ warmMaxMs: 20 * MINUTE, coldMinMs: null })
+    await step($, w, bareUsage(380_000, 0))
+    expect(w.stored.fallbackTtl).toEqual({ warmMaxMs: 20 * MINUTE, coldMinMs: null })
+  })
+
+  test('a stored record from before lifetimes were kept counts from the 5-minute fallback', async ($, on) => {
+    const w = world(on)
+    w.stored['last:sess-1'] = idle(6)
+    w.contextTokens = 380_000
+    await submit($)
+    expect(w.asked).toHaveLength(1)
   })
 
   test('resuming another session reads its own response, not the one held in memory', async ($, on) => {
@@ -535,13 +558,19 @@ describe('last response per session', () => {
   test('session start keeps the 50 newest stored responses and nothing else changes', async ($, on) => {
     const w = world(on)
     for (let i = 0; i < 52; i++) w.stored[`last:s${i}`] = { at: i, ctx: 1, model: OPUS }
-    w.stored.ttl = { warmMaxMs: 1, coldMinMs: null }
+    w.stored.fallbackTtl = { warmMaxMs: 1, coldMinMs: null }
+    w.stored.agentFallbackTtl = { warmMaxMs: 2, coldMinMs: null }
+    w.stored.ttl = { warmMaxMs: 3, coldMinMs: null }
+    w.stored.agentTtl = { warmMaxMs: 4, coldMinMs: null }
     await start($, on)
     const kept = Object.keys(w.stored).filter(key => key.startsWith('last:'))
     expect(kept).toHaveLength(50)
     expect(kept).not.toContain('last:s0')
     expect(kept).not.toContain('last:s1')
-    expect(w.stored.ttl).toEqual({ warmMaxMs: 1, coldMinMs: null })
+    expect(w.stored.fallbackTtl).toEqual({ warmMaxMs: 1, coldMinMs: null })
+    expect(w.stored.agentFallbackTtl).toEqual({ warmMaxMs: 2, coldMinMs: null })
+    expect('ttl' in w.stored).toBe(false)
+    expect('agentTtl' in w.stored).toBe(false)
   })
 
   test('session start never prunes the session being resumed', async ($, on) => {
@@ -566,14 +595,65 @@ describe('misses', () => {
     expect(w.stored.misses).toHaveLength(1)
   })
 
-  test('a learnt shorter TTL gates sooner', async ($, on) => {
+  test('a 5-minute response gates after 5 minutes', async ($, on) => {
     const w = world(on)
-    await warmed($, w, 20)
-    await step($, w, usage(0, 380_000))
+    await step($, w, tiered(0, 380_000, 380_000, 0))
     await complete($)
-    await w.clock.advance(25 * MINUTE)
+    await w.clock.advance(6 * MINUTE)
     await submit($)
     expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]).toContain('(≈ $1.90)')
+  })
+
+  test('a cold 1-hour response teaches no bounds', async ($, on) => {
+    const w = world(on)
+    await warmed($, w, 72)
+    await step($, w, usage(0, 380_000))
+    expect(w.stored.fallbackTtl).toEqual({ warmMaxMs: null, coldMinMs: null })
+  })
+})
+
+describe('responses without a lifetime', () => {
+  async function bare($: Engine, w: World, idleMinutes: number) {
+    await step($, w, bareUsage(0, 380_000))
+    await complete($)
+    await w.clock.advance(idleMinutes * MINUTE)
+  }
+
+  test('count from the 5-minute default', async ($, on) => {
+    const w = world(on)
+    await bare($, w, 6)
+    await submit($)
+    expect(w.asked).toHaveLength(1)
+    expect(w.asked[0]).toContain('(≈ $1.90)')
+  })
+
+  test('a warm step after 20 minutes raises the fallback', async ($, on) => {
+    const w = world(on)
+    await bare($, w, 20)
+    await step($, w, bareUsage(380_000, 0))
+    await complete($)
+    await w.clock.advance(15 * MINUTE)
+    await submit($)
+    expect(w.asked).toEqual([])
+    await w.clock.advance(10 * MINUTE)
+    await submit($)
+    expect(w.asked).toHaveLength(1)
+  })
+
+  test('respect the ttlMinutes option', { options: { ttlMinutes: 60 } }, async ($, on) => {
+    const w = world(on)
+    await bare($, w, 30)
+    await submit($)
+    expect(w.asked).toEqual([])
+  })
+
+  test('a stale learned TTL under the old shared key does not move the countdown', async ($, on) => {
+    const w = world(on)
+    w.stored.ttl = { warmMaxMs: 55 * MINUTE, coldMinMs: null }
+    await start($, on)
+    await bare($, w, 1)
+    expect(segment(w, TIMER)).toMatchObject({ text: '◷ 4m left', tone: 'normal' })
   })
 })
 
@@ -661,7 +741,7 @@ describe('agents', () => {
     const w = world(on)
     await start($, on)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     await complete($, 'a1')
     expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 1 agent', tone: 'normal' })
     w.agents = [agent('a1', 'idle')]
@@ -673,7 +753,7 @@ describe('agents', () => {
     const w = world(on)
     await start($, on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(6 * MINUTE)
     await warmed($, w, 1)
     expect(segment(w, TIMER)).toMatchObject({ text: '◷ 59m left', tone: 'normal' })
@@ -684,22 +764,34 @@ describe('agents', () => {
     const w = world(on)
     await start($, on)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     w.agents = []
     await w.clock.advance(30_000)
     expect(segment(w, AGENTS)).toBe('')
     await w.clock.advance(9 * MINUTE)
     w.agents = [agent('a1', 'running')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
+  })
+
+  test('a 5-minute and a 1-hour subagent go cold at their own tiers', async ($, on) => {
+    const w = world(on)
+    await start($, on)
+    w.agents = [agent('a1', 'idle'), agent('a2', 'idle')]
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
+    await step($, w, tiered(0, 120_000, 0, 120_000), { agentId: 'a2' })
+    await w.clock.advance(6 * MINUTE)
+    expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 2 agents · 1 cold', tone: 'warn' })
+    await w.clock.advance(55 * MINUTE)
+    expect(segment(w, AGENTS)).toMatchObject({ text: '◈ 2 agents · 2 cold', tone: 'warn' })
   })
 
   test('a cold agent step toasts and records the miss', async ($, on) => {
     const w = world(on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     expect(w.toasts).toEqual(['Agent Explore went cold after 9m: re-wrote 120k tokens (≈ $0.60)'])
     expect(w.stored.misses).toMatchObject([{ agentId: 'a1', tokens: 120_000 }])
   })
@@ -712,7 +804,7 @@ describe('agents', () => {
     })
     await start($, on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ plugin: 'cache-guard', surface, ...BAND })
@@ -731,7 +823,7 @@ describe('agents', () => {
     on('ui.render', () => ({ type: 'engine' as const, ref: 0 }))
     await start($, on)
     w.agents = [agent('a1', 'idle')]
-    await step($, w, usage(0, 120_000), { agentId: 'a1' })
+    await step($, w, agentUsage(0, 120_000), { agentId: 'a1' })
     await w.clock.advance(9 * MINUTE)
     const ui = await $.ui.mount({ plugin: 'cache-guard', surface: 'terminal', ...BAND, props: { hasSurvey: true, isWorking: false, maxRows: 10, bodyColumns: 120 } as never })
     expect(await ui.find({ type: 'Text', text: /idle 9m/ })).toBeUndefined()

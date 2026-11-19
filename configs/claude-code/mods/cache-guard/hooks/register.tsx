@@ -45,12 +45,18 @@ const CREW_TURNS_KEPT = 8
 
 type Config = { defaultTtlMs: number; agentTtlMs: number; gateUsd: number }
 
-async function ttlMs($: EngineInterface, config: Config): Promise<number> {
-  return effectiveTtl(asBounds(await $.store.get('ttl')), config.defaultTtlMs)
+// Every profile shares this store, so these keys hold only what responses without a reported lifetime taught.
+const FALLBACK_KEY = 'fallbackTtl'
+const AGENT_FALLBACK_KEY = 'agentFallbackTtl'
+// Learnt mostly from first-party 1-hour responses, they would put a 5-minute profile back near an hour.
+const RETIRED_KEYS = ['ttl', 'agentTtl']
+
+async function fallbackTtlMs($: EngineInterface, config: Config): Promise<number> {
+  return effectiveTtl(asBounds(await $.store.get(FALLBACK_KEY)), config.defaultTtlMs)
 }
 
-async function agentTtlMs($: EngineInterface, config: Config): Promise<number> {
-  return effectiveTtl(asBounds(await $.store.get('agentTtl')), config.agentTtlMs)
+async function agentFallbackTtlMs($: EngineInterface, config: Config): Promise<number> {
+  return effectiveTtl(asBounds(await $.store.get(AGENT_FALLBACK_KEY)), config.agentTtlMs)
 }
 
 async function statusDir($: EngineInterface, sessionId: string): Promise<string> {
@@ -86,8 +92,8 @@ async function pruneLast($: EngineInterface): Promise<void> {
 async function writeSegment($: EngineInterface, config: Config): Promise<void> {
   const now = await $.clock.now()
   const paths = segmentPaths(await statusDir($, await $.session.id()))
-  const timer = segmentFor(await currentLast($), await liveContext($), now, await ttlMs($, config))
-  const agentCount = agentSegment(await read($, agents), await read($, listed), now, await agentTtlMs($, config))
+  const timer = segmentFor(await currentLast($), await liveContext($), now, await fallbackTtlMs($, config))
+  const agentCount = agentSegment(await read($, agents), await read($, listed), now, await agentFallbackTtlMs($, config))
   await $.fs.write(paths.timer, segmentFile(timer, now))
   await $.fs.write(paths.agents, segmentFile(agentCount, now))
 }
@@ -140,13 +146,13 @@ async function observe($: EngineInterface, config: Config, startedAt: number, us
     startedAt,
     now: await $.clock.now(),
     usage,
-    bounds: asBounds(await $.store.get('ttl')),
+    bounds: asBounds(await $.store.get(FALLBACK_KEY)),
     defaultTtlMs: config.defaultTtlMs,
   })
   if (!seen) return
   await update($, last, () => ({ ...seen.last, sessionId }))
   await $.store.set(lastKey(sessionId), seen.last)
-  await $.store.set('ttl', seen.bounds)
+  await $.store.set(FALLBACK_KEY, seen.bounds)
   const miss = seen.miss
   if (!miss) return
   const kept = await update($, misses, list => [...list, miss].slice(-MISSES_KEPT))
@@ -167,13 +173,13 @@ async function observeAgent(
     startedAt,
     now: await $.clock.now(),
     usage,
-    bounds: asBounds(await $.store.get('agentTtl')),
+    bounds: asBounds(await $.store.get(AGENT_FALLBACK_KEY)),
     defaultTtlMs: config.agentTtlMs,
   })
   if (!seen) return
   const track = { ...seen.last, firstAt: prev?.firstAt ?? startedAt }
   await update($, agents, tracked => ({ ...tracked, [agentId]: track }))
-  await $.store.set('agentTtl', seen.bounds)
+  await $.store.set(AGENT_FALLBACK_KEY, seen.bounds)
   if (!seen.miss) return
   const miss = { ...seen.miss, agentId }
   const kept = await update($, misses, list => [...list, miss].slice(-MISSES_KEPT))
@@ -199,7 +205,7 @@ async function coldChoice($: EngineInterface, config: Config, options: readonly 
     await currentLast($),
     await liveContext($),
     await $.clock.now(),
-    await ttlMs($, config),
+    await fallbackTtlMs($, config),
     config.gateUsd,
   )
   if (!gate) return null
@@ -231,7 +237,7 @@ function unsent(e: TurnStepInput): TurnStepResult {
 
 export const register: Register = (on, options) => {
   const config: Config = {
-    defaultTtlMs: Number(options.ttlMinutes ?? 60) * MINUTE,
+    defaultTtlMs: Number(options.ttlMinutes ?? 5) * MINUTE,
     agentTtlMs: Number(options.agentTtlMinutes ?? 5) * MINUTE,
     gateUsd: Number(options.gateUsd ?? 1),
   }
@@ -245,6 +251,12 @@ export const register: Register = (on, options) => {
       await pruneLast($)
     } catch (err) {
       $.ui.log(`cache-guard: could not prune stored responses: ${String(err)}`, { to: 'debug' })
+    }
+    try {
+      // Every start, because sessions still on the old code keep writing these until they restart.
+      for (const key of RETIRED_KEYS) await $.store.delete(key)
+    } catch (err) {
+      $.ui.log(`cache-guard: could not delete retired TTL keys: ${String(err)}`, { to: 'debug' })
     }
     await tick($, config)
     ticker?.cancel()
@@ -334,7 +346,7 @@ export const register: Register = (on, options) => {
       await read($, agents),
       await read($, listed),
       await $.clock.now(),
-      await agentTtlMs($, config),
+      await agentFallbackTtlMs($, config),
       await read($, dismissed),
     )
     if (alerts.rows.length === 0) return next(e)

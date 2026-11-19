@@ -6,6 +6,7 @@ import {
   agentSegment,
   asBounds,
   asStepRecord,
+  cacheTtlOf,
   classifyStep,
   effectiveTtl,
   formatUsd,
@@ -38,6 +39,44 @@ const OPUS = 'claude-opus-5-5'
 function usage(read: number, write: number, input = 0, model = OPUS) {
   return { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: 10, model }
 }
+
+function split(read: number, write: number, fiveMin: number, oneHour: number, model = OPUS) {
+  return { ...usage(read, write, 0, model), ephemeral_5m_input_tokens: fiveMin, ephemeral_1h_input_tokens: oneHour }
+}
+
+describe('cacheTtlOf', () => {
+  const prev: StepRecord = { at: 0, ctx: 100_000, model: OPUS, ttlMs: 60 * MINUTE }
+
+  test('a write wholly to the 1-hour cache lives an hour', () => {
+    expect(cacheTtlOf(split(0, 1_000, 0, 1_000), null)).toBe(60 * MINUTE)
+  })
+
+  test('any 5-minute part, or a part the split leaves out, expires first', () => {
+    expect(cacheTtlOf(split(0, 1_000, 1_000, 0), prev)).toBe(5 * MINUTE)
+    expect(cacheTtlOf(split(0, 1_000, 400, 600), prev)).toBe(5 * MINUTE)
+    expect(cacheTtlOf(split(0, 1_000, 0, 600), prev)).toBe(5 * MINUTE)
+  })
+
+  test('a write with no split, or one whose parts are all zero, reports no lifetime', () => {
+    expect(cacheTtlOf(usage(0, 1_000), prev)).toBeUndefined()
+    expect(cacheTtlOf(split(0, 1_000, 0, 0), prev)).toBeUndefined()
+  })
+
+  test('a read-only step keeps the tier of the last write on the same model', () => {
+    expect(cacheTtlOf(usage(100_000, 0), prev)).toBe(60 * MINUTE)
+    expect(cacheTtlOf(usage(100_000, 0), { ...prev, ttlMs: 5 * MINUTE })).toBe(5 * MINUTE)
+    expect(cacheTtlOf(usage(100_000, 0), { at: 0, ctx: 1, model: OPUS })).toBeUndefined()
+    expect(cacheTtlOf(usage(100_000, 0), null)).toBeUndefined()
+  })
+
+  test('a read-only step on another model inherits nothing', () => {
+    expect(cacheTtlOf(usage(100_000, 0, 0, 'claude-sonnet-5-5'), prev)).toBeUndefined()
+  })
+
+  test('a step that neither read nor wrote the cache reports no lifetime', () => {
+    expect(cacheTtlOf(usage(0, 0, 900), prev)).toBeUndefined()
+  })
+})
 
 describe('priceFor', () => {
   test('matches model ids by prefix, past a dated or vendor-prefixed id', () => {
@@ -138,6 +177,33 @@ describe('observeStep', () => {
     expect(observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 0) })).toBeNull()
   })
 
+  test('a step that reports its lifetime records it and teaches no bounds, even cold after a long gap', () => {
+    const o = observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: split(0, 380_000, 0, 380_000) })
+    expect(o?.last).toEqual({ at: 73 * MINUTE, ctx: 380_000, model: OPUS, ttlMs: 60 * MINUTE })
+    expect(o?.bounds).toEqual(noBounds)
+    expect(o?.miss).toMatchObject({ gapMs: 72 * MINUTE, tokens: 380_000 })
+    expect(cents(o?.miss?.usd)).toBe(3.04)
+  })
+
+  test('a miss is priced at its own tier, not the fallback', () => {
+    const o = observeStep({ ...base, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: split(0, 380_000, 380_000, 0) })
+    expect(o?.last.ttlMs).toBe(5 * MINUTE)
+    expect(cents(o?.miss?.usd)).toBe(1.9)
+  })
+
+  test('a read-only step after a reported write keeps its tier and teaches nothing', () => {
+    const known = { ...prev, ttlMs: 5 * MINUTE }
+    const o = observeStep({ ...base, prev: known, startedAt: 20 * MINUTE, now: 21 * MINUTE, usage: usage(380_000, 0) })
+    expect(o?.last.ttlMs).toBe(5 * MINUTE)
+    expect(o?.bounds).toEqual(noBounds)
+  })
+
+  test('a step without a lifetime records none and learns as before', () => {
+    const o = observeStep({ ...base, startedAt: 20 * MINUTE, now: 21 * MINUTE, usage: usage(380_000, 0) })
+    expect(o?.last).toEqual({ at: 21 * MINUTE, ctx: 380_000, model: OPUS })
+    expect(o?.bounds).toEqual({ warmMaxMs: 20 * MINUTE, coldMinMs: null })
+  })
+
   test('a small cold rewrite is learnt from but not reported', () => {
     const small = { at: 0, ctx: 30_000, model: OPUS }
     const o = observeStep({ ...base, prev: small, startedAt: 72 * MINUTE, now: 73 * MINUTE, usage: usage(0, 30_000) })
@@ -167,6 +233,13 @@ describe('gateDecision', () => {
     expect(gateDecision(last, 20_000, 72 * MINUTE, 60 * MINUTE, 0)).toMatchObject({ tokens: 20_000 })
   })
 
+  test("counts from the record's own tier over the fallback", () => {
+    const short = { ...last, ttlMs: 5 * MINUTE }
+    expect(gateDecision(short, 380_000, 6 * MINUTE, 60 * MINUTE, 1)).toMatchObject({ idleMs: 6 * MINUTE })
+    expect(cents(gateDecision(short, 380_000, 6 * MINUTE, 60 * MINUTE, 1)?.rewriteUsd)).toBe(1.9)
+    expect(gateDecision({ ...last, ttlMs: 60 * MINUTE }, 380_000, 30 * MINUTE, 5 * MINUTE, 1)).toBeNull()
+  })
+
   test('stays quiet when the re-write is under the threshold', () => {
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 1)).toBeNull()
     expect(gateDecision(last, 100_000, 72 * MINUTE, 60 * MINUTE, 0)).not.toBeNull()
@@ -183,6 +256,8 @@ describe('last response keys', () => {
 
   test('asStepRecord keeps a well-formed record and refuses the rest', () => {
     expect(asStepRecord({ at: 1, ctx: 2, model: OPUS, extra: true })).toEqual({ at: 1, ctx: 2, model: OPUS })
+    expect(asStepRecord({ at: 1, ctx: 2, model: OPUS, ttlMs: 300_000 })).toEqual({ at: 1, ctx: 2, model: OPUS, ttlMs: 300_000 })
+    expect(asStepRecord({ at: 1, ctx: 2, model: OPUS, ttlMs: '5m' })).toEqual({ at: 1, ctx: 2, model: OPUS })
     expect(asStepRecord(undefined)).toBeNull()
     expect(asStepRecord({ at: 1, ctx: '2', model: OPUS })).toBeNull()
     expect(asStepRecord({ at: 1, ctx: 2 })).toBeNull()
@@ -277,6 +352,11 @@ describe('segmentFor', () => {
     expect(segmentFor(last, 100_000, 61 * MINUTE, 60 * MINUTE)).toEqual({ text: '◷ cold ≈ $0.80', tone: 'warn' })
   })
 
+  test("counts from the record's own tier over the fallback", () => {
+    expect(segmentFor({ ...last, ttlMs: 60 * MINUTE }, 380_000, 18 * MINUTE, 5 * MINUTE)).toEqual({ text: '◷ 42m left', tone: 'normal' })
+    expect(segmentFor({ ...last, ttlMs: 5 * MINUTE }, 380_000, 6 * MINUTE, 60 * MINUTE)).toEqual({ text: '◷ cold ≈ $1.90', tone: 'warn' })
+  })
+
   test('hides under 20k tokens of context, and without a live size or a previous response', () => {
     expect(segmentFor(last, 19_000, 0, 60 * MINUTE)).toBeNull()
     expect(segmentFor(last, undefined, 0, 60 * MINUTE)).toBeNull()
@@ -353,6 +433,20 @@ describe('agents', () => {
     expect(agentSegment({}, list, now, ttl)).toEqual({ text: '◈ 3 agents', tone: 'normal' })
     expect(agentSegment({}, [listed('b', 'running')], now, ttl)).toEqual({ text: '◈ 1 agent', tone: 'normal' })
     expect(agentSegment(agents, [listed('d', 'completed')], now, ttl)).toBeNull()
+  })
+
+  test("each agent counts from its own tier over the fallback", () => {
+    const agents = { short: { ...track(now - 9 * MINUTE), ttlMs: 5 * MINUTE }, long: { ...track(now - 9 * MINUTE), ttlMs: 60 * MINUTE } }
+    const list = [listed('short', 'idle'), listed('long', 'idle')]
+    expect(agentSegment(agents, list, now, 60 * MINUTE)).toEqual({ text: '◈ 2 agents · 1 cold', tone: 'warn' })
+    expect(agentAlerts(agents, list, now, 60 * MINUTE, []).rows.map(r => r.text)).toEqual([
+      'Explore "task short" idle 9m · resuming re-writes 120k ≈ $0.60',
+    ])
+    const later = 70 * MINUTE + now
+    const old = { long: { ...track(now), ttlMs: 60 * MINUTE } }
+    expect(agentAlerts(old, [listed('long', 'idle')], later, ttl, []).rows.map(r => r.text)).toEqual([
+      'Explore "task long" idle 70m · resuming re-writes 120k ≈ $0.96',
+    ])
   })
 
   test('tracks outlive the agent list for a day, so a late resume is still classified', () => {

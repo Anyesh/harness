@@ -2,6 +2,8 @@ export type StepRecord = {
   at: number
   ctx: number
   model: string
+  // The prompt cache lifetime the response reported, absent when it reported none.
+  ttlMs?: number
 }
 
 export type LastResponse = StepRecord & {

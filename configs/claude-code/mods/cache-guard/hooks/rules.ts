@@ -6,6 +6,7 @@ export const MINUTE = 60_000
 export const MISSES_KEPT = 20
 const MILLION = 1_000_000
 const FIVE_MINUTES = 5 * MINUTE
+const ONE_HOUR = 60 * MINUTE
 const MIN_MISS_TOKENS = 50_000
 const MIN_STATUS_CTX = 20_000
 const MIN_AGENT_ALERT_TOKENS = 50_000
@@ -50,6 +51,22 @@ export function contextOf(usage: ModelUsage): number {
 export function rewriteUsd(model: string, tokens: number, ttlMs: number): number {
   const prices = priceFor(model, tokens)
   return (tokens * (ttlMs > FIVE_MINUTES ? prices.write1h : prices.write5m)) / MILLION
+}
+
+// The rule matches the engine's AgentRequest.cacheTtl: the shorter tier when a response wrote both, the last
+// write's tier when it only read. Undefined means no lifetime was reported, and a proxy may report all zeros.
+export function cacheTtlOf(usage: TurnUsage, prev: StepRecord | null): number | undefined {
+  const written = usage.cache_creation_input_tokens
+  if (written <= 0 && usage.cache_read_input_tokens <= 0) return undefined
+  if (written <= 0) return prev?.model === usage.model ? prev.ttlMs : undefined
+  const fiveMin = usage.ephemeral_5m_input_tokens ?? 0
+  const oneHour = usage.ephemeral_1h_input_tokens ?? 0
+  if (fiveMin + oneHour <= 0) return undefined
+  return oneHour === written ? ONE_HOUR : FIVE_MINUTES
+}
+
+export function ttlOf(record: StepRecord, fallbackMs: number): number {
+  return record.ttlMs ?? fallbackMs
 }
 
 export type StepKind = 'warm' | 'cold'
@@ -100,11 +117,12 @@ export function asMisses(stored: unknown): Miss[] {
 
 export function asStepRecord(stored: unknown): StepRecord | null {
   if (typeof stored !== 'object' || stored === null) return null
-  const { at, ctx, model } = stored as Record<string, unknown>
+  const { at, ctx, model, ttlMs } = stored as Record<string, unknown>
   const atMs = finiteOrNull(at)
   const tokens = finiteOrNull(ctx)
   if (atMs === null || tokens === null || typeof model !== 'string') return null
-  return { at: atMs, ctx: tokens, model }
+  const ttl = finiteOrNull(ttlMs)
+  return ttl === null ? { at: atMs, ctx: tokens, model } : { at: atMs, ctx: tokens, model, ttlMs: ttl }
 }
 
 export function lastKey(sessionId: string): string {
@@ -148,7 +166,8 @@ export type Observed = { last: StepRecord; bounds: TtlBounds; miss: Miss | null 
 export function observeStep(o: StepObservation): Observed | null {
   const ctx = contextOf(o.usage)
   if (ctx <= 0) return null
-  const last = { at: o.now, ctx, model: o.usage.model }
+  const ttlMs = cacheTtlOf(o.usage, o.prev)
+  const last: StepRecord = { at: o.now, ctx, model: o.usage.model, ...(ttlMs === undefined ? {} : { ttlMs }) }
   const unchanged = { last, bounds: o.bounds, miss: null }
   // A new model starts its own cache, so its first step says nothing about expiry.
   if (!o.prev || o.prev.model !== o.usage.model) return unchanged
@@ -156,10 +175,11 @@ export function observeStep(o: StepObservation): Observed | null {
   const kind = classifyStep(o.prev.ctx, o.usage)
   // A cold step within minutes of the last response means the prefix changed (tools, system prompt), not expiry.
   if (kind === null || (kind === 'cold' && gapMs < FIVE_MINUTES)) return unchanged
-  const bounds = learnTtl(o.bounds, kind, gapMs)
+  // Only a response that reports no lifetime is evidence about the fallback.
+  const bounds = ttlMs === undefined ? learnTtl(o.bounds, kind, gapMs) : o.bounds
   const tokens = o.usage.cache_creation_input_tokens
   if (kind === 'warm' || tokens < MIN_MISS_TOKENS) return { last, bounds, miss: null }
-  const usd = rewriteUsd(o.usage.model, tokens, effectiveTtl(bounds, o.defaultTtlMs))
+  const usd = rewriteUsd(o.usage.model, tokens, ttlOf(last, effectiveTtl(bounds, o.defaultTtlMs)))
   return { last, bounds, miss: { at: o.now, gapMs, tokens, usd, model: o.usage.model } }
 }
 
@@ -170,10 +190,11 @@ export function gateDecision(
   last: StepRecord | null,
   ctx: number | undefined,
   now: number,
-  ttlMs: number,
+  fallbackTtlMs: number,
   gateUsd: number,
 ): Gate | null {
   if (!last || !ctx) return null
+  const ttlMs = ttlOf(last, fallbackTtlMs)
   const idleMs = now - last.at
   if (idleMs < ttlMs) return null
   const rewrite = rewriteUsd(last.model, ctx, ttlMs)
@@ -220,8 +241,14 @@ export function formatDuration(ms: number): string {
 export type Tone = 'normal' | 'warn'
 export type Segment = { text: string; tone: Tone }
 
-export function segmentFor(last: StepRecord | null, ctx: number | undefined, now: number, ttlMs: number): Segment | null {
+export function segmentFor(
+  last: StepRecord | null,
+  ctx: number | undefined,
+  now: number,
+  fallbackTtlMs: number,
+): Segment | null {
   if (!last || ctx === undefined || ctx < MIN_STATUS_CTX) return null
+  const ttlMs = ttlOf(last, fallbackTtlMs)
   const left = last.at + ttlMs - now
   if (left > 0) return { text: `◷ ${formatDuration(left)} left`, tone: 'normal' }
   return { text: `◷ cold ≈ ${formatUsd(rewriteUsd(last.model, ctx, ttlMs))}`, tone: 'warn' }
@@ -265,8 +292,13 @@ function isLive(agent: ListedAgent): boolean {
   return !ENDED.has(agent.status)
 }
 
-function isCold(agent: ListedAgent, track: AgentTrack | undefined, now: number, ttlMs: number): track is AgentTrack {
-  return track !== undefined && RESTING.has(agent.status) && now - track.at >= ttlMs
+function isCold(
+  agent: ListedAgent,
+  track: AgentTrack | undefined,
+  now: number,
+  fallbackTtlMs: number,
+): track is AgentTrack {
+  return track !== undefined && RESTING.has(agent.status) && now - track.at >= ttlOf(track, fallbackTtlMs)
 }
 
 export type AgentAlert = { key: string; text: string }
@@ -276,7 +308,7 @@ export function agentAlerts(
   agents: Readonly<Record<string, AgentTrack>>,
   listed: readonly ListedAgent[],
   now: number,
-  ttlMs: number,
+  fallbackTtlMs: number,
   dismissed: readonly string[],
 ): { rows: AgentAlert[]; more: number } {
   const alerts: AgentAlert[] = []
@@ -284,8 +316,8 @@ export function agentAlerts(
     const track = agents[agent.id]
     if (!track || !isLive(agent)) continue
     const label = `${agent.type} "${agent.description}"`
-    if (isCold(agent, track, now, ttlMs) && track.ctx >= MIN_AGENT_ALERT_TOKENS) {
-      const usd = formatUsd(rewriteUsd(track.model, track.ctx, ttlMs))
+    if (isCold(agent, track, now, fallbackTtlMs) && track.ctx >= MIN_AGENT_ALERT_TOKENS) {
+      const usd = formatUsd(rewriteUsd(track.model, track.ctx, ttlOf(track, fallbackTtlMs)))
       alerts.push({
         key: `${agent.id}@${track.at}`,
         text: `${label} idle ${formatDuration(now - track.at)} · resuming re-writes ${formatTokens(track.ctx)} ≈ ${usd}`,
@@ -302,11 +334,11 @@ export function agentSegment(
   agents: Readonly<Record<string, AgentTrack>>,
   listed: readonly ListedAgent[],
   now: number,
-  ttlMs: number,
+  fallbackTtlMs: number,
 ): Segment | null {
   const live = listed.filter(isLive)
   if (live.length === 0) return null
-  const cold = live.filter(agent => isCold(agent, agents[agent.id], now, ttlMs)).length
+  const cold = live.filter(agent => isCold(agent, agents[agent.id], now, fallbackTtlMs)).length
   const count = `◈ ${live.length} ${live.length === 1 ? 'agent' : 'agents'}`
   if (cold === 0) return { text: count, tone: 'normal' }
   return { text: `${count} · ${cold} cold`, tone: 'warn' }
