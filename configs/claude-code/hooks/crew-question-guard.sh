@@ -6,6 +6,8 @@ input=$(cat)
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=log-block.sh
 source "$HOOK_DIR/log-block.sh"
+# shellcheck source=crew-hook-common.sh
+source "$HOOK_DIR/crew-hook-common.sh"
 harness_log_block_on_exit crew-question-guard "$input"
 
 deny() {
@@ -13,18 +15,7 @@ deny() {
   exit 2
 }
 
-if [[ "${HARNESS_UNATTENDED:-}" == 1 ]]; then
-  role=worker
-else
-  session=$(jq -r '.session_id // empty' <<<"$input" 2>/dev/null) || exit 0
-  cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null) || exit 0
-  args=()
-  [[ -n "$session" ]] && args+=(--session "$session")
-  [[ -n "$cwd" ]] && args+=("$cwd")
-  # Anything but a clean answer counts as none, so a broken or slow crew-role
-  # never blocks a session that is not in a crew.
-  role=$(timeout 2 crew-role "${args[@]}" 2>/dev/null) || exit 0
-fi
+role=$(crew_hook_role "$input") || exit 0
 
 case "$role" in
   worker) deny "write the question to report.md with status question and stop" ;;
