@@ -89,13 +89,15 @@
 #   HEAVY failed: <message>         heavy-slots holds something other than 1
 #   REFLECT                         reflections.md is missing or older than
 #                                   CREW_REFLECT_EVERY seconds (default 2700)
-#   CHECK <line>                    the last 20 lines of $crew/sweep-check, run in
-#                                   the main checkout
+#   CHECK <line>                    the last 20 lines of $mem/sweep-check, run in
+#                                   the main checkout with CREW_MEM set to $mem
 #   CHECK failed: <message>         sweep-check exited non-zero, timed out or is not
 #                                   executable
 #
-# The usage and context thresholds come from the environment or $crew/thresholds,
-# whose bad lines only crew-resources reports.
+# $mem is the repo's entry in the crew memory store (crew_mem), else $crew. The
+# usage and context thresholds come from the environment or $mem/thresholds,
+# whose bad lines only crew-resources reports; sweep-check and heavy-slots are
+# read from $mem too.
 set -uo pipefail
 
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -123,6 +125,7 @@ crew=$(crew_dir) || {
   exit 1
 }
 main=$(crew_main)
+mem=$(crew_mem)
 board="$crew/board.tsv"
 seen="$crew/.sweep-seen"
 alerts="$crew/.sweep-resources"
@@ -132,7 +135,7 @@ usage_dir=$(crew_usage_dir)
 slug=$(crew_slug)
 crew_re="^$slug-w[0-9]+\$"
 
-crew_read_thresholds "$crew/thresholds"
+crew_read_thresholds "$mem/thresholds"
 session_soft=$((10#$(crew_threshold CREW_SESSION_SOFT_PCT 70)))
 session_hard=$((10#$(crew_threshold CREW_SESSION_HARD_PCT 90)))
 week_soft=$((10#$(crew_threshold CREW_WEEK_SOFT_PCT 85)))
@@ -890,7 +893,7 @@ heavy_delays_someone() {
 
 report_heavy() {
   local slots lock="$crew/heavy.lock" holder purpose since
-  if ! slots=$(crew_heavy_slots "$crew"); then
+  if ! slots=$(crew_heavy_slots "$mem"); then
     echo "HEAVY failed: heavy-slots must contain 1"
     return
   fi
@@ -913,14 +916,14 @@ report_reflect() {
 # The output goes to a file, not a pipe, so a background child the check leaves
 # behind cannot hold the sweep open.
 run_sweep_check() {
-  local check="$crew/sweep-check" out rc
+  local check="$mem/sweep-check" out rc
   [[ -e $check ]] || return 0
   if [[ ! -x $check ]]; then
     echo "CHECK failed: sweep-check is not executable"
     return
   fi
   out=$(mktemp)
-  (cd "$main" && GIT_OPTIONAL_LOCKS=0 exec timeout -k 5 "$check_timeout" "$check") >"$out" 2>&1 </dev/null
+  (cd "$main" && CREW_MEM=$mem GIT_OPTIONAL_LOCKS=0 exec timeout -k 5 "$check_timeout" "$check") >"$out" 2>&1 </dev/null
   rc=$?
   tail -n 20 "$out" | awk '{print "CHECK " $0}'
   rm -f "$out"

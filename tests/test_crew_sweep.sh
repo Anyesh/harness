@@ -36,6 +36,7 @@ cleanup() {
 trap cleanup EXIT
 
 export CREW_RUNS_DIR="$TMP_DIR/runs"
+export CREW_MEMORY_DIR="$TMP_DIR/store"
 export CREW_SWEEP_RETRY_WAIT=0.05
 export CREW_QUIET=1000000
 export CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 CREW_LOAD_PER_CPU=1000000 CREW_IO_FULL_PCT=1000
@@ -877,6 +878,27 @@ assert "the thresholds file sets the cap and FULL" 'has "POOL work 1/1/1 session
 assert "the thresholds file sets the hard threshold" 'has "LIMIT work session 50% resets in 60 min"'
 assert "only crew-resources names the bad thresholds lines" 'has_re "^RESOURCE failed: .*CREW_BOGUS" && ! grep -E "CREW_BOGUS|no equals" <<<"$OUT" | grep -qv "^RESOURCE failed: "'
 rm "$CREW/thresholds"
+
+echo "memory store readers"
+STORE="$CREW_MEMORY_DIR/repos/repo"
+mkdir -p "$STORE"
+printf '#!/usr/bin/env bash\necho "from-store $CREW_MEM"\n' >"$STORE/sweep-check"
+printf '#!/usr/bin/env bash\necho from-crew\n' >"$CREW/sweep-check"
+chmod +x "$STORE/sweep-check" "$CREW/sweep-check"
+printf 'CREW_WORKERS_PER_PROFILE=1\n' >"$STORE/thresholds"
+echo 1 >"$STORE/heavy-slots"
+echo 2 >"$CREW/heavy-slots"
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
+agents "$S-w1 working u1"
+sweep 0
+assert "sweep-check comes from the store, with CREW_MEM set to it" 'has "CHECK from-store $STORE" && ! has "CHECK from-crew"'
+assert "thresholds come from the store" 'has "POOL work 1/1/1 session 10% week 10% FULL"'
+assert "heavy-slots comes from the store" '! has_re "^HEAVY failed"'
+command rm -rf "$STORE"
+sweep 0
+assert "without a store entry the crew dir files are read" 'has "CHECK from-crew" && has_re "^HEAVY failed" && ! has_re "FULL"'
+command rm -f "$CREW/sweep-check" "$CREW/heavy-slots"
 
 echo "limits in the wait"
 reset_usage

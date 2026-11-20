@@ -31,6 +31,7 @@ git init -q "$REPO"
 CREW="$REPO/.claude/crew"
 mkdir -p "$CREW"
 export CREW_RUNS_DIR="$TMP_DIR/runs"
+export CREW_MEMORY_DIR="$TMP_DIR/store"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN"
 DF_LOG="$TMP_DIR/df.log"
@@ -155,6 +156,27 @@ for bad in 80% eighty 80.5; do
   assert "a whole-number key set to $bad fails naming it" '[[ $RC -eq 1 ]] && grep -qF "CREW_CONTEXT_K is not a whole number: $bad" <<<"$ERR"'
 done
 rm "$CREW/thresholds"
+
+echo "memory store"
+STORE="$CREW_MEMORY_DIR/repos/repo"
+mkdir -p "$STORE"
+printf 'CREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=999999999\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\n' >"$STORE/thresholds"
+printf 'CREW_MEM_MIN_MB=0\n' >"$CREW/thresholds"
+run "${FILE_ENV[@]}" "$CR"
+assert "thresholds come from the store entry when it exists" 'has_re "^memory [0-9]+ MB available$"'
+printf '%s\n' "$TMP_DIR/store-watched" >"$STORE/watch-paths"
+printf '%s\n' "$TMP_DIR/crew-watched" >"$CREW/watch-paths"
+mkdir -p "$TMP_DIR/store-watched" "$TMP_DIR/crew-watched"
+: >"$DF_LOG"
+run "${FILE_ENV[@]}" PATH="$FAKE_BIN:$PATH" CREW_DISK_MIN_GB=0 CREW_MEM_MIN_MB=0 "$CR"
+assert "watch-paths come from the store entry" 'grep -qxF "$TMP_DIR/store-watched" "$DF_LOG" && ! grep -qxF "$TMP_DIR/crew-watched" "$DF_LOG"'
+command rm -rf "$STORE"
+printf 'CREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=999999999\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\n' >"$CREW/thresholds"
+: >"$DF_LOG"
+run "${FILE_ENV[@]}" PATH="$FAKE_BIN:$PATH" "$CR"
+assert "without a store entry the crew dir's thresholds apply" 'has_re "^memory [0-9]+ MB available$"'
+assert "without a store entry the crew dir's watch-paths apply" 'grep -qxF "$TMP_DIR/crew-watched" "$DF_LOG"'
+rm "$CREW/thresholds" "$CREW/watch-paths"
 
 echo "probed paths"
 mkdir -p "$TMP_DIR/watched/built"
