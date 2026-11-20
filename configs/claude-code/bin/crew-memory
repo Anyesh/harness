@@ -33,6 +33,7 @@ if [[ -z $remote && -f $env_file ]]; then
   remote=${remote#[\"\']}
   remote=${remote%[\"\']}
 fi
+secrets_only=$HOME/.config/leakguard/secrets-only.toml
 lock_wait=${CREW_MEMORY_LOCK_WAIT:-120}
 [[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=120
 
@@ -54,6 +55,11 @@ init_store() {
     fi
   fi
   g rev-parse -q --verify HEAD >/dev/null || g symbolic-ref HEAD refs/heads/main
+  # The store holds personal paths and names by design; it stays scanned for
+  # secrets through leakguard's repo-scoped ruleset.
+  if [[ -f $secrets_only ]]; then
+    g config leakguard.config "$secrets_only"
+  fi
   if [[ -n $remote ]] && ! g remote get-url origin >/dev/null 2>&1; then
     g remote add origin "$remote"
   fi

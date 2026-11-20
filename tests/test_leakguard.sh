@@ -72,6 +72,8 @@ assert "installed config carries the personal terms from the env file" \
   "grep -q zorblax '$H/.config/leakguard/gitleaks.toml'"
 assert "repo ruleset names no personal term" \
   "! grep -qi zorblax '$REPO_ROOT/configs/leakguard/gitleaks.toml'"
+assert "a secrets-only ruleset is installed beside it, with no personal rule" \
+  "grep -q useDefault '$H/.config/leakguard/secrets-only.toml' && ! grep -q personal-term '$H/.config/leakguard/secrets-only.toml'"
 
 # shellcheck disable=SC2012
 inode_of() { ls -di "$1" | awk '{print $1}'; }

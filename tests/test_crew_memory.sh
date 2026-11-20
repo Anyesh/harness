@@ -168,6 +168,14 @@ exec {held}>&-
 assert "the lock file is not committed" '! git -C "$CREW_MEMORY_DIR" ls-files --error-unmatch .sync.lock >/dev/null 2>&1'
 assert "a .tmp file is ignored" 'touch "$store_repo/.tmp-check" && [[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain --untracked-files=all -- "repos/wardrobe/.tmp-check") ]]'
 
+echo "leakguard"
+assert "a store made without a secrets-only ruleset sets no leakguard config" '[[ -z $(git -C "$CREW_MEMORY_DIR" config --get leakguard.config) ]]'
+mkdir -p "$HOME/.config/leakguard"
+printf '[extend]\nuseDefault = true\n' >"$HOME/.config/leakguard/secrets-only.toml"
+mem "$TMP_DIR/a/Wardrobe" status >/dev/null
+mem "$TMP_DIR/a/Wardrobe" sync "lg" >/dev/null || true
+assert "with the secrets-only ruleset installed the store scans for secrets only" '[[ $(git -C "$CREW_MEMORY_DIR" config --get leakguard.config) == "$HOME/.config/leakguard/secrets-only.toml" ]]'
+
 echo "remote from the env file"
 mkdir -p "$XDG_CONFIG_HOME/harness"
 echo "CREW_MEMORY_REMOTE=$TMP_DIR/remote.git" >"$XDG_CONFIG_HOME/harness/crew-memory.env"
