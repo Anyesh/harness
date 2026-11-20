@@ -36,8 +36,11 @@ cleanup() {
 trap cleanup EXIT
 
 export CREW_RUNS_DIR="$TMP_DIR/runs"
-export CREW_MEMORY_DIR="$TMP_DIR/store"
-export CREW_MEMORY_REMOTE= XDG_CONFIG_HOME="$TMP_DIR/config"
+VAULT="$TMP_DIR/vault"
+: >"$TMP_DIR/empty.env"
+export HARNESS_ENV="$TMP_DIR/empty.env"
+export WIKI_VAULT=
+unset HARNESS_WORK
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export CREW_SWEEP_RETRY_WAIT=0.05
 export CREW_QUIET=1000000
@@ -882,7 +885,8 @@ assert "only crew-resources names the bad thresholds lines" 'has_re "^RESOURCE f
 rm "$CREW/thresholds"
 
 echo "memory store readers"
-STORE="$CREW_MEMORY_DIR/repos/repo"
+export WIKI_VAULT="$VAULT"
+STORE="$VAULT/wiki/projects/repo/crew"
 mkdir -p "$STORE"
 printf '#!/usr/bin/env bash\necho "from-store $CREW_MEM"\n' >"$STORE/sweep-check"
 printf '#!/usr/bin/env bash\necho from-crew\n' >"$CREW/sweep-check"
@@ -897,10 +901,11 @@ sweep 0
 assert "sweep-check comes from the store, with CREW_MEM set to it" 'has "CHECK from-store $STORE" && ! has "CHECK from-crew"'
 assert "thresholds come from the store" 'has "POOL work 1/1/1 session 10% week 10% FULL"'
 assert "heavy-slots comes from the store" '! has_re "^HEAVY failed"'
-command rm -rf "$CREW_MEMORY_DIR"
+command rm -rf "$STORE"
 sweep 0
 assert "without a store entry the crew dir files are read" 'has "CHECK from-crew" && has_re "^HEAVY failed" && ! has_re "FULL"'
 command rm -f "$CREW/sweep-check" "$CREW/heavy-slots"
+export WIKI_VAULT=
 
 echo "live file"
 mkdir -p "$CREW/live"
@@ -920,44 +925,47 @@ set_role lead
 rm -rf "$CREW/live" "$CREW/sweep-check"
 
 echo "memory lines"
-STORE="$CREW_MEMORY_DIR/repos/repo"
+export WIKI_VAULT="$VAULT"
+STORE="$VAULT/wiki/projects/repo/crew"
 MEM_BIN="$REPO_ROOT/configs/claude-code/bin/crew-memory"
 agents 'x-w1 working'
 { row 1 assigned x-w1 "$(date +%s)"; } >"$CREW/board.tsv"
 printf 'cfg\n' >"$CREW/thresholds"
 rm -f "$CREW"/.sweep-*
-sweep 1
-assert "without a store on this machine there is no MEMORY line" '! has_re "^MEMORY"'
-(cd "$REPO" && "$MEM_BIN" ensure >/dev/null)
+WIKI_VAULT= sweep 1
+assert "without a vault there is no MEMORY line" '! has_re "^MEMORY"'
+rm -f "$CREW"/.sweep-*
 sweep 5
 assert "a busy repo with no entry prints MEMORY pending and the line ends the wait" 'has "MEMORY pending the board has assigned rows" && [[ $ELAPSED -lt 4000 ]] && ! has TIMEOUT'
 sweep 1
 assert "the same MEMORY line is printed again without ending the wait" 'has "MEMORY pending the board has assigned rows" && [[ $ELAPSED -ge 1000 ]] && has TIMEOUT'
 { row 1 open ''; } >"$CREW/board.tsv"
-rm -f "$CREW/.sweep-memory" "$CREW/.sweep-memory-sync"
+rm -f "$CREW/.sweep-memory"
 sweep 1
 assert "a repo that is not busy prints no pending line" '! has_re "^MEMORY pending"'
 (cd "$REPO" && "$MEM_BIN" ensure >/dev/null)
-assert "ensure moved the persistent files into the store" '[[ -f $STORE/thresholds && ! -e $CREW/thresholds ]]'
+assert "ensure moved the persistent files into the wiki crew dir" '[[ -f $STORE/thresholds && ! -e $CREW/thresholds ]]'
 printf 'x\n' >"$CREW/check"
 printf '## Lessons\n%s\n' "$(printf 'n%.0s' $(seq 1 9000))" >"$STORE/brief.md"
 rm -f "$CREW"/.sweep-*
 sweep 5
-assert "a persistent file left in the crew dir is MEMORY stray" 'has "MEMORY stray check"'
-assert "sync ran and its over line is printed" 'has_re "^MEMORY over repos/repo/brief.md#Lessons 9001/8192$" && has "MEMORY no-remote"'
-assert "sync committed the store" '[[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
-echo more >>"$STORE/brief.md"
-CREW_MEMORY_SYNC_EVERY=100000 sweep 1
-assert "a second sweep inside the sync interval does not sync" '[[ -n $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
-assert "it repeats the last sync's lines" 'has_re "^MEMORY over repos/repo/brief.md#Lessons" && has "MEMORY stray check" && has TIMEOUT'
-CREW_MEMORY_SYNC_EVERY=0 sweep 1
-assert "an expired interval syncs again" '[[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
-git init -q --bare -b main "$TMP_DIR/remote.git"
+assert "a persistent file left in the crew dir is MEMORY stray" 'has "MEMORY stray $CREW/check"'
+assert "the Lessons over the cap is printed from crew-memory status" 'has_re "^MEMORY over crew/brief.md#Lessons 9001/8192$"'
+assert "status lines other than pending, stray and over are not printed" '! has_re "^MEMORY repo"'
+assert "the wiki crew dir is left unsynced and unwritten" '[[ ! -e $VAULT/.git && ! -e $CREW/.sweep-memory-sync ]]'
+sweep 1
+assert "the same lines are printed again without ending the wait" 'has_re "^MEMORY over crew/brief.md#Lessons" && has "MEMORY stray $CREW/check" && has TIMEOUT'
 printf '## Lessons\n- short\n' >"$STORE/brief.md"
 rm -f "$CREW/check"
-CREW_MEMORY_REMOTE="$TMP_DIR/remote.git" CREW_MEMORY_SYNC_EVERY=0 sweep 1
-assert "a synced store prints no MEMORY line at all" '! has_re "^MEMORY"'
-rm -rf "$CREW_MEMORY_DIR" "$TMP_DIR/remote.git"
+sweep 1
+assert "a clean memory dir prints no MEMORY line at all" '! has_re "^MEMORY"'
+echo "sweep-check modes"
+command rm -f "$STORE/sweep-check"
+printf '#!/usr/bin/env bash\necho "ran-from-wiki"\n' >"$STORE/sweep-check"
+sweep 0
+assert "a synced sweep-check without its exec bit is restored and run" 'has "CHECK ran-from-wiki" && [[ -x $STORE/sweep-check ]]'
+command rm -rf "$VAULT/wiki"
+export WIKI_VAULT=
 rm -f "$CREW"/.sweep-*
 { row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
 agents "$S-w1 working u1"

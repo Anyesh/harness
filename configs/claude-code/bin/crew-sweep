@@ -81,16 +81,14 @@
 #   TARGET <into>: <reason>         once per branch that open or assigned rows, report-only
 #                                   ones aside, merge into and crew-merge would refuse;
 #                                   the reason is crew-merge's
-#   MEMORY pending <reason>         the repo has no crew memory store entry and
-#                                   crew-memory ensure would be refused for <reason>;
-#                                   only once the store exists on this machine
+#   MEMORY pending <reason>         the repo's crew memory has not moved into the wiki
+#                                   project folder and crew-memory ensure would be
+#                                   refused for <reason>; only with a wiki vault
 #   MEMORY stray <file>             a persistent file still in $crew although the
-#                                   store entry exists
-#   MEMORY <word> ...               each line other than ok that crew-memory sync
-#                                   prints (over, conflict, unpushed, no-remote,
-#                                   push-failed), run at most every
-#                                   CREW_MEMORY_SYNC_EVERY seconds (default 600) and
-#                                   repeated from .sweep-memory in between; a
+#                                   memory moved
+#   MEMORY over <file>#Lessons <n>/<cap>
+#                                   the worker brief's Lessons past their cap
+#                                   (stray and over come from crew-memory status); a
 #                                   MEMORY line ends the wait only when it is new
 #                                   since the last sweep (.sweep-wakes)
 #   ESCAPE <id> <red line>          an item whose gate-escape file crew-merge wrote
@@ -118,7 +116,9 @@
 # While it runs it keeps $crew/live/sweep.<pid> (`<pid> <start>`), removed when
 # it exits, and it removes $crew/paused when it starts.
 #
-# $mem is the repo's entry in the crew memory store (crew_mem), else $crew. The
+# $mem is the repo's crew dir in its wiki project folder (crew_mem), else $crew;
+# before running sweep-check the sweep restores the exec bits wiki-sync drops
+# there. The
 # usage and context thresholds come from the environment or $mem/thresholds,
 # whose bad lines only crew-resources reports; sweep-check and heavy-slots are
 # read from $mem too.
@@ -143,7 +143,6 @@ check_timeout=${CREW_SWEEP_CHECK_TIMEOUT:-30}
 heavy_long=${CREW_HEAVY_LONG:-5400}
 resource_every=${CREW_RESOURCE_EVERY:-30}
 resource_hold=${CREW_RESOURCE_HOLD:-600}
-memory_sync_every=${CREW_MEMORY_SYNC_EVERY:-600}
 stopped_min=${CREW_STOPPED_MIN:-10}
 stopped_every=${CREW_STOPPED_EVERY:-60}
 
@@ -163,8 +162,6 @@ alerts="$crew/.sweep-resources"
 limits="$crew/.sweep-limits"
 leftovers="$crew/.sweep-leftovers"
 wakes="$crew/.sweep-wakes"
-memory_state="$crew/.sweep-memory"
-memory_synced="$crew/.sweep-memory-sync"
 stopped_state="$crew/.sweep-stopped"
 usage_dir=$(crew_usage_dir)
 slug=$(crew_slug)
@@ -983,6 +980,7 @@ report_reflect() {
 run_sweep_check() {
   local check="$mem/sweep-check" out rc
   [[ -e $check ]] || return 0
+  [[ $mem == "$crew" ]] || crew_mem_fix_modes "$mem"
   if [[ ! -x $check ]]; then
     echo "CHECK failed: sweep-check is not executable"
     return
@@ -1154,41 +1152,24 @@ report_escapes() {
   for line in "${escape_lines[@]}"; do echo "$line"; done
 }
 
-sync_memory() {
-  local last out rc
-  last=$(cat "$memory_synced" 2>/dev/null)
-  if [[ $last =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - last < memory_sync_every)); then return 0; fi
-  echo "$EPOCHSECONDS" >"$memory_synced"
-  out=$(cd "$main" && timeout 300 "$here/crew-memory" sync 2>&1 </dev/null)
-  rc=$?
-  {
-    grep '^MEMORY ' <<<"$out" | grep -Ev '^MEMORY ok( |$)'
-    if ((rc != 0)) && ! grep -q '^MEMORY ' <<<"$out"; then echo "MEMORY failed ${out//$'\n'/ }"; fi
-  } >"$memory_state"
-  return 0
-}
-
 memory_lines=()
 memory_at=0
 check_memory() {
-  local f line reason
+  local line reason
   memory_at=$SECONDS
   memory_lines=()
   [[ -x $here/crew-memory ]] || return 0
+  crew_wiki_vault >/dev/null 2>&1 || return 0
   if [[ $mem == "$crew" ]]; then
-    if [[ -d $(crew_memory_dir)/.git ]] && reason=$(crew_mem_busy "$crew" "$live"); then
+    if reason=$(crew_mem_busy "$crew" "$live"); then
       memory_lines+=("MEMORY pending $reason")
     fi
   else
-    for f in "${crew_mem_files[@]}"; do
-      [[ ! -e $crew/$f ]] || memory_lines+=("MEMORY stray $f")
-    done
-    sync_memory
-    if [[ -f $memory_state ]]; then
-      while IFS= read -r line; do
-        [[ -z $line ]] || memory_lines+=("$line")
-      done <"$memory_state"
-    fi
+    while IFS= read -r line; do
+      case $line in
+        "MEMORY stray "* | "MEMORY over "*) memory_lines+=("$line") ;;
+      esac
+    done < <(cd "$main" && timeout 30 "$here/crew-memory" status 2>/dev/null </dev/null)
   fi
   for line in "${memory_lines[@]}"; do note_wake "memory $line"; done
 }
