@@ -76,6 +76,18 @@
 #   TARGET <into>: <reason>         once per branch that open or assigned rows, report-only
 #                                   ones aside, merge into and crew-merge would refuse;
 #                                   the reason is crew-merge's
+#   MEMORY pending <reason>         the repo has no crew memory store entry and
+#                                   crew-memory ensure would be refused for <reason>;
+#                                   only once the store exists on this machine
+#   MEMORY stray <file>             a persistent file still in $crew although the
+#                                   store entry exists
+#   MEMORY <word> ...               each line other than ok that crew-memory sync
+#                                   prints (over, conflict, unpushed, no-remote,
+#                                   push-failed), run at most every
+#                                   CREW_MEMORY_SYNC_EVERY seconds (default 600) and
+#                                   repeated from .sweep-memory in between; a
+#                                   MEMORY line ends the wait only when it is new
+#                                   since the last sweep (.sweep-wakes)
 #   READY <id>                      an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
 #                                   <dep>, waits on blocked <dep>, is in a cycle, or
@@ -122,6 +134,7 @@ check_timeout=${CREW_SWEEP_CHECK_TIMEOUT:-30}
 heavy_long=${CREW_HEAVY_LONG:-5400}
 resource_every=${CREW_RESOURCE_EVERY:-30}
 resource_hold=${CREW_RESOURCE_HOLD:-600}
+memory_sync_every=${CREW_MEMORY_SYNC_EVERY:-600}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
@@ -138,6 +151,9 @@ seen="$crew/.sweep-seen"
 alerts="$crew/.sweep-resources"
 limits="$crew/.sweep-limits"
 leftovers="$crew/.sweep-leftovers"
+wakes="$crew/.sweep-wakes"
+memory_state="$crew/.sweep-memory"
+memory_synced="$crew/.sweep-memory-sync"
 usage_dir=$(crew_usage_dir)
 slug=$(crew_slug)
 crew_re="^$slug-w[0-9]+\$"
@@ -465,6 +481,31 @@ note_contexts() {
     usage_woke=1
     usage_new+=("context $name")
   done <<<"$agent_rows"
+}
+
+# wake_cur holds the keys this sweep saw and wake_prev those the last sweeps
+# announced; a key in the first and not the second ends the wait, once.
+declare -A wake_prev wake_cur
+wake_new=0
+load_wakes() {
+  local key
+  [[ -f $wakes ]] || return 0
+  while IFS= read -r key; do
+    [[ -z $key ]] || wake_prev[$key]=1
+  done <"$wakes"
+}
+
+note_wake() {
+  wake_cur[$1]=1
+  [[ -z ${wake_prev[$1]:-} ]] || return 0
+  wake_prev[$1]=1
+  wake_new=1
+}
+
+save_wakes() {
+  local key
+  for key in "${!wake_cur[@]}"; do printf '%s\n' "$key"; done >"$wakes.tmp"
+  mv -f "$wakes.tmp" "$wakes"
 }
 
 # One herdr attempt; a failure skips this round, since retrying here would
@@ -1017,6 +1058,60 @@ report_resources() {
   for line in "${resource_lines[@]}"; do echo "RESOURCE $line"; done
 }
 
+sync_memory() {
+  local last out rc
+  last=$(cat "$memory_synced" 2>/dev/null)
+  if [[ $last =~ ^[0-9]+$ ]] && ((EPOCHSECONDS - last < memory_sync_every)); then return 0; fi
+  echo "$EPOCHSECONDS" >"$memory_synced"
+  out=$(cd "$main" && timeout 300 "$here/crew-memory" sync 2>&1 </dev/null)
+  rc=$?
+  {
+    grep '^MEMORY ' <<<"$out" | grep -Ev '^MEMORY ok( |$)'
+    if ((rc != 0)) && ! grep -q '^MEMORY ' <<<"$out"; then echo "MEMORY failed ${out//$'\n'/ }"; fi
+  } >"$memory_state"
+  return 0
+}
+
+# crew_mem_busy as the lib has it, except that this sweep's own live file does
+# not count; the lib has no way to leave one out.
+busy_beside_me() {
+  (
+    eval "lib_$(declare -f crew_live_alive)"
+    crew_live_alive() { [[ $1 != "$live" ]] && lib_crew_live_alive "$1"; }
+    crew_mem_busy "$crew"
+  )
+}
+
+memory_lines=()
+memory_at=0
+check_memory() {
+  local f line reason
+  memory_at=$SECONDS
+  memory_lines=()
+  [[ -x $here/crew-memory ]] || return 0
+  if [[ $mem == "$crew" ]]; then
+    if [[ -d $(crew_memory_dir)/.git ]] && reason=$(busy_beside_me); then
+      memory_lines+=("MEMORY pending $reason")
+    fi
+  else
+    for f in "${crew_mem_files[@]}"; do
+      [[ ! -e $crew/$f ]] || memory_lines+=("MEMORY stray $f")
+    done
+    sync_memory
+    if [[ -f $memory_state ]]; then
+      while IFS= read -r line; do
+        [[ -z $line ]] || memory_lines+=("$line")
+      done <"$memory_state"
+    fi
+  fi
+  for line in "${memory_lines[@]}"; do note_wake "memory $line"; done
+}
+
+report_memory() {
+  local line
+  for line in "${memory_lines[@]}"; do echo "$line"; done
+}
+
 publish() {
   timeout 30 crew-dagr >/dev/null 2>&1 || true
   next_publish=$((SECONDS + publish_every))
@@ -1037,26 +1132,31 @@ fi
 
 load_alerts
 load_usage_seen
+load_wakes
 check_resources
 check_usage
+check_memory
 current= previous=
 snapshot_into current
 load_seen previous
 deadline=$((SECONDS + limit))
-while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && SECONDS < deadline)); do
+while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && ! wake_new && SECONDS < deadline)); do
   sleep 1
   ((SECONDS >= next_publish)) && publish
   ((SECONDS >= resources_at + resource_every)) && check_resources
   ((SECONDS >= usage_at + resource_every)) && check_usage
+  ((SECONDS >= memory_at + resource_every)) && check_memory
   snapshot_into current
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
 ((usage_woke || SECONDS == usage_at)) || check_usage
+((wake_new || SECONDS == memory_at)) || check_memory
 save_alerts
 save_usage_seen
+save_wakes
 
 if [[ $current == "$previous" ]]; then
-  ((resource_woke || usage_woke)) || echo TIMEOUT
+  ((resource_woke || usage_woke || wake_new)) || echo TIMEOUT
 else
   awk -F'\t' '
     NR == FNR { if ($0 != "") old[$1] = $0; next }
@@ -1078,6 +1178,7 @@ report_pool
 report_leftovers
 report_stale_merges
 report_targets
+report_memory
 report_order
 report_heavy
 report_reflect
