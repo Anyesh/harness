@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-unset CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT CREW_LEAD_NOTES_MAX_BYTES
+unset CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -139,13 +139,12 @@ cl add --lead "Restart the sweep after each ruling so that it sees the whole boa
 assert "--lead refuses a repeat of a line anywhere in the file" '[[ $RC -eq 1 && $OUT == *"repeats line 3"* ]] && cmp -s "$LEAD" "$TMP_DIR/lead-before"'
 cl similar --lead "restart the sweep after a ruling to see the board"
 assert "similar --lead lists lead-notes lines" '[[ $RC -eq 0 && $OUT == *"Restart the sweep"* ]]'
-CREW_LEAD_NOTES_MAX_BYTES=100 cl add --lead "Name the worktree path in every report so the lead can find leftovers"
-assert "--lead refuses a line past CREW_LEAD_NOTES_MAX_BYTES" '[[ $RC -eq 1 && $OUT == *"merge or retire"* ]] && cmp -s "$LEAD" "$TMP_DIR/lead-before"'
+head -c 20000 /dev/zero | tr '\0' x >>"$LEAD"
+echo >>"$LEAD"
+cl add --lead "Name the worktree path in every report so the lead can find leftovers"
+assert "--lead has no size cap" '[[ $RC -eq 0 && $(tail -n 1 "$LEAD") == "- Name the worktree path in every report so the lead can find leftovers ($TODAY)" ]]'
 cl size --lead
-assert "size --lead counts the whole file against 12288" '[[ $RC -eq 0 && $OUT =~ ^[0-9]+/12288\ bytes$ ]]'
-echo "CREW_LEAD_NOTES_MAX_BYTES=60" >"$MEM/thresholds"
-cl size --lead
-assert "the lead cap can come from the thresholds file" '[[ $RC -eq 1 && $OUT == */60\ bytes* ]]'
+assert "size --lead prints the file size with no cap" '[[ $RC -eq 0 && $OUT =~ ^[0-9]+\ bytes$ ]]'
 command rm -f "$MEM/thresholds"
 printf 'no newline at end' >"$LEAD"
 cl add --lead "Name the worktree path in every report so the lead can find leftovers"

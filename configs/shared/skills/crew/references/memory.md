@@ -16,7 +16,7 @@ rules/decided.md         one line per promoted (harness sha) or rejected (reason
 repos/<key>/
   origin                 normalized origin URL, or none
   brief.md               worker brief; ## Lessons capped at CREW_LESSONS_MAX_BYTES (8 KB)
-  lead-notes.md          lead rules, dated, cap CREW_LEAD_NOTES_MAX_BYTES (12 KB)
+  lead-notes.md          lead rules, dated, under topic headings, no cap
   check preflight preflight.d/ sweep-check thresholds watch-paths heavy-slots light-slots wait-patterns
   <helper scripts the gate scripts call, reached as $CREW_MEM/<helper>>
   index.md               one line per run
@@ -25,6 +25,8 @@ repos/<key>/
 ```
 
 Run state stays in `$crew`: `board.tsv`, `items/`, `rulings.md`, `reflections.md`, `plan.md`, `handover.md`, `.sweep-*`, queues and locks, `lead`, and the bulk of finished runs in `done-<run-id>/`.
+
+Lead notes have no size cap, since one session reads them and a big repo needs many rules. Keep them under `## <topic>` headings (gates, workers, host, a product area) and keep them current: a reflection round deletes the rules a landed mechanism or a later change made stale and moves general ones to `rules/proposed.md`. The worker Lessons stay capped because every worker reads the whole brief at spawn.
 
 ## Commands
 

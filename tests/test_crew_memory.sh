@@ -150,7 +150,7 @@ git -C "$CREW_MEMORY_DIR" remote set-url origin "$TMP_DIR/remote.git"
 echo "caps"
 head -c 13000 /dev/zero | tr '\0' x >"$store_repo/lead-notes.md"
 out=$(mem "$TMP_DIR/a/Wardrobe" status)
-assert "status reports a file over its cap" '[[ $out == *"MEMORY over repos/wardrobe/lead-notes.md 13000/12288"* ]]'
+assert "lead notes have no cap" '[[ $out != *"MEMORY over repos/wardrobe/lead-notes.md"* ]]'
 {
   printf '# brief\n## Lessons\n'
   head -c 9000 /dev/zero | tr '\0' y

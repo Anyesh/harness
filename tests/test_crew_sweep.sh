@@ -940,20 +940,20 @@ assert "a repo that is not busy prints no pending line" '! has_re "^MEMORY pendi
 (cd "$REPO" && "$MEM_BIN" ensure >/dev/null)
 assert "ensure moved the persistent files into the store" '[[ -f $STORE/thresholds && ! -e $CREW/thresholds ]]'
 printf 'x\n' >"$CREW/check"
-printf '%s\n' "$(printf 'n%.0s' $(seq 1 13000))" >"$STORE/lead-notes.md"
+printf '## Lessons\n%s\n' "$(printf 'n%.0s' $(seq 1 9000))" >"$STORE/brief.md"
 rm -f "$CREW"/.sweep-*
 sweep 5
 assert "a persistent file left in the crew dir is MEMORY stray" 'has "MEMORY stray check"'
-assert "sync ran and its over line is printed" 'has_re "^MEMORY over repos/repo/lead-notes.md 13001/12288$" && has "MEMORY no-remote"'
+assert "sync ran and its over line is printed" 'has_re "^MEMORY over repos/repo/brief.md#Lessons 9001/8192$" && has "MEMORY no-remote"'
 assert "sync committed the store" '[[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
 echo more >>"$STORE/brief.md"
 CREW_MEMORY_SYNC_EVERY=100000 sweep 1
 assert "a second sweep inside the sync interval does not sync" '[[ -n $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
-assert "it repeats the last sync's lines" 'has_re "^MEMORY over repos/repo/lead-notes.md" && has "MEMORY stray check" && has TIMEOUT'
+assert "it repeats the last sync's lines" 'has_re "^MEMORY over repos/repo/brief.md#Lessons" && has "MEMORY stray check" && has TIMEOUT'
 CREW_MEMORY_SYNC_EVERY=0 sweep 1
 assert "an expired interval syncs again" '[[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain) ]]'
 git init -q --bare -b main "$TMP_DIR/remote.git"
-printf 'short\n' >"$STORE/lead-notes.md"
+printf '## Lessons\n- short\n' >"$STORE/brief.md"
 rm -f "$CREW/check"
 CREW_MEMORY_REMOTE="$TMP_DIR/remote.git" CREW_MEMORY_SYNC_EVERY=0 sweep 1
 assert "a synced store prints no MEMORY line at all" '! has_re "^MEMORY"'

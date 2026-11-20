@@ -177,9 +177,6 @@ report_caps() {
   local key=$1 dir=$store/repos/$1 n cap
   if [[ -d $dir ]]; then
     crew_read_thresholds "$dir/thresholds"
-    cap=$((10#$(crew_threshold CREW_LEAD_NOTES_MAX_BYTES 12288)))
-    n=$(file_bytes "$dir/lead-notes.md")
-    ((n <= cap)) || echo "MEMORY over repos/$key/lead-notes.md $n/$cap"
     cap=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
     n=$(section_bytes "$dir/brief.md" Lessons)
     ((n <= cap)) || echo "MEMORY over repos/$key/brief.md#Lessons $n/$cap"

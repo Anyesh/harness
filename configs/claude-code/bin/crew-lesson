@@ -5,8 +5,8 @@
 #
 # The lead's way to add one line to crew memory. The target is, by default, the
 # ## Lessons section of brief.md in the crew memory dir (cap
-# CREW_LESSONS_MAX_BYTES, default 8192); with --lead the whole of lead-notes.md
-# there (cap CREW_LEAD_NOTES_MAX_BYTES, default 12288); with --all the store's
+# CREW_LESSONS_MAX_BYTES, default 8192, since every worker reads it whole); with
+# --lead the whole of lead-notes.md there (no cap); with --all the store's
 # rules/proposed.md, shared by every crew (cap 8192), where each line is tagged
 # `(<date>, <repo key>)`. Every other line gets today's date unless it already
 # ends in one. add prints the existing lines nearest the rule, refuses a rule
@@ -45,7 +45,7 @@ select_target() {
   case $target in
     lead)
       brief=$mem/lead-notes.md
-      max_bytes=$((10#$(crew_threshold CREW_LEAD_NOTES_MAX_BYTES 12288)))
+      max_bytes=
       ;;
     all)
       [[ -d $(crew_memory_dir) ]] || die "no crew memory store at $(crew_memory_dir); run crew-memory ensure"
@@ -123,6 +123,10 @@ size() {
   ((${#args[@]} == 0)) || usage
   local bytes
   bytes=$(section_bytes)
+  if [[ -z $max_bytes ]]; then
+    echo "$bytes bytes"
+    return 0
+  fi
   echo "$bytes/$max_bytes bytes"
   ((bytes <= max_bytes))
 }
@@ -176,7 +180,7 @@ add() {
     die "repeats line ${top%%$'\t'*} (${top#*$'\t'}): merge the new point into that line instead"
   fi
   bytes=$(section_bytes)
-  if ((bytes + ${#line} + 1 > max_bytes)); then
+  if [[ -n $max_bytes ]] && ((bytes + ${#line} + 1 > max_bytes)); then
     die "lessons are $bytes bytes and this line would pass $max_bytes: merge or retire lines first"
   fi
 
