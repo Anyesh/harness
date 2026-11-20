@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Usage: crew-lesson add <rule>
-#        crew-lesson similar <text>
-#        crew-lesson size
+# Usage: crew-lesson add [--lead|--all] <rule>
+#        crew-lesson similar [--lead|--all] <text>
+#        crew-lesson size [--lead|--all]
 #
-# The lead's way to add a line under ## Lessons in the crew's brief.md. add
-# prints the existing lines nearest the rule, refuses a rule whose words overlap
-# one line by CREW_LESSON_DUP_PCT (default 60) or more, and refuses one that
-# would take the section past CREW_LESSONS_MAX_BYTES (default 8192), so a new
-# lesson is merged into older ones or replaces them instead of piling up.
-# Overlap is the share of distinct words of four or more letters the two lines
-# have in common out of all the words either has.
+# The lead's way to add one line to crew memory. The target is, by default, the
+# ## Lessons section of brief.md in the crew memory dir (cap
+# CREW_LESSONS_MAX_BYTES, default 8192); with --lead the whole of lead-notes.md
+# there (cap CREW_LEAD_NOTES_MAX_BYTES, default 12288); with --all the store's
+# rules/proposed.md, shared by every crew (cap 8192), where each line is tagged
+# `(<date>, <repo key>)`. Every other line gets today's date unless it already
+# ends in one. add prints the existing lines nearest the rule, refuses a rule
+# whose words overlap one line by CREW_LESSON_DUP_PCT (default 60) or more, and
+# refuses one that would take the target past its cap, so a new lesson is merged
+# into older ones or replaces them instead of piling up. Overlap is the share of
+# distinct words of four or more letters the two lines have in common out of all
+# the words either has. The caps and CREW_LESSON_DUP_PCT may also be set in the
+# thresholds file of the crew memory dir.
 set -euo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -26,16 +32,57 @@ usage() {
 }
 
 crew=$(crew_dir) || die "not inside a git repository"
-brief=$crew/brief.md
-crew_read_thresholds "$crew/thresholds"
-max_bytes=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
+mem=$(crew_mem) || die "not inside a git repository"
+crew_read_thresholds "$mem/thresholds"
 dup_pct=$((10#$(crew_threshold CREW_LESSON_DUP_PCT 60)))
+target=worker
+brief=$mem/brief.md
+max_bytes=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
+key=
+
+select_target() {
+  target=$1
+  case $target in
+    lead)
+      brief=$mem/lead-notes.md
+      max_bytes=$((10#$(crew_threshold CREW_LEAD_NOTES_MAX_BYTES 12288)))
+      ;;
+    all)
+      [[ -d $(crew_memory_dir) ]] || die "no crew memory store at $(crew_memory_dir); run crew-memory ensure"
+      brief=$(crew_memory_dir)/rules/proposed.md
+      max_bytes=8192
+      key=$(crew_mem_key) || die "not inside a git repository"
+      ;;
+  esac
+}
+
+# Strips a leading --lead or --all from the arguments into target and leaves
+# the rest in args.
+parse_target() {
+  local flag=
+  args=()
+  while (($#)); do
+    case $1 in
+      --lead | --all)
+        [[ -z $flag ]] || usage
+        flag=${1#--}
+        ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  [[ -z $flag ]] || select_target "$flag"
+}
 
 section_bytes() {
   [[ -f $brief ]] || {
     echo 0
     return
   }
+  if [[ $target != worker ]]; then
+    wc -c <"$brief" | tr -d ' '
+    return
+  fi
   awk '/^## Lessons$/ {f = 1; next} f && /^## / {f = 0} f {n += length($0) + 1} END {print n + 0}' "$brief"
 }
 
@@ -43,14 +90,16 @@ section_bytes() {
 # the text by at least the given percent, highest first.
 nearest() {
   [[ -f $brief ]] || return 0
-  TEXT=$1 MIN=$2 awk '
+  local whole=
+  [[ $target == worker ]] || whole=1
+  TEXT=$1 MIN=$2 WHOLE=$whole awk '
     function words(s, set,   n, i, w, parts) {
       n = split(tolower(s), parts, /[^a-z0-9_]+/)
       for (i = 1; i <= n; i++) if (length(parts[i]) >= 4) set[parts[i]] = 1
     }
-    BEGIN { words(ENVIRON["TEXT"], q); for (w in q) nq++ }
-    /^## Lessons$/ {f = 1; next}
-    f && /^## / {f = 0}
+    BEGIN { words(ENVIRON["TEXT"], q); for (w in q) nq++; whole = ENVIRON["WHOLE"] != ""; f = whole }
+    !whole && /^## Lessons$/ {f = 1; next}
+    !whole && f && /^## / {f = 0}
     f && /^- / {
       delete l; nl = 0; both = 0
       words($0, l)
@@ -63,26 +112,60 @@ nearest() {
 }
 
 similar() {
+  parse_target "$@"
+  set -- "${args[@]}"
   (($# == 1)) || usage
   nearest "$1" 20
 }
 
 size() {
-  (($# == 0)) || usage
+  parse_target "$@"
+  ((${#args[@]} == 0)) || usage
   local bytes
   bytes=$(section_bytes)
   echo "$bytes/$max_bytes bytes"
   ((bytes <= max_bytes))
 }
 
+stamp() {
+  local rule=$1 date
+  date=$(date +%F)
+  if [[ $target == all ]]; then
+    if [[ ! $rule =~ \([0-9]{4}-[0-9]{2}-[0-9]{2},\ [^\)]+\)$ ]]; then
+      rule=$(sed -E 's/ *\([0-9]{4}-[0-9]{2}-[0-9]{2}\)$//' <<<"$rule")
+      rule="$rule ($date, $key)"
+    fi
+  elif [[ ! $rule =~ \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]]; then
+    rule="$rule ($date)"
+  fi
+  printf '%s\n' "$rule"
+}
+
+write_in_section() {
+  LINE=$1 awk '
+    { lines[NR] = $0 }
+    /^## Lessons$/ { start = NR }
+    start && NR > start && /^## / && !end { end = NR }
+    END {
+      if (!end) end = NR + 1
+      last = start
+      for (i = start + 1; i < end; i++) if (lines[i] != "") last = i
+      for (i = 1; i <= NR; i++) {
+        print lines[i]
+        if (i == last) print ENVIRON["LINE"]
+      }
+    }' "$brief"
+}
+
 add() {
+  parse_target "$@"
+  set -- "${args[@]}"
   (($# == 1)) || usage
-  local rule=$1 line near top t
+  local rule=$1 line near top t bytes
   [[ $rule != *$'\n'* ]] || die "a rule is one line"
   rule=${rule#- }
   [[ -n ${rule//[[:space:]]/} ]] || die "the rule is empty"
-  [[ $rule =~ \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$ ]] || rule="$rule ($(date +%F))"
-  line="- $rule"
+  line="- $(stamp "$rule")"
 
   near=$(nearest "$line" 20)
   if [[ -n $near ]]; then
@@ -92,27 +175,15 @@ add() {
   if [[ -n $top ]]; then
     die "repeats line ${top%%$'\t'*} (${top#*$'\t'}): merge the new point into that line instead"
   fi
-  local bytes
   bytes=$(section_bytes)
   if ((bytes + ${#line} + 1 > max_bytes)); then
     die "lessons are $bytes bytes and this line would pass $max_bytes: merge or retire lines first"
   fi
 
-  t=$(mktemp "$crew/.brief.XXXXXX") || die "cannot write a temp file in $crew"
-  if [[ -f $brief ]] && grep -qx '## Lessons' "$brief"; then
-    LINE=$line awk '
-      { lines[NR] = $0 }
-      /^## Lessons$/ { start = NR }
-      start && NR > start && /^## / && !end { end = NR }
-      END {
-        if (!end) end = NR + 1
-        last = start
-        for (i = start + 1; i < end; i++) if (lines[i] != "") last = i
-        for (i = 1; i <= NR; i++) {
-          print lines[i]
-          if (i == last) print ENVIRON["LINE"]
-        }
-      }' "$brief" >"$t" || {
+  mkdir -p "$(dirname "$brief")"
+  t=$(mktemp "$(dirname "$brief")/.tmp-lesson.XXXXXX") || die "cannot write a temp file next to $brief"
+  if [[ $target == worker && -f $brief ]] && grep -qx '## Lessons' "$brief"; then
+    write_in_section "$line" >"$t" || {
       rm -f "$t"
       die "cannot write $brief"
     }
@@ -120,9 +191,13 @@ add() {
     {
       if [[ -f $brief ]]; then
         cat "$brief"
-        printf '\n'
+        [[ -z $(tail -c 1 "$brief") ]] || printf '\n'
       fi
-      printf '## Lessons\n\n%s\n' "$line"
+      if [[ $target == worker ]]; then
+        [[ ! -f $brief ]] || printf '\n'
+        printf '## Lessons\n\n'
+      fi
+      printf '%s\n' "$line"
     } >"$t" || {
       rm -f "$t"
       die "cannot write $brief"
