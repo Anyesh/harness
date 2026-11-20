@@ -1110,6 +1110,32 @@ set_check 'exit 0'
 assert "the post-gate release sets no CREW_GATE_PID, and a slot someone else took is treated as released" '[[ -f $CREW/items/135/merged && $(<"$TMP_DIR/fakeheavy.log") == "release merge-135 gate=unset" ]] && ! grep -q "could not release" "$TMP_DIR/out"'
 command rm -f "$CREW/heavy-slots"
 
+new_item_on() {
+  new_item "$1"
+  git -C "$(wt_of "$1")" merge -q --no-edit "w/$2"
+  printf 'looks fine\nverdict: green\nreviewed: %s\n' "$(tip_of "$1")" >"$CREW/items/$1/review.md"
+}
+set_deps() {
+  awk -F'\t' -v OFS='\t' -v id="$1" -v d="$2" '$1 == id {$8 = d} {print}' "$CREW/board.tsv" >"$TMP_DIR/board.new"
+  command mv -f "$TMP_DIR/board.new" "$CREW/board.tsv"
+}
+
+new_item 140
+new_item_on 141 140
+new_item 142
+new_item 143
+new_item 145
+set_deps 143 142
+set_deps 142 145
+: >"$TMP_DIR/gates"
+set_check "$(gate_items 140 141 142 143 145)"
+hold_lock
+queue_merges 140 141 142 143 145
+kill "$HOLDER"
+wait_queued
+assert "a batch skips a queued item that shares commits with a claimed one or is related to one by board deps" '[[ ${RCS[*]} == "0 0 0 0 0" && $(sed -n 1p "$TMP_DIR/gates") == "140 142 " ]]'
+assert "the skipped items land in later batches, together only when unrelated, even through a chain of deps" '[[ $(sed -n 2p "$TMP_DIR/gates") == "141 143 " && $(sed -n 3p "$TMP_DIR/gates") == "145 " && -f $CREW/items/141/merged && -f $CREW/items/145/merged ]] && no_markers 140 141 142 143 145'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

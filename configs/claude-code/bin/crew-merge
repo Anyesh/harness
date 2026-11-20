@@ -225,6 +225,7 @@ m_merged=()
 m_result=()
 m_msg=()
 m_log=()
+m_commits=()
 heavy_release() {
   local out
   [[ -n $heavy_held ]] || return 0
@@ -627,6 +628,40 @@ add_member() {
   m_result+=("")
   m_msg+=("")
   m_log+=("")
+  m_commits+=("$(g rev-list "refs/heads/$into..$4" | sort)")
+}
+
+# True when ids $1 and $2 are linked by board deps, directly or through other
+# items, in either direction.
+deps_related() {
+  crew_board "$crew/board.tsv" | awk -F'\037' -v a="$1" -v b="$2" '
+    function reach(from, to,    n, p, i) {
+      if (from == to) return 1
+      if (from in visited) return 0
+      visited[from] = 1
+      n = split(deps[from], p, ",")
+      for (i = 1; i <= n; i++) if (reach(p[i], to)) return 1
+      return 0
+    }
+    { deps[$1] = $8 }
+    END {
+      if (reach(a, b)) exit 0
+      delete visited
+      exit !reach(b, a)
+    }'
+}
+
+# True when the queued item $1 at tip $2 shares commits with, or is related by
+# board deps to, a member already claimed; bisect could not cut it apart from
+# the work it is built on, so it waits for the next batch.
+shares_work() {
+  local i commits shared
+  commits=$(g rev-list "refs/heads/$into..$2" | sort) || return 0
+  for i in "${!m_id[@]}"; do
+    shared=$(comm -12 <(printf '%s\n' "$commits") <(printf '%s\n' "${m_commits[i]}") | grep . || true)
+    if [[ -n $shared ]] || deps_related "${m_id[i]}" "$1"; then return 0; fi
+  done
+  return 1
 }
 
 requeue() {
@@ -668,7 +703,7 @@ claim_followers() {
     finto=${row#*$'\t'}
     [[ -n $fbranch && $finto == "$into" ]] || continue
     lock_marker "$fdir"
-    if [[ $(crew_merge_state "$f" 2>/dev/null) == queued ]] && grep -q '^ticket ' "$f"; then
+    if [[ $(crew_merge_state "$f" 2>/dev/null) == queued ]] && grep -q '^ticket ' "$f" && ! shares_work "$fid" "$(field "$f" tip)"; then
       claimed=1
       add_member "$fid" "$fdir" "$fbranch" "$(field "$f" tip)" "$t" "$(field "$f" pid) $(field "$f" start)"
       printf 'pid %s\nstart %s\ntip %s\nticket %s\nowner %s\nleader %s\n' "$$" "$start" "$(field "$f" tip)" "$t" "${m_owner[-1]}" "$id" |
