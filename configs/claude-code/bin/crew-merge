@@ -234,6 +234,18 @@ elif [[ $1 == --cancel ]]; then
 fi
 
 id=$1
+# setpgrp cannot move a process that already leads its group, which is what a
+# shell that execs its last command makes of this run; a forked copy is a plain
+# member of that group, and the parent relays its exit status.
+pgid=$(ps -o pgid= -p "$$")
+if [[ -z ${CREW_MERGE_LEADER:-} && ${pgid//[!0-9]/} == "$$" ]]; then
+  exec perl -e '
+    my $pid = fork // die "crew-merge: cannot fork: $!\n";
+    if (!$pid) { exec @ARGV or die "crew-merge: cannot exec: $!\n" }
+    waitpid($pid, 0);
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+  ' "$(readlink -f "${BASH_SOURCE[0]}")" "$id"
+fi
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
 mkdir -p "$runs"

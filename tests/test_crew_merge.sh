@@ -1239,6 +1239,17 @@ rc=0
 wait "$p153" || rc=$?
 assert "a run that already leads its process group lands and warns of nothing" '[[ $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out153") == "$(merged_sha 153)" ]] && ! grep -q "process group" "$TMP_DIR/out153"'
 
+new_item 154
+set_check "touch '$TMP_DIR/check154'; sleep 2"
+(cd "$(wt_of 154)" && exec perl -e 'setpgrp; exec @ARGV' "$CM" 154) >"$TMP_DIR/out154" 2>&1 &
+g154=$!
+PIDS+=("$g154")
+wait_for '[[ -e $TMP_DIR/check154 ]]'
+kill -TERM -- "-$g154" || true
+wait_for '[[ -f $CREW/items/154/merged ]]' || wait_for '[[ -f $CREW/items/154/merged ]]' || true
+assert "a run that leads its own process group still lands when that group is killed during check" '[[ -f $CREW/items/154/merged ]]'
+set_check 'exit 0'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
