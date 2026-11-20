@@ -24,9 +24,8 @@ assert() {
 TMP_DIR=$(cd "$(mktemp -d)" && pwd -P)
 trap 'command rm -rf "$TMP_DIR"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-export CREW_MEMORY_DIR="$TMP_DIR/store"
-export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
-unset CREW_MEMORY_REMOTE
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 unset CREW_MEM
 
 REPO=$TMP_DIR/repo
@@ -93,8 +92,8 @@ assert "removing a sleep passes" '[[ $RC -eq 0 ]]'
 reset_item
 
 echo "extra patterns"
-mkdir -p "$CREW_MEMORY_DIR/repos/repo"
-printf 'wait_until_ready\\(\n# comment\n\nretry_for\\([0-9]+\n' >"$CREW_MEMORY_DIR/repos/repo/wait-patterns"
+mkdir -p "$WIKI_VAULT/wiki/projects/repo/crew"
+printf 'wait_until_ready\\(\n# comment\n\nretry_for\\([0-9]+\n' >"$WIKI_VAULT/wiki/projects/repo/crew/wait-patterns"
 printf 'def test_p():\n    wait_until_ready(db)\n    retry_for(30)\n    ok()\n' >"$REPO/tests/test_p.py"
 commit_all extra
 lint

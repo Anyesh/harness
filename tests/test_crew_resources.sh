@@ -31,9 +31,8 @@ git init -q "$REPO"
 CREW="$REPO/.claude/crew"
 mkdir -p "$CREW"
 export CREW_RUNS_DIR="$TMP_DIR/runs"
-export CREW_MEMORY_DIR="$TMP_DIR/store"
-export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
-unset CREW_MEMORY_REMOTE
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN"
 DF_LOG="$TMP_DIR/df.log"
@@ -160,7 +159,7 @@ done
 rm "$CREW/thresholds"
 
 echo "memory store"
-STORE="$CREW_MEMORY_DIR/repos/repo"
+STORE="$WIKI_VAULT/wiki/projects/repo/crew"
 mkdir -p "$STORE"
 printf 'CREW_DISK_MIN_GB=0\nCREW_MEM_MIN_MB=999999999\nCREW_LOAD_PER_CPU=1000000\nCREW_IO_FULL_PCT=1000\n' >"$STORE/thresholds"
 printf 'CREW_MEM_MIN_MB=0\n' >"$CREW/thresholds"

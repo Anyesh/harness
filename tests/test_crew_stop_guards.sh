@@ -23,6 +23,8 @@ assert() {
 }
 
 TMP_DIR=$(mktemp -d)
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 SLEEPER=""
 trap 'command rm -rf "$TMP_DIR"; [[ -n $SLEEPER ]] && kill "$SLEEPER" 2>/dev/null || true' EXIT
 export HARNESS_BLOCK_LOG="$TMP_DIR/blocks.jsonl"

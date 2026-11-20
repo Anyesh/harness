@@ -28,6 +28,8 @@ assert() {
 }
 
 TMP_DIR=$(mktemp -d)
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 trap 'command rm -rf "$TMP_DIR"' EXIT
 
 export CREW_SPAWN_POLL=0.05 CREW_SPAWN_PROMPT_TIMEOUT=3

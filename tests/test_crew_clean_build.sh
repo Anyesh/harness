@@ -22,6 +22,8 @@ assert() {
 }
 
 TMP=$(cd "$(mktemp -d)" && pwd -P)
+export WIKI_VAULT="${TMP}/vault"
+unset HARNESS_WORK
 trap 'command rm -rf "$TMP"' EXIT
 
 OUT=

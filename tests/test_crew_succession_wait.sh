@@ -27,6 +27,8 @@ assert() {
 }
 
 TMP_DIR=$(mktemp -d)
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 trap 'command rm -rf "$TMP_DIR"' EXIT
 
 export CREW_SUCCESSION_POLL=0.05

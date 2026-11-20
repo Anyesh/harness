@@ -9,9 +9,9 @@ while read -r name; do
   [[ "$name" == GIT_CONFIG_* ]] && unset "$name"
 done < <(compgen -e)
 
-unset CREW_MEMORY_REMOTE
 CREW_RUNS_DIR=$(mktemp -d)
-export CREW_RUNS_DIR XDG_CONFIG_HOME="$CREW_RUNS_DIR/xdg" CREW_MEMORY_DIR="$CREW_RUNS_DIR/crew-memory"
+: >"$CREW_RUNS_DIR/empty.env"
+export CREW_RUNS_DIR HARNESS_ENV="$CREW_RUNS_DIR/empty.env"
 trap 'rm -rf "$CREW_RUNS_DIR"' EXIT
 
 for test_file in "$SCRIPT_DIR"/test_*.sh; do

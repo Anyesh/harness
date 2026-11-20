@@ -30,9 +30,8 @@ cleanup() {
 }
 trap cleanup EXIT
 export CREW_HEAVY_POLL=0.2
-export CREW_MEMORY_DIR="$TMP_DIR/store"
-export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
-unset CREW_MEMORY_REMOTE
+export WIKI_VAULT="${TMP_DIR}/vault"
+unset HARNESS_WORK
 
 MAIN="$TMP_DIR/repo"
 git init -q "$MAIN"
@@ -375,20 +374,20 @@ rm -rf "$CREW/items"
 
 echo "persistent files in the memory store"
 rm -rf "$CREW/items" "$CREW/heavy-slots"
-mkdir -p "$CREW_MEMORY_DIR/repos/repo"
+mkdir -p "$WIKI_VAULT/wiki/projects/repo/crew"
 marker x queued
 heavy acquire 2 suite 0
 assert "with a store entry and no heavy-slots there, a marker holds no one back" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
 heavy release 2
-printf '1\n' >"$CREW_MEMORY_DIR/repos/repo/heavy-slots"
+printf '1\n' >"$WIKI_VAULT/wiki/projects/repo/crew/heavy-slots"
 heavy acquire 2 suite 1
 assert "heavy-slots in the store turns the slot count on" '[[ $RC -ne 0 && $OUT == *"1 ahead"* ]]'
 printf '1\n' >"$CREW/heavy-slots"
-rm "$CREW_MEMORY_DIR/repos/repo/heavy-slots"
+rm "$WIKI_VAULT/wiki/projects/repo/crew/heavy-slots"
 heavy acquire 2 suite 0
 assert "a heavy-slots file left in the crew dir is ignored once the store has an entry" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
 heavy release 2
-rm -rf "$CREW/items" "$CREW/heavy-slots" "$CREW_MEMORY_DIR"
+rm -rf "$CREW/items" "$CREW/heavy-slots" "$WIKI_VAULT/wiki"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
