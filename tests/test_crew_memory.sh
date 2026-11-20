@@ -48,7 +48,7 @@ root="$wiki/crew"
 assert "the key is the wiki project slug of the main checkout" '[[ $(crew_mem_key "$TMP_DIR/a/Wardrobe") == wardrobe ]]'
 assert "the memory root is the crew folder of the project's wiki folder" '[[ $(crew_mem_root "$TMP_DIR/a/Wardrobe") == "$root" ]]'
 assert "crew_mem falls back to the crew dir before ensure" '[[ $(crew_mem "$TMP_DIR/a/Wardrobe") == "$TMP_DIR/a/Wardrobe/.claude/crew" ]]'
-assert "the proposals dir is the harness project's crew folder" '[[ $(crew_proposals_dir) == "$WIKI_VAULT/wiki/projects/harness/crew" ]]'
+assert "the proposals dir sits beside the harness project's crew folder, not in it" '[[ $(crew_proposals_dir) == "$WIKI_VAULT/wiki/projects/harness/crew-proposals" ]]'
 assert "HARNESS_WORK maps the vault to the work vault" '[[ $(HARNESS_WORK=1 crew_mem_root "$TMP_DIR/a/Wardrobe") == "$WIKI_VAULT/Work/agent-wiki/wiki/projects/wardrobe/crew" ]]'
 
 echo "no vault"

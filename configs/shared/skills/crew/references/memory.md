@@ -6,13 +6,13 @@ Read at Start, at close-out and whenever a sweep prints a `MEMORY` line. Crew me
 
 - In the project's wiki folder: `<vault>/wiki/projects/<slug>/crew`. wiki-sync carries the folder to the other machines, so there is no git repo, nothing to commit and nothing to push. A work machine's crew memory stays in the work vault, because the vault comes from the wiki hooks' own rule.
 - `mem=$(crew_mem)` (from `crew-lib.sh`) is that folder once it exists, else `$crew`, so a repo that was never moved keeps working.
-- Cross-repo rules wait in the harness wiki folder, `<vault>/wiki/projects/harness/crew` (`crew_proposals_dir`), in `proposed.md` and `decided.md`.
+- Cross-repo rules wait in the harness wiki folder, `<vault>/wiki/projects/harness/crew-proposals` (`crew_proposals_dir`), in `proposed.md` and `decided.md`.
 - Project repos never receive crew files. Never copy crew memory into a project repo, a PR or the harness repo except through `references/promote.md`.
 
 ## Layout and caps
 
 ```
-<vault>/wiki/projects/harness/crew/
+<vault>/wiki/projects/harness/crew-proposals/
   proposed.md            cross-repo rules awaiting promotion, "- <rule> (<date>, <key>)", no cap
   decided.md             one line per promoted (harness sha) or rejected (reason) rule
 <vault>/wiki/projects/<slug>/crew/

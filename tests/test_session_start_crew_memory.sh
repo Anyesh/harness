@@ -81,14 +81,14 @@ mkdir -p "$HARNESS/configs/shared/skills/crew"
 run_hook "$HARNESS"
 assert "no proposals file prints nothing" '[[ -z "$OUT" ]]'
 
-mkdir -p "$WIKI/harness/crew"
-printf '# Proposed\n\nnotes only\n' >"$WIKI/harness/crew/proposed.md"
+mkdir -p "$WIKI/harness/crew-proposals"
+printf '# Proposed\n\nnotes only\n' >"$WIKI/harness/crew-proposals/proposed.md"
 run_hook "$HARNESS"
 assert "a proposals file without rule lines prints no CREW-PROPOSALS line" '[[ $(context) != *CREW-PROPOSALS* ]]'
 
-printf -- '- one (2026-11-20, app)\n- two (2026-11-20, app)\n' >>"$WIKI/harness/crew/proposed.md"
+printf -- '- one (2026-11-20, app)\n- two (2026-11-20, app)\n' >>"$WIKI/harness/crew-proposals/proposed.md"
 run_hook "$HARNESS"
-assert "the harness repo prints CREW-PROPOSALS with the rule count" '[[ $(context) == "CREW-MEMORY: $WIKI/harness/crew, 0 runs"$'"'\n'"'"CREW-PROPOSALS: 2 pending" ]]'
+assert "the harness repo prints only CREW-PROPOSALS with the rule count" '[[ $(context) == "CREW-PROPOSALS: 2 pending" ]]'
 
 run_hook "$APP"
 assert "a project repo never prints CREW-PROPOSALS" '[[ $(context) != *CREW-PROPOSALS* ]]'

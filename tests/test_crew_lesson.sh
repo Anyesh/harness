@@ -155,7 +155,7 @@ assert "--lead creates lead-notes.md when it is missing" '[[ $RC -eq 0 && -f $LE
 assert "worker lessons are untouched by --lead" '[[ $(grep -c "^- " "$MEM/brief.md") -eq 1 ]]'
 
 echo "all crews"
-PROPOSED=$WIKI_VAULT/wiki/projects/harness/crew/proposed.md
+PROPOSED=$WIKI_VAULT/wiki/projects/harness/crew-proposals/proposed.md
 cl add --all "Never run two migrations that claim the same alembic head in one batch"
 assert "--all appends to the harness crew folder's proposed.md tagged with the date and key" '[[ $RC -eq 0 && $(tail -n 1 "$PROPOSED") == "- Never run two migrations that claim the same alembic head in one batch ($TODAY, repo)" ]]'
 command cp -f "$PROPOSED" "$TMP_DIR/prop-before"

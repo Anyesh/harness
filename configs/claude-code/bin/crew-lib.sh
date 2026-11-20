@@ -439,7 +439,7 @@ crew_mem_root() {
 crew_proposals_dir() {
   local vault
   vault=$(crew_wiki_vault) || return 1
-  printf '%s/wiki/projects/harness/crew\n' "$vault"
+  printf '%s/wiki/projects/harness/crew-proposals\n' "$vault"
 }
 
 # Where the persistent files of the repo holding dir $1 live: its wiki crew dir
