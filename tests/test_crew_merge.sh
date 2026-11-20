@@ -37,6 +37,8 @@ cleanup() {
 trap cleanup EXIT
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_MERGE_POLL=0.2
+STORE="$TMP_DIR/store"
+export CREW_MEMORY_DIR="$STORE"
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
 . "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"
@@ -976,6 +978,72 @@ unset CREW_PREFLIGHT_TIMEOUT
 assert "a timed-out preflight is stopped with its children" '((SECONDS - t0 < 10)) && ! kill -0 "$(cat "$BG_PID_FILE")" 2>/dev/null && no_preflight_leftover'
 : >"$BG_PID_FILE"
 command rm -f "$CREW/preflight"
+
+no_gate_dirs() { ! compgen -G "$RUNS/gate-$1-*" >/dev/null; }
+set_store_check() {
+  mkdir -p "$STORE/repos/repo"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n%s\n' "$1" >"$STORE/repos/repo/check"
+  chmod +x "$STORE/repos/repo/check"
+}
+
+new_item 120
+set_check "echo \"\$CREW_MEM\" >'$TMP_DIR/crewmem.snap'
+[[ -x \$CREW_MEM/check && \$PWD != \$CREW_MEM ]]
+echo \"\$PWD\" >'$TMP_DIR/gatepwd.snap'"
+run_merge 120 >"$TMP_DIR/out" 2>&1 || true
+assert "a repo with no store entry gates from a snapshot of its own crew dir, outside the worktrees" '[[ -f $CREW/items/120/merged && $(<"$TMP_DIR/crewmem.snap") == "$RUNS"/gate-120-* && $(<"$TMP_DIR/gatepwd.snap") == "$RUNS"/merge-* ]]'
+assert "the gate snapshot is removed once the run ends" 'no_gate_dirs 120'
+
+new_item 121
+git init -q "$STORE"
+set_store_check "echo store-check >>'$TMP_DIR/which'; echo helper-says \$(\$CREW_MEM/helper) >>'$TMP_DIR/which'"
+printf '#!/usr/bin/env bash\necho hi\n' >"$STORE/repos/repo/helper"
+chmod +x "$STORE/repos/repo/helper"
+set_check "echo crew-check >>'$TMP_DIR/which'"
+: >"$TMP_DIR/which"
+run_merge 121 >"$TMP_DIR/out" 2>&1 || true
+assert "with a store entry the store's check runs, with its helpers beside it, and the crew dir's is ignored" '[[ -f $CREW/items/121/merged ]] && grep -qx store-check "$TMP_DIR/which" && grep -qx "helper-says hi" "$TMP_DIR/which" && ! grep -q crew-check "$TMP_DIR/which"'
+command rm -f "$CREW/check"
+
+new_item 122
+set_store_check "exit 0"
+(
+  exec {fd}>"$STORE/.sync.lock"
+  flock "$fd"
+  : >"$TMP_DIR/sheld"
+  exec sleep 120
+) &
+SYNCHOLD=$!
+PIDS+=("$SYNCHOLD")
+wait_for '[[ -e $TMP_DIR/sheld ]]'
+start_merge 122 "$TMP_DIR/out122"
+p122=$BG
+sleep 1
+assert "the snapshot waits for the store's sync lock, before any marker is written" '[[ ! -e $(marker 122) ]] && kill -0 "$p122"'
+kill "$SYNCHOLD"
+rc=0
+wait "$p122" || rc=$?
+assert "the run lands once the sync lock frees" '[[ $rc -eq 0 && -f $CREW/items/122/merged ]]'
+
+new_item 123
+new_item 124
+new_item 125
+: >"$TMP_DIR/gates"
+set_store_check "$(gate_items 123 124 125)
+printf '#!/usr/bin/env bash\nexit 0\n' >'$STORE/repos/repo/check'
+if [[ -e f-124 ]]; then echo bad-124; exit 1; fi"
+hold_lock
+queue_merges 123 124 125
+kill "$HOLDER"
+wait_queued
+assert "a store change mid-run does not change what a bisect gate runs" '[[ ${RCS[*]} == "0 1 0" && -f $CREW/items/123/merged && -f $CREW/items/125/merged && ! -e $CREW/items/124/merged ]] && grep -q bad-124 "$TMP_DIR/out124" && no_gate_dirs 123 && no_gate_dirs 124'
+
+new_item 126
+set_store_check "exit 0"
+chmod u-r "$STORE/repos/repo/check"
+refuses "a gate script that cannot be copied" 126 "cannot copy"
+assert "a refused snapshot leaves no gate directory" 'no_gate_dirs 126'
+command rm -rf "$STORE"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

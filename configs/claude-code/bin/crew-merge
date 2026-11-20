@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: crew-merge <item>          land the item's reviewed branch through $crew/check
+# Usage: crew-merge <item>          land the item's reviewed branch through the crew memory check
 #        crew-merge --status        RUNNING <id>, QUEUED <id>, CUT <id> <sha> or
 #                                   STALE <id> per merge marker; nothing when idle
 #        crew-merge --settle <item> clear the marker a dead run left, writing the
@@ -8,7 +8,7 @@
 # An item lands only with a crew-red record in items/<id>/red.log or a reason
 # in items/<id>/no-test.
 #
-# Before a run queues, an executable $crew/preflight runs on a throwaway merge
+# Before a run queues, an executable preflight in the crew memory runs on a throwaway merge
 # of the item onto its target after the items already queued, and a failure
 # refuses the item without a ticket or a gate.
 #
@@ -176,7 +176,8 @@ fi
 
 id=$1
 [[ $queue_wait =~ ^[0-9]+$ ]] || die "CREW_MERGE_QUEUE_WAIT must be a whole number of seconds"
-heavy_slots=$(crew_heavy_slots "$crew") || die "$crew/heavy-slots must contain 1, the only slot count supported"
+mem=$(crew_mem) || die "cannot find the crew memory of this repository"
+heavy_slots=$(crew_heavy_slots "$mem") || die "$mem/heavy-slots must contain 1, the only slot count supported"
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
 mkdir -p "$runs"
@@ -188,8 +189,8 @@ tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $
 start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
 mkdir -p "$item"
 
-if [[ -f $crew/check ]] && head -n 1 "$crew/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
-  syntax=$(bash -n "$crew/check" 2>&1) || die "check at $crew/check has a syntax error: $syntax"
+if [[ -f $mem/check ]] && head -n 1 "$mem/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
+  syntax=$(bash -n "$mem/check" 2>&1) || die "check at $mem/check has a syntax error: $syntax"
 fi
 
 holds_heavy_msg() {
@@ -207,6 +208,7 @@ refuse_own_hold
 
 tmp=
 ptmp=
+snap=
 wrote_marker=
 napper=
 heavy_held=
@@ -252,6 +254,7 @@ cleanup() {
   heavy_release
   if [[ -n $tmp && -d $tmp ]]; then g worktree remove --force "$tmp" || rm -rf "$tmp"; fi
   drop_trial
+  if [[ -n $snap && -d $snap ]]; then command rm -rf "$snap"; fi
   if [[ -n $leading ]]; then release_claims; fi
   if [[ ${m_result[0]:-} == landed ]]; then
     rm -f "$item/merging"
@@ -327,12 +330,36 @@ drop_trial() {
   ptmp=
 }
 
-# Runs $crew/preflight in a throwaway merge of the item onto its target after
+# Copies the repo's gate scripts, check, preflight, preflight.d and every other
+# executable kept beside them, into one directory outside every worktree, under
+# the store's sync lock when the store is a git clone. Every gate of the run
+# uses the copy, so a sync or an edit mid-run changes none of them.
+take_snap() {
+  local store f lockfd=
+  store=$(crew_memory_dir)
+  snap=$(mktemp -d "$runs/gate-$id-XXXXXX") || die "cannot create a gate snapshot in $runs"
+  find "$runs" -maxdepth 1 -type d -name 'gate-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
+  if [[ -e $store/.git ]]; then
+    exec {lockfd}>"$store/.sync.lock" || die "cannot open $store/.sync.lock"
+    flock -w 60 "$lockfd" || die "cannot lock $store/.sync.lock"
+  fi
+  for f in "$mem"/*; do
+    case ${f##*/} in
+    check | preflight) [[ -f $f ]] || continue ;;
+    preflight.d) [[ -d $f ]] || continue ;;
+    *) [[ -f $f && -x $f ]] || continue ;;
+    esac
+    command cp -RLf "$f" "$snap/" || die "cannot copy gate script $f to $snap"
+  done
+  [[ -z $lockfd ]] || exec {lockfd}>&-
+}
+
+# Runs $snap/preflight in a throwaway merge of the item onto its target after
 # every item queued or gating for that target, so a clash with the target or
 # with the batch ahead is refused before the item takes a queue ticket. It runs
 # before any lock, since the hook can take minutes.
 preflight() {
-  local hook=$crew/preflight limit=${CREW_PREFLIGHT_TIMEOUT:-3600} stale t fid row qbranch qtip base log prc=0 t0 i
+  local hook=$snap/preflight limit=${CREW_PREFLIGHT_TIMEOUT:-3600} stale t fid row qbranch qtip base log prc=0 t0 i
   local -a qids=() qbranches=() qtips=() clashes=()
   [[ -e $hook ]] || return 0
   [[ -x $hook ]] || die "preflight at $hook is not executable"
@@ -375,7 +402,7 @@ preflight() {
   printf 'crew-merge: preflight on %s%s (log: %s)\n' "$id" "${qids:+ after queued ${qids[*]}}" "$log" >&2
   t0=$EPOCHSECONDS
   (cd "$ptmp" && exec env "${unset_env[@]}" CREW_PREFLIGHT=1 CREW_PREFLIGHT_ITEM="$id" CREW_PREFLIGHT_BASE="$base" \
-    CREW_PREFLIGHT_TARGET="$into" CREW_PREFLIGHT_QUEUED="${qids[*]}" timeout -k 10 "$limit" "$hook") >"$log" 2>&1 || prc=$?
+    CREW_PREFLIGHT_TARGET="$into" CREW_PREFLIGHT_QUEUED="${qids[*]}" CREW_MEM="$snap" timeout -k 10 "$limit" "$hook") >"$log" 2>&1 || prc=$?
   drop_trial
   if ((prc == 124)); then
     tail -n 40 "$log" >&2
@@ -402,6 +429,7 @@ lock_marker "$item"
 refuse_merging
 unlock_marker
 if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
+take_snap
 preflight
 
 lock_marker "$item"
@@ -697,7 +725,7 @@ gate() {
   fi
   t0=$EPOCHSECONDS
   grc=0
-  (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 "$crew/check") >"$glog" 2>&1 {lock}>&- || grc=$?
+  (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 CREW_MEM="$snap" "$snap/check") >"$glog" 2>&1 {lock}>&- || grc=$?
   heavy_release
   if ((grc)); then
     printf 'crew-merge: check red on %safter %d s\n' "$ids" $((EPOCHSECONDS - t0)) >&2
@@ -778,7 +806,7 @@ if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
 target=$(crew_target_of . "$into")
 [[ -n $target ]] || die "$into is not checked out in any worktree"
 target_ok
-[[ -x $crew/check ]] || die "no executable check at $crew/check"
+[[ -x $snap/check ]] || die "no executable check at $mem/check"
 
 add_member "$id" "$item" "$branch" "$tip" "$ticket" "$$ $start"
 if g merge-base --is-ancestor "$tip" "refs/heads/$into"; then
