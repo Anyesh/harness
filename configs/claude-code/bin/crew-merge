@@ -459,12 +459,14 @@ drop_trial() {
 # memory lock, then restores the exec bits wiki-sync drops. Every gate of the
 # run uses the copy, so a sync or an edit mid-run changes none of them.
 take_snap() {
-  local f lockfd=
+  local f lockfd='' had_preflight=''
   snap=$(mktemp -d "$runs/gate-$id-XXXXXX") || die "cannot create a gate snapshot in $runs"
   find "$runs" -maxdepth 1 -type d -name 'gate-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
   mkdir -p "$crew"
+  [[ ! -e $mem/preflight ]] || had_preflight=1
   exec {lockfd}>"$crew/.mem.lock" || die "cannot open $crew/.mem.lock"
   flock -w 60 "$lockfd" || die "cannot lock $crew/.mem.lock"
+  mem=$(crew_mem) || die "cannot find the crew memory of this repository"
   for f in "$mem"/*; do
     case ${f##*/} in
     *.md | runs | archive) continue ;;
@@ -473,6 +475,7 @@ take_snap() {
     command cp -RLf "$f" "$snap/" || die "cannot copy gate script $f to $snap"
   done
   exec {lockfd}>&-
+  [[ -z $had_preflight || -e $snap/preflight ]] || die "preflight vanished from the crew memory before the gate snapshot; refusing $id"
   crew_mem_fix_modes "$snap"
 }
 

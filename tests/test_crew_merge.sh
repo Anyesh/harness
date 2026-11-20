@@ -1260,6 +1260,53 @@ wait_for '[[ -f $CREW/items/154/merged ]]' || wait_for '[[ -f $CREW/items/154/me
 assert "a run that leads its own process group still lands when that group is killed during check" '[[ -f $CREW/items/154/merged ]]'
 set_check 'exit 0'
 
+snap_lock() {
+  command rm -f "$TMP_DIR/snapheld"
+  (
+    exec {fd}>"$CREW/.mem.lock"
+    flock "$fd"
+    : >"$TMP_DIR/snapheld"
+    while [[ ! -e $TMP_DIR/snapfree ]]; do sleep 0.1; done
+  ) &
+  SNAPHOLDER=$!
+  wait_for '[[ -e $TMP_DIR/snapheld ]]'
+}
+snap_free() {
+  : >"$TMP_DIR/snapfree"
+  wait "$SNAPHOLDER" 2>/dev/null || true
+  command rm -f "$TMP_DIR/snapfree"
+}
+
+new_item 155
+set_preflight "touch '$TMP_DIR/pf-crew'"
+snap_lock
+start_merge 155 "$TMP_DIR/out155"
+p155=$BG
+wait_for 'compgen -G "$RUNS/gate-155-*" >/dev/null'
+VAULT_CREW="$WIKI_VAULT/wiki/projects/$(crew_mem_key "$MAIN")/crew"
+mkdir -p "$VAULT_CREW"
+printf '#!/usr/bin/env bash\ntouch %q\n' "$TMP_DIR/pf-wiki" >"$VAULT_CREW/preflight"
+command cp -f "$CREW/check" "$VAULT_CREW/check"
+command rm -f "$CREW/preflight" "$CREW/check"
+snap_free
+r155=0
+wait "$p155" || r155=$?
+assert "a move into the wiki while a merge waits for the snapshot lock gates from the wiki copy" '[[ $r155 -eq 0 && -e $TMP_DIR/pf-wiki && ! -e $TMP_DIR/pf-crew ]]'
+command mv -f "$VAULT_CREW/check" "$CREW/check"
+command rm -rf "$VAULT_CREW"
+
+new_item 156
+set_preflight "touch '$TMP_DIR/pf-156'"
+snap_lock
+start_merge 156 "$TMP_DIR/out156"
+p156=$BG
+wait_for 'compgen -G "$RUNS/gate-156-*" >/dev/null'
+command rm -f "$CREW/preflight"
+snap_free
+r156=0
+wait "$p156" || r156=$?
+assert "a preflight that vanished before the snapshot refuses the item" '[[ $r156 -eq 1 && ! -e $TMP_DIR/pf-156 && ! -e $CREW/items/156/merged ]] && grep -q "preflight vanished" "$TMP_DIR/out156"'
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
