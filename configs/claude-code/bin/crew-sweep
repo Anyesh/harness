@@ -93,7 +93,11 @@
 #                                   repeated from .sweep-memory in between; a
 #                                   MEMORY line ends the wait only when it is new
 #                                   since the last sweep (.sweep-wakes)
-#   READY <id>                      an open row whose deps are all done
+#   ESCAPE <id> <red line>          an item whose gate-escape file crew-merge wrote
+#                                   (log <path> and red <line>): bisect cut it although
+#                                   preflight passed it; the file ends the wait once,
+#                                   and a rewritten file once more
+#   READY <id>                   an open row whose deps are all done
 #   DEPS <id> <problem>             an open row that can never start: names unknown
 #                                   <dep>, waits on blocked <dep>, is in a cycle, or
 #                                   waits on stuck <dep>
@@ -1128,6 +1132,28 @@ check_stopped() {
   scan_stopped
 }
 
+escape_lines=()
+scan_escapes() {
+  local f id red t
+  escape_lines=()
+  shopt -s nullglob
+  for f in "$crew"/items/*/gate-escape; do
+    id=${f%/gate-escape}
+    id=${id##*/}
+    red=$(awk '$1 == "red" { sub(/^red[ \t]*/, ""); v = $0 } END { print v }' "$f")
+    escape_lines+=("ESCAPE $id $red")
+    t=$(mtime_ns "$f") || t=0
+    note_wake "escape $id $t"
+  done
+  shopt -u nullglob
+}
+
+report_escapes() {
+  local line
+  scan_escapes
+  for line in "${escape_lines[@]}"; do echo "$line"; done
+}
+
 sync_memory() {
   local last out rc
   last=$(cat "$memory_synced" 2>/dev/null)
@@ -1208,6 +1234,7 @@ check_resources
 check_usage
 check_memory
 check_stopped
+scan_escapes
 current= previous=
 snapshot_into current
 load_seen previous
@@ -1219,6 +1246,7 @@ while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && ! wa
   ((SECONDS >= usage_at + resource_every)) && check_usage
   ((SECONDS >= memory_at + resource_every)) && check_memory
   ((SECONDS >= stopped_at + stopped_every)) && check_stopped
+  scan_escapes
   snapshot_into current
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
@@ -1252,6 +1280,7 @@ report_leftovers
 report_stale_merges
 report_targets
 report_memory
+report_escapes
 report_order
 report_heavy
 report_reflect

@@ -1001,6 +1001,23 @@ rm -f "$CREW/items/4/report.md" "$CREW/items/5/merging"
 { row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
 agents "$S-w1 working u1"
 
+echo "gate escapes"
+reset_usage
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+agents "$S-w1 working u1"
+sweep 0
+mkdir -p "$CREW/items/7"
+printf 'log /tmp/gate.log\nred FAILED tests/test_x.py::test_y - assert 1 == 2\n' >"$CREW/items/7/gate-escape"
+sweep 5
+assert "a gate-escape file prints ESCAPE with its red line and ends the wait" 'has "ESCAPE 7 FAILED tests/test_x.py::test_y - assert 1 == 2" && [[ $ELAPSED -lt 4000 ]] && ! has TIMEOUT'
+sweep 1
+assert "the same file is printed again without ending the wait" 'has "ESCAPE 7 FAILED tests/test_x.py::test_y - assert 1 == 2" && has TIMEOUT'
+sleep 0.05
+printf 'log /tmp/gate2.log\nred second failure\n' >"$CREW/items/7/gate-escape"
+sweep 5
+assert "a rewritten file ends the wait once more" 'has "ESCAPE 7 second failure" && [[ $ELAPSED -lt 4000 ]]'
+rm -rf "$CREW/items/7" "$CREW/.sweep-wakes"
+
 echo "limits in the wait"
 reset_usage
 usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
