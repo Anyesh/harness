@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Usage: crew-archive
+#        crew-archive --import <done-dir>
+#
+# Archives a finished crew run, which Start step 4 of the crew skill used to do
+# with a hand-written mv list. It runs `crew-memory ensure` first, so a repo's
+# first archive already lands in the store. It moves the run files of the crew
+# dir (board.tsv, items/, rulings.md, reflections.md, plan.md, summary.md,
+# handover.md, .sweep-seen, .sweep-resources, .sweep-limits, .sweep-leftovers,
+# heavy-priority, dagr-run, dagr-events.jsonl, dagr.log) into
+# <crew dir>/done-<run id>/, where the run id is the date and time, YYYY-MM-DD-HHMMSS.
+# The durable text is copied into <memory dir>/runs/<run id>/: summary.md,
+# rulings.md, reflections.md, plan.md, board.tsv and, per item, spec.md,
+# report.md, notes.md, review.md and handoff.md, skipping files over 200 KB.
+# One line, `<run id> <done>/<total> items <first line of summary.md>`, is
+# appended to <memory dir>/index.md unless the run id is already there, and the
+# store is synced. Where the repo is not in the store yet (ensure printed
+# `MEMORY pending`) the memory dir is the crew dir.
+# --import does only the copy and the index line for an existing done-<run id>
+# dir, which it leaves in place. Nothing to archive is not an error, and
+# running again never repeats an index line. The exit status is that of the
+# sync, whose MEMORY lines are printed.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+
+die() {
+  printf 'crew-archive: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  sed -n '2,3s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
+
+run_files=(board.tsv items rulings.md reflections.md plan.md summary.md handover.md
+  .sweep-seen .sweep-resources .sweep-limits .sweep-leftovers heavy-priority
+  dagr-run dagr-events.jsonl dagr.log)
+max_copy=204800
+import=
+
+case ${1:-} in
+  '') ;;
+  --import)
+    (($# == 2)) || usage
+    import=$2
+    ;;
+  *) usage ;;
+esac
+
+crew=$(crew_dir) || die "not inside a git repository"
+
+copy_small() {
+  local from=$1 to=$2
+  [[ -f $from ]] || return 0
+  (($(wc -c <"$from") <= max_copy)) || return 0
+  mkdir -p "$(dirname "$to")"
+  cp -f "$from" "$to"
+}
+
+copy_run() {
+  local from=$1 to=$2 f item
+  for f in summary.md rulings.md reflections.md plan.md board.tsv; do
+    copy_small "$from/$f" "$to/$f"
+  done
+  for item in "$from"/items/*/; do
+    [[ -d $item ]] || continue
+    item=${item%/}
+    for f in spec report notes review handoff; do
+      copy_small "$item/$f.md" "$to/items/${item##*/}/$f.md"
+    done
+  done
+}
+
+index_line() {
+  local from=$1 id=$2 total done_n head_line=
+  total=$(awk -F'\t' 'NF >= 2' "$from/board.tsv" 2>/dev/null | wc -l | tr -d ' ')
+  done_n=$(awk -F'\t' '$2 == "done"' "$from/board.tsv" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ -f $from/summary.md ]]; then
+    head_line=$(sed -n '/[^[:space:]]/{s/^#* *//;p;q;}' "$from/summary.md")
+  fi
+  printf '%s %s/%s items %s\n' "$id" "$done_n" "$total" "${head_line:-(no summary)}"
+}
+
+record() {
+  local from=$1 id=$2
+  copy_run "$from" "$mem/runs/$id"
+  if ! grep -q "^$id " "$mem/index.md" 2>/dev/null; then
+    index_line "$from" "$id" >>"$mem/index.md"
+  fi
+}
+
+move_run() {
+  local f id found=
+  for f in "${run_files[@]}"; do
+    [[ -e $crew/$f ]] && found=1
+  done
+  [[ -n $found ]] || return 1
+  id=$(date +%F-%H%M%S)
+  while [[ -e $crew/done-$id ]]; do id=$id-x; done
+  mkdir -p "$crew/done-$id"
+  for f in "${run_files[@]}"; do
+    [[ ! -e $crew/$f ]] || mv "$crew/$f" "$crew/done-$id/"
+  done
+  echo "$id"
+}
+
+ensure_out=$("$here/crew-memory" ensure) || die "crew-memory ensure failed: $ensure_out"
+[[ -z $ensure_out ]] || printf '%s\n' "$ensure_out"
+mem=$(crew_mem)
+
+if [[ -n $import ]]; then
+  [[ -d $import ]] || die "no such directory: $import"
+  base=${import%/}
+  base=${base##*/}
+  [[ $base == done-* ]] || die "$import is not a done-<run id> directory"
+  id=${base#done-}
+  record "$import" "$id"
+  msg="import $id"
+elif id=$(move_run); then
+  record "$crew/done-$id" "$id"
+  msg="archive $id"
+else
+  echo "crew-archive: no run files in $crew, nothing to archive"
+  exit 0
+fi
+
+"$here/crew-memory" sync "$msg"
