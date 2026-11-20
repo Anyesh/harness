@@ -94,6 +94,9 @@
 #   CHECK failed: <message>         sweep-check exited non-zero, timed out or is not
 #                                   executable
 #
+# While it runs it keeps $crew/live/sweep.<pid> (`<pid> <start>`), removed when
+# it exits, and it removes $crew/paused when it starts.
+#
 # $mem is the repo's entry in the crew memory store (crew_mem), else $crew. The
 # usage and context thresholds come from the environment or $mem/thresholds,
 # whose bad lines only crew-resources reports; sweep-check and heavy-slots are
@@ -124,6 +127,10 @@ crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
   exit 1
 }
+live="$crew/live/sweep.$$"
+mkdir -p "$crew/live" && printf '%s %s\n' "$$" "$(crew_pid_start "$$")" >"$live"
+trap 'rm -f "$live"' EXIT
+rm -f "$crew/paused"
 main=$(crew_main)
 mem=$(crew_mem)
 board="$crew/board.tsv"

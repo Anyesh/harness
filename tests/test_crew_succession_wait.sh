@@ -105,7 +105,7 @@ run() {
 
 calls() { cat "$FAKE_STATE/$1.calls" 2>/dev/null || echo 0; }
 untouched() {
-  [[ ! -s $FAKE_STATE/unexpected && $(ls -A "$CREW") == lead && $(cat "$CREW/lead") == "$1"$'\t'"s-$1" ]]
+  [[ ! -s $FAKE_STATE/unexpected && $(ls -A "$CREW" | grep -vx live) == lead && $(cat "$CREW/lead") == "$1"$'\t'"s-$1" ]]
 }
 
 echo "taken"
@@ -233,6 +233,29 @@ lead_is "$SUCC"
 echo 'not json' >"$FAKE_STATE/agents.json"
 CREW_SUCCESSION_RETRIES=2 run r-l1 5
 assert "unreadable agent list output counts as a failure" '[[ $RC -eq 4 && $OUT == "ERROR agent-list" ]]'
+
+echo "live file"
+reset
+lead_is "$ME"
+tabs "r-l1=w1:t9"
+panes "$ME=w1:t1" "$SUCC=w1:t9"
+agents "" "$ME=r-lead" "$SUCC=r-l1"
+mkdir -p "$CREW/live"
+echo "999999 1" >"$CREW/live/succession.999999"
+(cd "$REPO" && HERDR_PANE_ID=$ME "$WAIT" r-l1 3 >"$TMP_DIR/live.out" 2>/dev/null) &
+waiter=$!
+seen=
+for _ in $(seq 1 60); do
+  seen=$(compgen -G "$CREW/live/succession.[0-9]*" | grep -vx "$CREW/live/succession.999999" || true)
+  [[ -z $seen ]] || break
+  sleep 0.05
+done
+wpid=${seen##*.}
+assert "the wait writes live/succession.<pid> with its pid and start time" '[[ -n $seen && $(<"$seen") == "$wpid $(crew_pid_start "$wpid")" ]]'
+wait "$waiter" || true
+OUT=$(<"$TMP_DIR/live.out")
+assert "the wait ended with WAITING" '[[ $OUT == WAITING ]]'
+assert "it removes only its own live file" '[[ ! -e $seen && -f $CREW/live/succession.999999 ]]'
 
 echo "usage"
 reset

@@ -14,6 +14,9 @@
 #                         (agent-list, tab-list, pane-list) still failing after
 #                         CREW_SUCCESSION_RETRIES attempts (exit 4)
 #
+# While it runs it keeps $crew/live/succession.<pid> (`<pid> <start>`), removed
+# when it exits, so a Stop hook can tell the lead is still waiting.
+#
 # A pane is live while herdr agent list has an agent on its pane_id. herdr keeps
 # listing an agent 10 to 15 s after it exits, and a just-started one can be
 # missing, so not live takes two misses in a row, CREW_SUCCESSION_POLL seconds
@@ -43,6 +46,9 @@ retries=${CREW_SUCCESSION_RETRIES:-30}
 me=${HERDR_PANE_ID:-}
 [[ -n $me ]] || error pane-id
 crew=$(crew_dir) || error crew-dir
+live="$crew/live/succession.$$"
+mkdir -p "$crew/live" && printf '%s %s\n' "$$" "$(crew_pid_start "$$")" >"$live"
+trap 'rm -f "$live"' EXIT
 
 # herdr_json <step> <jq check> <herdr args...>: sets REPLY to the output of the
 # first attempt that succeeds and passes the check.

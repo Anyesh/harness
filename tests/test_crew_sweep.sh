@@ -900,6 +900,23 @@ sweep 0
 assert "without a store entry the crew dir files are read" 'has "CHECK from-crew" && has_re "^HEAVY failed" && ! has_re "FULL"'
 command rm -f "$CREW/sweep-check" "$CREW/heavy-slots"
 
+echo "live file"
+mkdir -p "$CREW/live"
+echo "999999 1" >"$CREW/live/sweep.999999"
+printf 'stopped on purpose\n' >"$CREW/paused"
+printf '#!/usr/bin/env bash\nfor f in "$CREW_LIVE"/sweep.*; do echo "$f $(<"$f")"; done\n' >"$CREW/sweep-check"
+chmod +x "$CREW/sweep-check"
+{ row 1 open ''; } >"$CREW/board.tsv"
+OUT=$(cd "$REPO" && CREW_LIVE="$CREW/live" "$SWEEP" 0 2>&1) || true
+assert "the sweep writes live/sweep.<pid> with its pid and start time while it runs" 'grep -qE "^CHECK $CREW/live/sweep\.([0-9]+) \1 [0-9]+$" <<<"$OUT"'
+assert "the sweep removes paused when it starts" '[[ ! -e $CREW/paused ]]'
+assert "the sweep removes only its own live file" '[[ -f $CREW/live/sweep.999999 && $(ls "$CREW/live" | wc -l) -eq 1 ]]'
+set_role none
+sweep 0
+assert "an early exit removes the live file too" 'has SUPERSEDED && [[ $(ls "$CREW/live" | wc -l) -eq 1 ]]'
+set_role lead
+rm -rf "$CREW/live" "$CREW/sweep-check"
+
 echo "limits in the wait"
 reset_usage
 usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
