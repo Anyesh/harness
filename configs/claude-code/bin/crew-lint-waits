@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Usage: crew-lint-waits   (run from a preflight script; needs CREW_PREFLIGHT_BASE)
+#
+# Fails, naming each `file:line` and the line, when the item adds a literal
+# sleep or timeout to a test file: the lines added between CREW_PREFLIGHT_BASE
+# and HEAD, which crew-merge exports to preflight. Test files are test_*.py,
+# *_test.py, *_test.go, *.test.*, *.spec.* and anything under tests/ or
+# __tests__/. Matched are Python time.sleep( and asyncio.sleep(, JS and TS
+# setTimeout( (so also new Promise(r => setTimeout) and waitForTimeout(, Go
+# time.Sleep(, shell `sleep <n>` and a numeric timeout=. More patterns, one
+# extended regex per line (blank and # lines ignored), come from wait-patterns
+# in $CREW_MEM, the crew memory dir crew-merge exports, or the repo's own when
+# that is not set. A repo opts in by linking this script into preflight.d/.
+# Exits 0 when nothing matches, 1 on matches, 2 when it cannot run.
+set -euo pipefail
+
+# shellcheck source=crew-lib.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+
+die() {
+  printf 'crew-lint-waits: %s\n' "$*" >&2
+  exit 2
+}
+
+base=${CREW_PREFLIGHT_BASE:-}
+[[ -n $base ]] || die "CREW_PREFLIGHT_BASE is not set; run it from preflight"
+
+patterns=(
+  'time\.sleep\('
+  'asyncio\.sleep\('
+  'setTimeout\('
+  'waitForTimeout\('
+  'time\.Sleep\('
+  '(^|[;&|[:space:]])sleep[[:space:]]+[0-9]'
+  'timeout=[0-9]'
+)
+mem=${CREW_MEM:-$(crew_mem 2>/dev/null || true)}
+if [[ -n $mem && -f $mem/wait-patterns ]]; then
+  while IFS= read -r p || [[ -n $p ]]; do
+    [[ $p =~ ^[[:space:]]*(#|$) ]] || patterns+=("$p")
+  done <"$mem/wait-patterns"
+fi
+re=
+for p in "${patterns[@]}"; do re+="${re:+|}($p)"; done
+
+test_path='(^|/)test_[^/]*\.py$|_test\.py$|_test\.go$|\.test\.[^/]*$|\.spec\.[^/]*$|(^|/)tests/|(^|/)__tests__/'
+
+hits=$(git diff --no-color --no-renames -U0 "$base" HEAD | RE=$re TEST_PATH=$test_path awk '
+  /^\+\+\+ / { file = substr($0, 7); next }
+  /^--- / { next }
+  /^@@ / {
+    split($3, a, ",")
+    line = substr(a[1], 2) + 0
+    next
+  }
+  /^\+/ {
+    text = substr($0, 2)
+    if (file ~ ENVIRON["TEST_PATH"] && text ~ ENVIRON["RE"]) {
+      sub(/^[[:space:]]+/, "", text)
+      printf "%s:%d: %s\n", file, line, text
+    }
+    line++
+  }') || die "git diff failed in $PWD"
+
+[[ -z $hits ]] || {
+  printf 'crew-lint-waits: literal waits added to tests, use a condition or a polled helper instead:\n%s\n' "$hits" >&2
+  exit 1
+}
