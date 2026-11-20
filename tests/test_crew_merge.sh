@@ -639,7 +639,7 @@ assert "a batch lands the items in queue order, each with its own merge commit" 
 assert "each batched item gets a merged file naming its own merge commit" '[[ $(merged_sha 42) == "$(git -C "$MAIN" rev-parse main)" && $(merged_sha 41) == "$(git -C "$MAIN" rev-parse main^1)" && $(merged_sha 40) == "$(git -C "$MAIN" rev-parse main^1^1)" ]]'
 assert "each batched run prints its own merge commit" '[[ $(tail -n 1 "$TMP_DIR/out40") == "$(merged_sha 40)" && $(tail -n 1 "$TMP_DIR/out41") == "$(merged_sha 41)" && $(tail -n 1 "$TMP_DIR/out42") == "$(merged_sha 42)" ]]'
 assert "a batch lands with one fast-forward of the target" '[[ $(reflog_count) -eq $((flog + 1)) ]]'
-assert "--status lists every batched item as RUNNING during the gate" 'grep -qx "RUNNING 40" "$TMP_DIR/status.snap" && grep -qx "RUNNING 41" "$TMP_DIR/status.snap" && grep -qx "RUNNING 42" "$TMP_DIR/status.snap"'
+assert "--status lists every batched item as RUNNING with its batch, phase and gate log during the gate" '(for i in 40 41 42; do grep -qx "RUNNING $i batch 1 gating log $RUNS/check-40-batch1.log" "$TMP_DIR/status.snap" || exit 1; done)'
 assert "a landed batch leaves no marker and no merge worktree" 'no_markers 40 41 42 && no_leftover'
 
 new_item 43
@@ -687,13 +687,16 @@ new_item 48
 commit_shared 48 forty-eight
 new_item 49
 : >"$TMP_DIR/gates"
-set_check "$(gate_items 47 48 49)"
+command rm -f "$TMP_DIR/status.snap"
+set_check "$(gate_items 47 48 49)
+'$CM' --status >'$TMP_DIR/status.snap'"
 hold_lock
 queue_merges 47 48 49
 kill "$HOLDER"
 wait_queued
 assert "an item conflicting with an earlier batched item drops out and the rest land" '[[ ${RCS[0]} -eq 0 && ${RCS[2]} -eq 0 && -f $CREW/items/47/merged && -f $CREW/items/49/merged ]]'
 assert "the dropped item is not gated with the batch" '[[ $(head -n 1 "$TMP_DIR/gates") == "47 49 " ]]'
+assert "--status shows why the dropped item was queued again" 'grep -qx "QUEUED 48 requeued: conflicts with an earlier item in the batch of 47" "$TMP_DIR/status.snap"'
 assert "the dropped item runs in the next batch, where its conflict with the target refuses it" '[[ ${RCS[1]} -eq 1 && ! -e $CREW/items/48/merged ]] && grep -q conflict "$TMP_DIR/out48" && no_markers 47 48 49 && no_leftover'
 
 SLOW="$TMP_DIR/slowflock"
@@ -1207,7 +1210,8 @@ assert "the caller's group was killed three times while the leader gated" '[[ $k
 assert "a gate whose caller's process group is killed during build, a heavy-slot wait and check still bisects and lands" '[[ $(<"$TMP_DIR/out150.rc") == 0 && $r151 -eq 1 && -f $CREW/items/150/merged && ! -e $CREW/items/151/merged ]] && grep -q bad-151 "$TMP_DIR/out151"'
 assert "none of the leader's children were killed with the caller's group" '[[ $(tr "\n" "|" <"$TMP_DIR/gates") == "150 151 |150 |" && $(grep -c checked "$TMP_DIR/checks") -eq 2 ]]'
 assert "check runs with the default SIGPIPE" '[[ $(<"$TMP_DIR/pipe.snap") == DEFAULT ]]'
-assert "--status showed both members running during the heavy-slot wait" 'grep -q "^RUNNING 150" <<<"$status_wait" && grep -q "^RUNNING 151" <<<"$status_wait"'
+assert "--status showed both members running, with batch, phase and log, during the heavy-slot wait" 'grep -qx "RUNNING 150 batch 1 gating log $RUNS/check-150-batch1.log" <<<"$status_wait" && grep -qx "RUNNING 151 batch 1 gating log $RUNS/check-150-batch1.log" <<<"$status_wait"'
+assert "--status showed the bisect with the red line of the failing gate and the log of the running one" 'grep -qx "RUNNING 150 batch 1 bisecting red: bad-151 log $RUNS/check-150.log" "$TMP_DIR/status.snaps" && grep -qx "RUNNING 151 batch 1 bisecting red: bad-151 log $RUNS/check-150.log" "$TMP_DIR/status.snaps"'
 assert "the leader's output, merged sha last, is in merge-<id>.out after its caller's pipe closed" '[[ $(tail -n 1 "$RUNS/merge-150.out") == "$(merged_sha 150)" ]] && grep -q "check red on 150 151" "$RUNS/merge-150.out"'
 assert "the stopped gate leaves no marker, no merge worktree and a free slot" 'no_markers 150 151 && no_leftover && [[ ! -e $HLOCK ]]'
 command rm -f "$CREW/heavy-slots"

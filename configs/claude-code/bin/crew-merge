@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Usage: crew-merge <item>          land the item's reviewed branch through the crew memory check
-#        crew-merge --status        RUNNING <id>, QUEUED <id>, CUT <id> <sha> or
-#                                   STALE <id> per merge marker; nothing when idle
+#        crew-merge --status        one line per merge marker, nothing when idle:
+#                                   RUNNING <id> [batch <n> gating|bisecting]
+#                                     [red: <last line of the red gate>] [log <gate log>]
+#                                   QUEUED <id> [requeued: <why>]
+#                                   CUT <id> <sha> or STALE <id>
 #        crew-merge --settle <item> clear the marker a dead run left, writing the
 #                                   merged file when its fast-forward had landed
 #        crew-merge --cancel <item> stop a run while it is QUEUED; a RUNNING
@@ -114,20 +117,40 @@ ticket_of() {
     END {if (t ~ /^[0-9]+$/) print t; else if (q ~ /^[0-9]+$/) print q "000000"; else print 0}' "$1" 2>/dev/null || echo 0
 }
 
+# queued_marker <pid> <start> <tip> <ticket> [why it was queued again]
 queued_marker() {
   printf 'pid %s\nstart %s\ntip %s\nqueued %s\nticket %s\n' "$1" "$2" "$3" "$(($4 / 1000000))" "$4"
+  [[ -z ${5:-} ]] || printf 'requeued %s\n' "$5"
 }
 
+# A running member's marker carries batch, phase, log and red while its leader
+# gates it; they are replaced whole on every gate.
+without_progress() { awk '$1 != "batch" && $1 != "phase" && $1 != "log" && $1 != "red"' "$1"; }
+
 status() {
-  local f i state
+  local f i state line v
   shopt -s nullglob
   for f in "$crew"/items/*/merging; do
     i=${f%/merging}
     i=${i##*/}
     state=$(crew_merge_state "$f") || continue
     case $state in
-    running) echo "RUNNING $i" ;;
-    queued) echo "QUEUED $i" ;;
+    running)
+      line="RUNNING $i"
+      v=$(field "$f" batch)
+      [[ -z $v ]] || line+=" batch $v"
+      v=$(field "$f" phase)
+      [[ -z $v ]] || line+=" $v"
+      v=$(field "$f" red)
+      [[ -z $v ]] || line+=" red: $v"
+      v=$(field "$f" log)
+      [[ -z $v ]] || line+=" log $v"
+      printf '%s\n' "$line"
+      ;;
+    queued)
+      v=$(field "$f" requeued)
+      printf 'QUEUED %s%s\n' "$i" "${v:+ requeued: $v}"
+      ;;
     cut\ *) echo "CUT $i ${state#cut }" ;;
     *) echo "STALE $i" ;;
     esac
@@ -294,7 +317,7 @@ release_claims() {
     f=${m_dir[i]}/merging
     exec {fd}>"${m_dir[i]}/.marker.lock"
     if flock -w 10 "$fd" && [[ -f $f && $(field "$f" pid) == "$$" ]] && ! grep -q '^merged ' "$f"; then
-      requeue "$i"
+      requeue "$i" "its batch leader $id exited before resolving it"
     fi
     exec {fd}>&-
   done
@@ -642,7 +665,7 @@ wait_turn() {
       continue
       ;;
     orphaned)
-      queued_marker "$$" "$start" "$tip" "$ticket" | write_marker "$item"
+      queued_marker "$$" "$start" "$tip" "$ticket" "its batch leader died before its fast-forward" | write_marker "$item"
       unlock_marker
       joined=
       echo "crew-merge: the batch leader holding $id died before its fast-forward; queued again" >&2
@@ -749,7 +772,7 @@ shares_work() {
 
 requeue() {
   local i=$1 pid=${m_owner[$1]% *} st=${m_owner[$1]#* }
-  queued_marker "$pid" "$st" "${m_tip[i]}" "${m_ticket[i]}" | write_marker "${m_dir[i]}"
+  queued_marker "$pid" "$st" "${m_tip[i]}" "${m_ticket[i]}" "$2" | write_marker "${m_dir[i]}"
 }
 
 # settle_member <index> landed|failed [message] [log]: records the outcome and,
@@ -831,7 +854,7 @@ build() {
     else
       m_result[i]=dropped
       lock_marker "${m_dir[i]}"
-      requeue "$i"
+      requeue "$i" "conflicts with an earlier item in the batch of $id"
       unlock_marker
       echo "crew-merge: ${m_id[i]} conflicts with an earlier item in the batch; queued for the next batch" >&2
     fi
@@ -839,6 +862,33 @@ build() {
 }
 
 gates=0
+batch=0
+phase=
+red_line=
+
+# Writes batch, phase, the running gate's log and the last red line into the
+# marker of every member not yet landed or cut, for --status.
+show_progress() {
+  local i f
+  for ((i = 0; i < ${#m_id[@]}; i++)); do
+    f=${m_dir[i]}/merging
+    if [[ -n ${m_result[i]} ]]; then
+      if ((i == 0)); then touch -c "$f"; fi
+      continue
+    fi
+    lock_marker "${m_dir[i]}"
+    if [[ -f $f && $(field "$f" pid) == "$$" ]]; then
+      {
+        without_progress "$f"
+        printf 'batch %s\nphase %s\nlog %s\n' "$batch" "$phase" "$glog"
+        [[ -z $red_line ]] || printf 'red %s\n' "$red_line"
+      } | write_marker "${m_dir[i]}"
+    fi
+    unlock_marker
+  done
+}
+
+last_line() { { grep -v '^[[:space:]]*$' "$1" || true; } | tail -n 1; }
 
 # Runs check on the temp worktree for members $@ and sets grc and glog.
 gate() {
@@ -849,9 +899,7 @@ gate() {
     gates=$((gates + 1))
     glog=$runs/check-$id-batch$gates.log
   fi
-  for ((i = 0; i < ${#m_id[@]}; i++)); do
-    if ((i == 0)) || [[ -z ${m_result[i]} ]]; then touch -c "${m_dir[i]}/merging"; fi
-  done
+  show_progress
   refuse_own_hold
   ids=$(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)
   printf 'crew-merge: check on %s(log: %s)\n' "$ids" "$glog" >&2
@@ -884,7 +932,7 @@ land() {
   for i in "$@"; do
     f=${m_dir[i]}/merging
     lock_marker "${m_dir[i]}"
-    { cat "$f" && printf 'merged %s\n' "${m_merged[i]}"; } | write_marker "${m_dir[i]}"
+    { without_progress "$f" && printf 'merged %s\n' "${m_merged[i]}"; } | write_marker "${m_dir[i]}"
     unlock_marker
   done
   traps=$(trap -p HUP INT TERM)
@@ -899,7 +947,7 @@ land() {
 # Names the log and the last line of the failing gate of an item that passed
 # preflight, for crew-sweep to report.
 record_escape() {
-  printf 'log %s\nred %s\n' "$2" "$(grep -v '^[[:space:]]*$' "$2" | tail -n 1)" | write_file "${m_dir[$1]}/gate-escape"
+  printf 'log %s\nred %s\n' "$2" "$(last_line "$2")" | write_file "${m_dir[$1]}/gate-escape"
 }
 
 # resolve <member>...: gates the members merged together and lands them on
@@ -916,6 +964,9 @@ resolve() {
     ((${#pending[@]})) || return 0
     build "${pending[@]}"
     ((${#chain[@]})) || continue
+    batch=$((batch + 1))
+    phase=gating
+    red_line=
     gate "${chain[@]}"
     if ((grc == 0)); then
       land "${chain[@]}"
@@ -923,6 +974,8 @@ resolve() {
     fi
     lo=("${chain[@]}")
     red_log=$glog
+    phase=bisecting
+    red_line=$(last_line "$glog")
     while ((${#lo[@]} > 1)); do
       a=("${lo[@]:0:(${#lo[@]} + 1)/2}")
       build "${a[@]}"
@@ -934,6 +987,7 @@ resolve() {
       else
         lo=("${a[@]}")
         red_log=$glog
+        red_line=$(last_line "$glog")
       fi
     done
     [[ -z $passed_preflight ]] || record_escape "${lo[0]}" "$red_log"
