@@ -27,6 +27,7 @@ bin=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # shellcheck source=crew-lib.sh
 . "$bin/crew-lib.sh"
 heavy=$bin/crew-heavy
+unset CREW_GATE_PID
 poll=${CREW_MERGE_POLL:-2}
 queue_wait=${CREW_MERGE_QUEUE_WAIT:-10800}
 
@@ -225,9 +226,15 @@ m_result=()
 m_msg=()
 m_log=()
 heavy_release() {
+  local out
   [[ -n $heavy_held ]] || return 0
   heavy_held=
-  "$heavy" release "merge-$id" >&2 || echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
+  if out=$("$heavy" release "merge-$id" 2>&1); then
+    printf '%s\n' "$out" >&2
+  elif "$heavy" holds "merge-$id"; then
+    printf '%s\n' "$out" >&2
+    echo "crew-merge: could not release the heavy slot; see crew-heavy status" >&2
+  fi
 }
 
 # Hands every claimed item without an outcome back to its own run, unless its
@@ -741,7 +748,7 @@ gate() {
   fi
   t0=$EPOCHSECONDS
   grc=0
-  (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 CREW_MEM="$snap" "$snap/check") >"$glog" 2>&1 {lock}>&- || grc=$?
+  (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 CREW_GATE_PID=$BASHPID CREW_MEM="$snap" "$snap/check") >"$glog" 2>&1 {lock}>&- || grc=$?
   heavy_release
   if ((grc)); then
     printf 'crew-merge: check red on %safter %d s\n' "$ids" $((EPOCHSECONDS - t0)) >&2

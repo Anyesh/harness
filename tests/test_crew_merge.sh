@@ -1082,6 +1082,34 @@ wait_queued
 assert "an item bisect cuts after it passed preflight gets a gate-escape file with the log and the last red line" '[[ ${RCS[*]} == "1 0" && $(sed -n "s/^log //p" "$CREW/items/132/gate-escape") == "$RUNS"/check-132.log && $(sed -n "s/^red //p" "$CREW/items/132/gate-escape") == red-line-132 && ! -e $CREW/items/133/gate-escape ]]'
 command rm -f "$CREW/preflight" "$CREW/preflight.d"/*
 
+new_item 134
+set_check "echo \"\$CREW_GATE_PID \$\$\" >'$TMP_DIR/gatepid.snap'"
+(cd "$(wt_of 134)" && CREW_GATE_PID=999 exec "$CM" 134) >"$TMP_DIR/out" 2>&1 || true
+assert "check runs with CREW_GATE_PID naming its own pid" '[[ -f $CREW/items/134/merged && $(awk "{print (\$1 == \$2 && \$1 != 999)}" "$TMP_DIR/gatepid.snap") == 1 ]]'
+
+FB="$TMP_DIR/fakebin"
+mkdir -p "$FB"
+command cp -f "$REPO_ROOT/configs/claude-code/bin/crew-merge" "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh" "$FB/"
+cat >"$FB/crew-heavy" <<EOF
+#!/usr/bin/env bash
+case \$1 in
+release)
+  echo "release \$2 gate=\${CREW_GATE_PID-unset}" >>'$TMP_DIR/fakeheavy.log'
+  echo "crew-heavy: slot is held by someone-else, not \$2" >&2
+  exit 1
+  ;;
+holds) exit 1 ;;
+esac
+EOF
+chmod +x "$FB/crew-heavy"
+echo 1 >"$CREW/heavy-slots"
+new_item 135
+set_check 'exit 0'
+: >"$TMP_DIR/fakeheavy.log"
+(cd "$(wt_of 135)" && CREW_GATE_PID=999 exec "$FB/crew-merge" 135) >"$TMP_DIR/out" 2>&1 || true
+assert "the post-gate release sets no CREW_GATE_PID, and a slot someone else took is treated as released" '[[ -f $CREW/items/135/merged && $(<"$TMP_DIR/fakeheavy.log") == "release merge-135 gate=unset" ]] && ! grep -q "could not release" "$TMP_DIR/out"'
+command rm -f "$CREW/heavy-slots"
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
