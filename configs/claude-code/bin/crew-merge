@@ -454,28 +454,26 @@ drop_trial() {
   ptmp=
 }
 
-# Copies the repo's gate scripts, check, preflight, preflight.d and every other
-# executable kept beside them, into one directory outside every worktree, under
-# the store's sync lock when the store is a git clone. Every gate of the run
-# uses the copy, so a sync or an edit mid-run changes none of them.
+# Copies every file and dir kept in the memory dir except notes (*.md), runs/
+# and archive/ into one directory outside every worktree, under the crew dir's
+# memory lock, then restores the exec bits wiki-sync drops. Every gate of the
+# run uses the copy, so a sync or an edit mid-run changes none of them.
 take_snap() {
-  local store f lockfd=
-  store=$(crew_memory_dir)
+  local f lockfd=
   snap=$(mktemp -d "$runs/gate-$id-XXXXXX") || die "cannot create a gate snapshot in $runs"
   find "$runs" -maxdepth 1 -type d -name 'gate-*' -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
-  if [[ -e $store/.git ]]; then
-    exec {lockfd}>"$store/.sync.lock" || die "cannot open $store/.sync.lock"
-    flock -w 60 "$lockfd" || die "cannot lock $store/.sync.lock"
-  fi
+  mkdir -p "$crew"
+  exec {lockfd}>"$crew/.mem.lock" || die "cannot open $crew/.mem.lock"
+  flock -w 60 "$lockfd" || die "cannot lock $crew/.mem.lock"
   for f in "$mem"/*; do
     case ${f##*/} in
-    check | preflight) [[ -f $f ]] || continue ;;
-    preflight.d) [[ -d $f ]] || continue ;;
-    *) [[ -f $f && -x $f ]] || continue ;;
+    *.md | runs | archive) continue ;;
     esac
+    [[ -e $f ]] || continue
     command cp -RLf "$f" "$snap/" || die "cannot copy gate script $f to $snap"
   done
-  [[ -z $lockfd ]] || exec {lockfd}>&-
+  exec {lockfd}>&-
+  crew_mem_fix_modes "$snap"
 }
 
 # Runs $snap/preflight in a throwaway merge of the item onto its target after

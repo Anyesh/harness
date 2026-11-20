@@ -37,10 +37,9 @@ cleanup() {
 trap cleanup EXIT
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_MERGE_POLL=0.2
-STORE="$TMP_DIR/store"
-export CREW_MEMORY_DIR="$STORE"
-export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
-unset CREW_MEMORY_REMOTE
+export WIKI_VAULT="$TMP_DIR/vault"
+unset HARNESS_WORK
+STORE="$WIKI_VAULT/wiki/projects/repo/crew"
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
 . "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"
@@ -968,7 +967,7 @@ wait_queued
 assert "the queued item still lands" '[[ ${RCS[*]} == 0 && -f $CREW/items/92/merged ]]'
 
 new_item 89
-set_preflight 'exit 0'
+echo 'exit 0' >"$CREW/preflight"
 chmod -x "$CREW/preflight"
 refuses "a preflight that is not executable" 89 "not executable"
 
@@ -985,9 +984,9 @@ command rm -f "$CREW/preflight"
 
 no_gate_dirs() { ! compgen -G "$RUNS/gate-$1-*" >/dev/null; }
 set_store_check() {
-  mkdir -p "$STORE/repos/repo"
-  printf '#!/usr/bin/env bash\nset -euo pipefail\n%s\n' "$1" >"$STORE/repos/repo/check"
-  chmod +x "$STORE/repos/repo/check"
+  mkdir -p "$STORE"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n%s\n' "$1" >"$STORE/check"
+  chmod +x "$STORE/check"
 }
 
 new_item 120
@@ -999,10 +998,9 @@ assert "a repo with no store entry gates from a snapshot of its own crew dir, ou
 assert "the gate snapshot is removed once the run ends" 'no_gate_dirs 120'
 
 new_item 121
-git init -q "$STORE"
 set_store_check "echo store-check >>'$TMP_DIR/which'; echo helper-says \$(\$CREW_MEM/helper) >>'$TMP_DIR/which'"
-printf '#!/usr/bin/env bash\necho hi\n' >"$STORE/repos/repo/helper"
-chmod +x "$STORE/repos/repo/helper"
+printf '#!/usr/bin/env bash\necho hi\n' >"$STORE/helper"
+chmod +x "$STORE/helper"
 set_check "echo crew-check >>'$TMP_DIR/which'"
 : >"$TMP_DIR/which"
 run_merge 121 >"$TMP_DIR/out" 2>&1 || true
@@ -1012,7 +1010,7 @@ command rm -f "$CREW/check"
 new_item 122
 set_store_check "exit 0"
 (
-  exec {fd}>"$STORE/.sync.lock"
+  exec {fd}>"$CREW/.mem.lock"
   flock "$fd"
   : >"$TMP_DIR/sheld"
   exec sleep 120
@@ -1023,18 +1021,18 @@ wait_for '[[ -e $TMP_DIR/sheld ]]'
 start_merge 122 "$TMP_DIR/out122"
 p122=$BG
 sleep 1
-assert "the snapshot waits for the store's sync lock, before any marker is written" '[[ ! -e $(marker 122) ]] && kill -0 "$p122"'
+assert "the snapshot waits for the memory lock, before any marker is written" '[[ ! -e $(marker 122) ]] && kill -0 "$p122"'
 kill "$SYNCHOLD"
 rc=0
 wait "$p122" || rc=$?
-assert "the run lands once the sync lock frees" '[[ $rc -eq 0 && -f $CREW/items/122/merged ]]'
+assert "the run lands once the memory lock frees" '[[ $rc -eq 0 && -f $CREW/items/122/merged ]]'
 
 new_item 123
 new_item 124
 new_item 125
 : >"$TMP_DIR/gates"
 set_store_check "$(gate_items 123 124 125)
-printf '#!/usr/bin/env bash\nexit 0\n' >'$STORE/repos/repo/check'
+printf '#!/usr/bin/env bash\nexit 0\n' >'$STORE/check'
 if [[ -e f-124 ]]; then echo bad-124; exit 1; fi"
 hold_lock
 queue_merges 123 124 125
@@ -1044,9 +1042,21 @@ assert "a store change mid-run does not change what a bisect gate runs" '[[ ${RC
 
 new_item 126
 set_store_check "exit 0"
-chmod u-r "$STORE/repos/repo/check"
+chmod u-r "$STORE/check"
 refuses "a gate script that cannot be copied" 126 "cannot copy"
 assert "a refused snapshot leaves no gate directory" 'no_gate_dirs 126'
+
+new_item 127
+command rm -f "$STORE/check"
+set_store_check "[[ -f \$CREW_MEM/data.txt && -x \$CREW_MEM/helper && ! -e \$CREW_MEM/notes.md && ! -e \$CREW_MEM/runs && ! -e \$CREW_MEM/archive ]]"
+chmod -x "$STORE/check"
+printf '#!/usr/bin/env bash\necho hi\n' >"$STORE/helper"
+echo data >"$STORE/data.txt"
+echo notes >"$STORE/notes.md"
+mkdir -p "$STORE/runs/r1" "$STORE/archive"
+echo x >"$STORE/runs/r1/summary.md"
+run_merge 127 >"$TMP_DIR/out" 2>&1 || true
+assert "a store check without its exec bit runs from the snapshot, with data files and without notes, runs or archive" '[[ -f $CREW/items/127/merged && ! -x $STORE/check ]]'
 command rm -rf "$STORE"
 
 mkdir -p "$CREW/preflight.d"
@@ -1058,10 +1068,10 @@ set_check 'exit 0'
 : >"$TMP_DIR/pfd"
 add_pf_d 20-second "echo second >>'$TMP_DIR/pfd'"
 add_pf_d 10-first "echo \"first \$CREW_PREFLIGHT_ITEM \$(basename \"\$CREW_MEM\" | cut -c1-5)\" >>'$TMP_DIR/pfd'"
-printf '#!/usr/bin/env bash\necho not-run >>'"'$TMP_DIR/pfd'"'\n' >"$CREW/preflight.d/30-off"
+printf 'echo not-run >>'"'$TMP_DIR/pfd'"'\n' >"$CREW/preflight.d/30-off"
 new_item 130
 run_merge 130 >"$TMP_DIR/out" 2>&1 || true
-assert "preflight.d scripts run in sorted order on every item, without a preflight, skipping non-executables" '[[ -f $CREW/items/130/merged && $(<"$TMP_DIR/pfd") == "first 130 gate-"$'"'\n'"'"second" ]]'
+assert "preflight.d scripts run in sorted order on every item, without a preflight, skipping non-executables without a shebang" '[[ -f $CREW/items/130/merged && $(<"$TMP_DIR/pfd") == "first 130 gate-"$'"'\n'"'"second" ]]'
 
 add_pf_d 15-bad 'echo bad-thing; exit 1'
 new_item 131
