@@ -389,78 +389,81 @@ crew_slug() {
   printf '%s-%s\n' "${base:0:21}" "$hash"
 }
 
-crew_memory_dir() {
-  printf '%s\n' "${CREW_MEMORY_DIR:-$HOME/.local/share/crew-memory}"
+# The wiki hooks' helpers decide which vault and project folder a repo writes
+# to; crew memory follows the same rule, so it lands beside the project's
+# devlog and a work machine keeps it in the work vault.
+crew_wiki_helpers() {
+  local d
+  for d in "${CREW_HOOKS_DIR:-}" "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../shared/hooks" "$HOME/.claude/hooks"; do
+    if [[ -n $d && -f $d/load-harness-env.sh && -f $d/harness-project.sh ]]; then
+      # shellcheck source=/dev/null
+      . "$d/load-harness-env.sh"
+      # shellcheck source=/dev/null
+      . "$d/harness-project.sh"
+      return 0
+    fi
+  done
+  return 1
 }
 
-# Files of a crew that outlive its runs; they live in the memory store once the
-# repo has an entry there, and in the crew dir until then.
+crew_wiki_vault() {
+  crew_wiki_helpers || return 1
+  load_wiki_vault
+  [[ -n ${WIKI_VAULT:-} ]] || return 1
+  printf '%s\n' "${WIKI_VAULT%/}"
+}
+
+# Files of a crew that outlive its runs; they live in the project's wiki folder
+# once it has a crew/ dir, and in the crew dir until then.
 # shellcheck disable=SC2034
 crew_mem_files=(brief.md lead-notes.md check preflight preflight.d sweep-check
   thresholds watch-paths heavy-slots light-slots wait-patterns)
 
-# The origin of repo $1 as lowercase host/path with no scheme, user or .git, so
-# ssh and https clones of one repo agree; none when there is no origin.
-crew_origin_norm() {
-  local url
-  url=$(git -C "$1" remote get-url origin 2>/dev/null) || {
-    echo none
-    return 0
-  }
-  url=${url,,}
-  url=${url%/}
-  url=${url%.git}
-  case $url in
-    *://*)
-      url=${url#*://}
-      url=${url#*@}
-      ;;
-    *@*:*)
-      url=${url#*@}
-      url=${url/://}
-      ;;
-  esac
-  printf '%s\n' "$url"
-}
-
-# The store key of the repo holding dir $1: the entry whose origin file matches
-# this repo's origin, else the lowercase basename of the main checkout, with 4
-# hex of the origin added when that name belongs to another origin. crew_slug
-# hashes the local path, which differs per machine, so it cannot be the key.
+# The wiki project slug of the repo holding dir $1.
 crew_mem_key() {
-  local main origin store o base
+  local main
   main=$(crew_main "${1:-.}") || return 1
-  origin=$(crew_origin_norm "$main")
-  store=$(crew_memory_dir)
-  if [[ $origin != none ]]; then
-    for o in "$store"/repos/*/origin; do
-      if [[ -f $o && $(<"$o") == "$origin" ]]; then
-        o=${o%/origin}
-        printf '%s\n' "${o##*/}"
-        return 0
-      fi
-    done
-  fi
-  base=$(printf %s "${main##*/}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_.-' '-')
-  [[ $base != .* ]] || base="r$base"
-  if [[ -f $store/repos/$base/origin && $(<"$store/repos/$base/origin") != "$origin" ]]; then
-    [[ $origin != none ]] || origin=$main
-    base="$base-$(printf %s "$origin" | sha1sum | cut -c1-4)"
-  fi
-  printf '%s\n' "$base"
+  crew_wiki_helpers || return 1
+  harness_project_slug "$main"
 }
 
-# Where the persistent files of the repo holding dir $1 live: its store entry
+# The crew memory dir of the repo holding dir $1, whether or not it exists yet.
+crew_mem_root() {
+  local vault key
+  vault=$(crew_wiki_vault) || return 1
+  key=$(crew_mem_key "${1:-.}") || return 1
+  printf '%s/wiki/projects/%s/crew\n' "$vault" "$key"
+}
+
+# Where cross-repo rules wait for promotion into the crew skill.
+crew_proposals_dir() {
+  local vault
+  vault=$(crew_wiki_vault) || return 1
+  printf '%s/wiki/projects/harness/crew\n' "$vault"
+}
+
+# Where the persistent files of the repo holding dir $1 live: its wiki crew dir
 # when one exists, else the crew dir.
 crew_mem() {
-  local key dir
-  key=$(crew_mem_key "${1:-.}") || return 1
-  dir="$(crew_memory_dir)/repos/$key"
-  if [[ -d $dir ]]; then
+  local dir
+  if dir=$(crew_mem_root "${1:-.}") && [[ -d $dir ]]; then
     printf '%s\n' "$dir"
   else
     crew_dir "${1:-.}"
   fi
+}
+
+# wiki-sync carries no file modes, so a script synced from another machine
+# arrives without its executable bit: restore it on every file in dir $1 (runs/
+# and archive/ excepted) that starts with #!.
+crew_mem_fix_modes() {
+  local f
+  [[ -d $1 ]] || return 0
+  while IFS= read -r -d '' f; do
+    [[ -x $f ]] && continue
+    [[ $(head -c 2 "$f" 2>/dev/null) == '#!' ]] && chmod +x "$f"
+  done < <(find "$1" \( -path "$1/runs" -o -path "$1/archive" \) -prune -o -type f ! -name '*.md' -print0)
+  return 0
 }
 
 # True while live file $1 (`<pid> <start>`) names a running process that has

@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # Usage: crew-memory ensure
-#        crew-memory sync [message]
 #        crew-memory status
 #
-# The crew memory store: one git repo at $CREW_MEMORY_DIR (default
-# ~/.local/share/crew-memory) holding each repo's persistent crew files under
-# repos/<key>/ and cross-repo rules under rules/, with its remote taken from
-# CREW_MEMORY_REMOTE in ~/.config/harness/crew-memory.env. ensure creates the
-# store and moves the current repo's persistent files into it while nothing
-# can be reading them; sync commits, rebases onto the remote and pushes; status
-# reports without changing anything. Every outcome is a `MEMORY <word>` line.
+# Crew memory lives in the repo's wiki project folder, <vault>/wiki/projects/
+# <slug>/crew, where wiki-sync carries it to the other machines. ensure moves
+# the current repo's persistent files there while nothing can be reading them;
+# status reports without changing anything. Every outcome is a `MEMORY <word>`
+# line.
 set -euo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -21,95 +18,8 @@ die() {
 }
 
 usage() {
-  sed -n '2,4s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  sed -n '2,3s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
   exit 2
-}
-
-store=$(crew_memory_dir)
-env_file=${XDG_CONFIG_HOME:-$HOME/.config}/harness/crew-memory.env
-remote=${CREW_MEMORY_REMOTE:-}
-if [[ -z $remote && -f $env_file ]]; then
-  remote=$(sed -n 's/^CREW_MEMORY_REMOTE=//p' "$env_file" | tail -n 1)
-  remote=${remote#[\"\']}
-  remote=${remote%[\"\']}
-fi
-secrets_only=$HOME/.config/leakguard/secrets-only.toml
-lock_wait=${CREW_MEMORY_LOCK_WAIT:-120}
-[[ $lock_wait =~ ^[0-9]+$ ]] || lock_wait=120
-
-g() { git -C "$store" "$@"; }
-
-seed() {
-  [[ -e $store/$1 ]] && return 0
-  mkdir -p "$(dirname "$store/$1")"
-  cat >"$store/$1"
-}
-
-init_store() {
-  if [[ ! -d $store/.git ]]; then
-    [[ ! -e $store || -z $(ls -A "$store") ]] || die "$store exists and is not a git repository"
-    if [[ -n $remote ]]; then
-      git clone -q "$remote" "$store" 2>/dev/null || die "cannot clone $remote"
-    else
-      git init -q -b main "$store"
-    fi
-  fi
-  g rev-parse -q --verify HEAD >/dev/null || g symbolic-ref HEAD refs/heads/main
-  # The store holds personal paths and names by design; it stays scanned for
-  # secrets through leakguard's repo-scoped ruleset.
-  if [[ -f $secrets_only ]]; then
-    g config leakguard.config "$secrets_only"
-  fi
-  if [[ -n $remote ]] && ! g remote get-url origin >/dev/null 2>&1; then
-    g remote add origin "$remote"
-  fi
-  seed .gitattributes <<'EOF'
-rules/proposed.md merge=union
-rules/decided.md merge=union
-repos/*/index.md merge=union
-EOF
-  seed .gitignore <<'EOF'
-.sync.lock
-.tmp*
-*.swp
-*~
-.DS_Store
-EOF
-  seed rules/proposed.md </dev/null
-  seed rules/decided.md </dev/null
-  seed README.md <<'EOF'
-# Crew memory
-
-Written by crew leads through `crew-memory`, `crew-lesson` and `crew-archive`;
-the layout, caps and sync rules are in the crew skill's `references/memory.md`.
-
-- `rules/proposed.md`: cross-repo rules awaiting promotion into the skill, cap 8 KB.
-- `rules/decided.md`: one line per promoted or rejected rule.
-- `repos/<key>/`: one repo's brief, lead notes, gate scripts and run history.
-EOF
-}
-
-# crew-merge snapshots gate scripts under the same lock, so a gate never sees
-# a half-written commit, rebase or move.
-lock() {
-  [[ -n ${lock_fd:-} ]] || exec {lock_fd}>"$store/.sync.lock"
-  flock -w "$lock_wait" "$lock_fd" || {
-    echo "MEMORY locked $store/.sync.lock"
-    exit 1
-  }
-}
-
-unlock() {
-  flock -u "$lock_fd"
-}
-
-commit_all() {
-  g add -A
-  g diff --cached --quiet || g commit -q -m "$1"
-}
-
-repo_key() {
-  crew_mem_key 2>/dev/null || echo store
 }
 
 split_handover() {
@@ -120,45 +30,53 @@ split_handover() {
   mv -f "$notes.rest" "$notes"
 }
 
-# Copies the persistent files into a staging dir and renames it into place, so
-# readers see either the crew dir's copy or the store's, then removes the
-# originals.
+link_index() {
+  local project=$1 slug=$2 line='- [Crew memory](crew/index.md): crew lead notes, worker brief, gate scripts and one summary per run'
+  [[ -f $project/index.md ]] || printf '# %s\n' "$slug" >"$project/index.md"
+  grep -q 'crew/index\.md' "$project/index.md" || printf '%s\n' "$line" >>"$project/index.md"
+}
+
+# Copies the persistent files into a staging dir that wiki-sync ignores and
+# renames it into place, so readers see either the crew dir's copy or the wiki's,
+# then removes the originals.
 move_in() {
-  local main=$1 crew=$2 dir=$3 stage f
-  stage="$store/repos/.tmp-${dir##*/}.$$"
+  local crew=$1 root=$2 project stage f
+  project=$(dirname "$root")
+  stage="$project/.tmp-crew.$$"
   rm -rf "$stage"
   mkdir -p "$stage"
   for f in "${crew_mem_files[@]}"; do
     [[ -e $crew/$f ]] && cp -a "$crew/$f" "$stage/"
   done
   [[ ! -f $stage/lead-notes.md ]] || split_handover "$stage/lead-notes.md" "$crew"
-  crew_origin_norm "$main" >"$stage/origin"
-  mv "$stage" "$dir"
+  mv "$stage" "$root"
   for f in "${crew_mem_files[@]}"; do
     rm -rf "${crew:?}/$f"
   done
+  [[ -f $root/index.md ]] || printf '# Crew memory\n' >"$root/index.md"
+  link_index "$project" "$(basename "$project")"
 }
 
 ensure() {
   (($# == 0)) || usage
-  local main key dir crew reason
-  init_store
-  lock
-  if main=$(crew_main 2>/dev/null); then
-    key=$(crew_mem_key)
-    dir=$store/repos/$key
-    crew=$(crew_dir)
-    if [[ ! -d $dir ]]; then
-      if reason=$(crew_mem_busy "$crew"); then
-        echo "MEMORY pending $reason"
-      else
-        move_in "$main" "$crew" "$dir"
-      fi
+  local root crew reason lockfd
+  crew_wiki_vault >/dev/null || {
+    echo "MEMORY no-vault"
+    return 0
+  }
+  crew=$(crew_dir 2>/dev/null) || return 0
+  root=$(crew_mem_root) || return 0
+  mkdir -p "$crew"
+  exec {lockfd}>"$crew/.mem.lock"
+  flock "$lockfd"
+  if [[ ! -d $root ]]; then
+    if reason=$(crew_mem_busy "$crew"); then
+      echo "MEMORY pending $reason"
+    else
+      move_in "$crew" "$root"
     fi
-  else
-    key=store
   fi
-  commit_all "$key: ensure"
+  exec {lockfd}>&-
 }
 
 section_bytes() {
@@ -169,101 +87,37 @@ section_bytes() {
   awk -v h="## $2" '$0 == h { f = 1; next } f && /^## / { f = 0 } f { n += length($0) + 1 } END { print n + 0 }' "$1"
 }
 
-file_bytes() {
-  if [[ -f $1 ]]; then wc -c <"$1" | tr -d ' '; else echo 0; fi
-}
-
 report_caps() {
-  local key=$1 dir=$store/repos/$1 n cap
-  if [[ -d $dir ]]; then
-    crew_read_thresholds "$dir/thresholds"
-    cap=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
-    n=$(section_bytes "$dir/brief.md" Lessons)
-    ((n <= cap)) || echo "MEMORY over repos/$key/brief.md#Lessons $n/$cap"
-  fi
-  n=$(file_bytes "$store/rules/proposed.md")
-  ((n <= 8192)) || echo "MEMORY over rules/proposed.md $n/8192"
+  local root=$1 n cap
+  crew_read_thresholds "$root/thresholds"
+  cap=$((10#$(crew_threshold CREW_LESSONS_MAX_BYTES 8192)))
+  n=$(section_bytes "$root/brief.md" Lessons)
+  ((n <= cap)) || echo "MEMORY over crew/brief.md#Lessons $n/$cap"
 }
 
 report_strays() {
-  local dir=$store/repos/$1 crew f
-  [[ -d $dir ]] && crew=$(crew_dir 2>/dev/null) || return 0
+  local crew=$1 f
   for f in "${crew_mem_files[@]}"; do
     [[ ! -e $crew/$f ]] || echo "MEMORY stray $crew/$f"
   done
 }
 
-report_unpushed() {
-  local branch n
-  branch=$(g symbolic-ref --short HEAD)
-  if g rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
-    n=$(g rev-list --count "origin/$branch..HEAD")
-  else
-    n=$(g rev-list --count HEAD 2>/dev/null || echo 0)
-  fi
-  ((n == 0)) || echo "MEMORY unpushed $n"
-}
-
-sync() {
-  (($# <= 1)) || usage
-  local key branch out files
-  init_store
-  lock
-  key=$(repo_key)
-  commit_all "$key: ${1:-sync}"
-  unlock
-  report_caps "$key"
-  if ! g remote get-url origin >/dev/null 2>&1; then
-    echo "MEMORY no-remote"
-    return 0
-  fi
-  branch=$(g symbolic-ref --short HEAD)
-  if out=$(g fetch -q origin 2>&1); then
-    lock
-    commit_all "$key: ${1:-sync}"
-    if g rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null &&
-      ! out=$(g rebase -q "origin/$branch" 2>&1); then
-      files=$(g diff --name-only --diff-filter=U | tr '\n' ' ')
-      g rebase --abort
-      unlock
-      echo "MEMORY conflict ${files% }"
-      report_unpushed
-      return 1
-    fi
-    unlock
-    if out=$(g push -q -u origin "HEAD:$branch" 2>&1); then
-      echo "MEMORY ok $(g rev-parse --short HEAD)"
-      return 0
-    fi
-  fi
-  echo "MEMORY push-failed $(printf '%s\n' "$out" | grep -m 1 '[^[:space:]]' || echo unknown)"
-  report_unpushed
-  return 1
-}
-
 status() {
   (($# == 0)) || usage
-  local key
-  if [[ ! -d $store/.git ]]; then
-    echo "MEMORY no-store $store"
+  local root crew
+  crew_wiki_vault >/dev/null || {
+    echo "MEMORY no-vault"
+    return 0
+  }
+  root=$(crew_mem_root 2>/dev/null) || return 0
+  if [[ ! -d $root ]]; then
+    echo "MEMORY repo $root not moved"
     return 0
   fi
-  key=$(repo_key)
-  echo "MEMORY store $store $(g rev-parse --short HEAD 2>/dev/null || echo empty) remote $(g remote get-url origin 2>/dev/null || echo none)"
-  if [[ $key != store ]]; then
-    if [[ -d $store/repos/$key ]]; then
-      echo "MEMORY repo $key repos/$key"
-    else
-      echo "MEMORY repo $key not in the store"
-    fi
-  fi
-  report_strays "$key"
-  report_caps "$key"
-  if g remote get-url origin >/dev/null 2>&1; then
-    report_unpushed
-  else
-    echo "MEMORY no-remote"
-  fi
+  echo "MEMORY repo $root"
+  crew=$(crew_dir)
+  report_strays "$crew"
+  report_caps "$root"
 }
 
 (($# >= 1)) || usage
@@ -271,7 +125,6 @@ cmd=$1
 shift
 case $cmd in
   ensure) ensure "$@" ;;
-  sync) sync "$@" ;;
   status) status "$@" ;;
   *) usage ;;
 esac
