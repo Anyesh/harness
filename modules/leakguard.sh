@@ -86,8 +86,7 @@ leakguard_deploy_config() {
     umask 077
     leakguard_render_config "$REPO_ROOT/configs/leakguard/gitleaks.toml" "${LEAKGUARD_PERSONAL:-}" >"$out"
   )
-  atomic_copy "$REPO_ROOT/configs/leakguard/secrets-only.toml" "$HOME/.config/leakguard/secrets-only.toml"
-  log_info "deployed ~/.config/leakguard/gitleaks.toml and secrets-only.toml"
+  log_info "deployed ~/.config/leakguard/gitleaks.toml"
 }
 
 leakguard_config_hooks_supported() {
