@@ -89,8 +89,12 @@ kill "$live"
 wait "$live" 2>/dev/null || true
 assert "a dead sweep file does not count as live" '! crew_mem_busy "$crew" >/dev/null'
 
+mkdir -p "$crew/runs/2026-01-01-000000"
+printf "pending run\n" >"$crew/runs/2026-01-01-000000/summary.md"
+printf "2026-01-01-000000 1/1 items pending run\n" >"$crew/index.md"
 out=$(mem "$TMP_DIR/a/Wardrobe" ensure)
 assert "with nothing live ensure moves the persistent files" '[[ -x $root/check && -x $root/preflight.d/10-heads && -f $root/brief.md && $(cat "$root/heavy-slots") == 1 ]]'
+assert "runs archived while the move was pending move with it" '[[ -f $root/runs/2026-01-01-000000/summary.md && $(cat "$root/index.md") == *"2026-01-01-000000 1/1 items pending run"* && ! -e $crew/runs && ! -e $crew/index.md ]]'
 assert "the crew dir keeps none of them" '[[ ! -e $crew/check && ! -e $crew/preflight.d && ! -e $crew/brief.md && ! -e $crew/heavy-slots && ! -e $crew/lead-notes.md ]]'
 assert "the crew dir keeps run state" '[[ -f $crew/board.tsv && -d $crew/items/1 ]]'
 assert "the handover section moves to the crew dir" '[[ $(cat "$crew/handover.md") == *"next: do x"* && $(cat "$root/lead-notes.md") != *Handover* && $(cat "$root/lead-notes.md") == *"- rule"* ]]'

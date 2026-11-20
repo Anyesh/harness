@@ -49,11 +49,13 @@ move_in() {
     [[ -e $crew/$f ]] && cp -a "$crew/$f" "$stage/"
   done
   [[ ! -f $stage/lead-notes.md ]] || split_handover "$stage/lead-notes.md" "$crew"
+  [[ ! -d $crew/runs ]] || cp -a "$crew/runs" "$stage/"
+  printf '# Crew memory\n' >"$stage/index.md"
+  [[ ! -f $crew/index.md ]] || grep -v '^# ' "$crew/index.md" >>"$stage/index.md" || true
   mv "$stage" "$root"
-  for f in "${crew_mem_files[@]}"; do
+  for f in "${crew_mem_files[@]}" runs index.md; do
     rm -rf "${crew:?}/$f"
   done
-  [[ -f $root/index.md ]] || printf '# Crew memory\n' >"$root/index.md"
   link_index "$project" "$(basename "$project")"
 }
 
