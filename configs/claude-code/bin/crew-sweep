@@ -32,13 +32,18 @@
 #                                   a LIMIT or CONTEXT alert that is new on this sweep;
 #                                   the state lines repeat on every sweep without it
 #   GONE <owner>                    an assigned owner herdr no longer lists
-#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ NOWAKE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ DIALOG]
+#   WORKER <owner> item <id> <herdr status> on <profile>[ CONTEXT <n>k][ MERGING|IDLE][ NOWAKE][ HEAVY-HOLD|HEAVY-WAIT <m>m][ LIGHT-WAIT][ QUIET][ STOPPED <m>m][ DIALOG]
 #     the profile is ? until the session's statusline writes its usage file, and
 #     opencode for an opencode agent, whose plugin writes it by pane;
 #     CONTEXT means at least CREW_CONTEXT_K thousand tokens (CREW_OPENCODE_CONTEXT_K,
 #     default 200, on opencode) or 80% of the session's context window, and ends
 #     the wait once per session;
-#     a DIALOG line is followed by the owner's screen, each line indented two spaces;
+#     a DIALOG or STOPPED line is followed by the owner's screen, each line indented
+#     two spaces;
+#     STOPPED <m>m means IDLE (so no stopping report, no merge, no slot wait) for
+#     at least CREW_STOPPED_MIN minutes (default 10), seen by a poll every
+#     CREW_STOPPED_EVERY seconds (default 60) from .sweep-stopped; it ends the wait
+#     once per stop;
 #     MERGING means a running or queued crew-merge; HEAVY-HOLD means the item id,
 #     or the merge-<id> of a running merge, holds the heavy slot; HEAVY-WAIT means
 #     either has a heavy.queue ticket, <m> minutes old; LIGHT-WAIT means a live
@@ -135,6 +140,8 @@ heavy_long=${CREW_HEAVY_LONG:-5400}
 resource_every=${CREW_RESOURCE_EVERY:-30}
 resource_hold=${CREW_RESOURCE_HOLD:-600}
 memory_sync_every=${CREW_MEMORY_SYNC_EVERY:-600}
+stopped_min=${CREW_STOPPED_MIN:-10}
+stopped_every=${CREW_STOPPED_EVERY:-60}
 
 crew=$(crew_dir) || {
   echo "crew-sweep: not inside a git repository" >&2
@@ -154,6 +161,7 @@ leftovers="$crew/.sweep-leftovers"
 wakes="$crew/.sweep-wakes"
 memory_state="$crew/.sweep-memory"
 memory_synced="$crew/.sweep-memory-sync"
+stopped_state="$crew/.sweep-stopped"
 usage_dir=$(crew_usage_dir)
 slug=$(crew_slug)
 crew_re="^$slug-w[0-9]+\$"
@@ -512,9 +520,12 @@ save_wakes() {
 # hold up the wait and ending the sweep would drop everything else it reports.
 usage_woke=0
 usage_new=()
+agents_fresh=0
 check_usage() {
   usage_at=$SECONDS
+  agents_fresh=0
   agents_once || return 0
+  agents_fresh=1
   note_limits
   note_contexts
 }
@@ -609,7 +620,7 @@ heavy_wait_since() {
 }
 
 worker_line() {
-  local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc
+  local id=$1 owner=$2 branch=$3 updated=$4 status=$5 flags=$6 screen rc dialog='' minutes=''
   local item="$crew/items/$id" merge_state since heavy= waiting=0 quiet_from= quiet_limit=$quiet gate=$id lead
   local stalled=0
   if [[ $status == idle || $status == "done" ]] && ! report_stops "$item/report.md" "$updated"; then stalled=1; fi
@@ -650,7 +661,9 @@ worker_line() {
   if ((stalled)) && no_wake_source "$agent_pane" "$agent_kind"; then flags+=" NOWAKE"; fi
   flags+=$heavy
   if ((! waiting)) && quiet_since "$quiet_from" "$quiet_limit"; then flags+=" QUIET"; fi
-  if [[ $status == blocked ]]; then
+  if minutes=$(stopped_minutes "$id"); then flags+=" STOPPED ${minutes}m"; fi
+  if [[ $status == blocked ]]; then dialog=" DIALOG"; fi
+  if [[ -n $dialog || -n $minutes ]]; then
     screen=$(timeout 10 herdr agent read "$owner" --source visible --lines "$screen_lines" 2>&1)
     rc=$?
     if ((rc != 0)) && [[ $screen == *agent_not_found* ]]; then
@@ -658,7 +671,7 @@ worker_line() {
       return
     fi
     ((rc == 0)) || screen="(screen read failed: ${screen//$'\n'/ })"
-    echo "WORKER $owner item $id $status$flags DIALOG"
+    echo "WORKER $owner item $id $status$flags$dialog"
     sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' <<<"$screen" | sed 's/^/  /'
     return
   fi
@@ -1058,6 +1071,63 @@ report_resources() {
   for line in "${resource_lines[@]}"; do echo "RESOURCE $line"; done
 }
 
+# An assigned worker that is idle with nothing to wait on, as worker_line
+# flags IDLE, keeps its first-seen time in stopped_since until a poll sees it
+# otherwise; one idle for stopped_min minutes is STOPPED and wakes the lead
+# once per stop.
+declare -A stopped_since
+load_stopped() {
+  local id since
+  [[ -f $stopped_state ]] || return 0
+  while IFS=$'\t' read -r id since; do
+    [[ -n $id && $since =~ ^[0-9]+$ ]] && stopped_since[$id]=$since
+  done <"$stopped_state"
+  return 0
+}
+
+save_stopped() {
+  local id
+  for id in "${!stopped_since[@]}"; do printf '%s\t%s\n' "$id" "${stopped_since[$id]}"; done >"$stopped_state.tmp"
+  mv -f "$stopped_state.tmp" "$stopped_state"
+}
+
+idle_alone() {
+  local id=$1 updated=$2 status=$3 item="$crew/items/$1"
+  [[ $status == idle || $status == "done" ]] || return 1
+  ! report_stops "$item/report.md" "$updated" || return 1
+  case $(crew_merge_state "$item/merging") in running | queued) return 1 ;; esac
+  ! heavy_wait_since "$id" >/dev/null && [[ -z ${light_waiting[$id]:-} ]]
+}
+
+stopped_minutes() {
+  local since=${stopped_since[$1]:-}
+  [[ -n $since ]] && ((EPOCHSECONDS - since >= stopped_min * 60)) && echo $(((EPOCHSECONDS - since) / 60))
+}
+
+stopped_at=0
+scan_stopped() {
+  local id status owner _branch _into updated _rest start
+  local -A next=()
+  stopped_at=$SECONDS
+  while IFS=$'\037' read -r id status owner _branch _into updated _rest; do
+    [[ $status == assigned && -n $owner ]] || continue
+    agent_fields "$owner" || continue
+    idle_alone "$id" "$updated" "$agent_status" || continue
+    start=${stopped_since[$id]:-$EPOCHSECONDS}
+    next[$id]=$start
+    if ((EPOCHSECONDS - start >= stopped_min * 60)); then note_wake "stopped $id $start"; fi
+  done < <(crew_board "$board")
+  stopped_since=()
+  for id in "${!next[@]}"; do stopped_since[$id]=${next[$id]}; done
+}
+
+check_stopped() {
+  stopped_at=$SECONDS
+  ((agents_fresh)) || return 0
+  load_heavy
+  scan_stopped
+}
+
 sync_memory() {
   local last out rc
   last=$(cat "$memory_synced" 2>/dev/null)
@@ -1133,9 +1203,11 @@ fi
 load_alerts
 load_usage_seen
 load_wakes
+load_stopped
 check_resources
 check_usage
 check_memory
+check_stopped
 current= previous=
 snapshot_into current
 load_seen previous
@@ -1146,6 +1218,7 @@ while [[ $current == "$previous" ]] && ((! resource_woke && ! usage_woke && ! wa
   ((SECONDS >= resources_at + resource_every)) && check_resources
   ((SECONDS >= usage_at + resource_every)) && check_usage
   ((SECONDS >= memory_at + resource_every)) && check_memory
+  ((SECONDS >= stopped_at + stopped_every)) && check_stopped
   snapshot_into current
 done
 ((resource_woke || SECONDS == resources_at)) || check_resources
@@ -1153,7 +1226,6 @@ done
 ((wake_new || SECONDS == memory_at)) || check_memory
 save_alerts
 save_usage_seen
-save_wakes
 
 if [[ $current == "$previous" ]]; then
   ((resource_woke || usage_woke || wake_new)) || echo TIMEOUT
@@ -1171,6 +1243,7 @@ report_resources
 agent_list
 load_owners
 load_heavy
+scan_stopped
 report_limits
 report_workers
 report_spares
@@ -1183,6 +1256,8 @@ report_order
 report_heavy
 report_reflect
 run_sweep_check
+save_wakes
+save_stopped
 
 if [[ -n $current ]]; then
   printf 'v2\n%s\n' "$current" >"$seen.tmp"

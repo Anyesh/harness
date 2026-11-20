@@ -962,6 +962,45 @@ rm -f "$CREW"/.sweep-*
 { row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
 agents "$S-w1 working u1"
 
+echo "stopped workers"
+reset_usage
+{
+  row 1 assigned "$S-w1" "$NOW"
+  row 2 assigned "$S-w2" "$NOW"
+  row 3 assigned "$S-w3" "$NOW"
+  row 4 assigned "$S-w4" "$NOW"
+  row 5 assigned "$S-w5" "$NOW"
+} >"$CREW/board.tsv"
+agents "$S-w1 idle" "$S-w2 idle" "$S-w3 working" "$S-w4 idle" "$S-w5 idle"
+printf 'asking something\n\nA or B?\n\n' >"$FAKE_STATE/screen-$S-w1"
+mkdir -p "$CREW/items/4" "$CREW/items/5"
+echo "status: question" >"$CREW/items/4/report.md"
+touch -d "@$((NOW + 5))" "$CREW/items/4/report.md"
+printf 'pid %s\nstart %s\ntip %040d\n' "$$" "$(crew_pid_start "$$")" 0 >"$CREW/items/5/merging"
+sweep 0
+long=$((NOW - 15 * 60))
+printf '1\t%s\n2\t%s\n3\t%s\n4\t%s\n5\t%s\n' "$long" "$((NOW - 3 * 60))" "$long" "$long" "$long" >"$CREW/.sweep-stopped"
+sweep 5
+assert "an idle worker with no stopping report for 10 minutes is STOPPED and ends the wait" 'has "WORKER $S-w1 item 1 idle on ? IDLE STOPPED 15m" && [[ $ELAPSED -lt 4000 ]] && ! has TIMEOUT'
+assert "STOPPED is followed by the last screen lines, indented" 'has "  asking something" && has "  A or B?"'
+assert "an idle worker for under 10 minutes is not STOPPED" 'has "WORKER $S-w2 item 2 idle on ? IDLE" '
+assert "a working agent is not STOPPED" 'has "WORKER $S-w3 item 3 working on ?"'
+assert "a report waiting on the lead is not STOPPED" 'has "WORKER $S-w4 item 4 idle on ?"'
+assert "a merging item is not STOPPED" 'has_re "^WORKER $S-w5 item 5 idle on \? MERGING" && ! has_re "item [2-5] .*STOPPED"'
+assert "a working agent drops its idle time" '! grep -q "^3	" "$CREW/.sweep-stopped" && grep -q "^2	" "$CREW/.sweep-stopped"'
+sweep 1
+assert "the same stop is listed again without ending the wait" 'has "WORKER $S-w1 item 1 idle on ? IDLE STOPPED 15m" && has TIMEOUT'
+rm -f "$CREW/.sweep-stopped" "$CREW/.sweep-wakes"
+sweep 1
+assert "a worker first seen idle starts its clock and is not STOPPED" '! has_re "STOPPED" && grep -q "^1	" "$CREW/.sweep-stopped"'
+printf '1\t%s\n' "$((EPOCHSECONDS - 10 * 60 + 2))" >"$CREW/.sweep-stopped"
+CREW_STOPPED_EVERY=1 sweep 8
+assert "a poll inside the wait notices the worker crossing 10 minutes" 'has "WORKER $S-w1 item 1 idle on ? IDLE STOPPED 10m" && [[ $ELAPSED -ge 1000 && $ELAPSED -lt 7000 ]] && ! has TIMEOUT'
+rm -f "$CREW/.sweep-stopped" "$CREW/.sweep-wakes" "$FAKE_STATE"/screen-*
+rm -f "$CREW/items/4/report.md" "$CREW/items/5/merging"
+{ row 1 assigned "$S-w1" "$NOW"; } >"$CREW/board.tsv"
+agents "$S-w1 working u1"
+
 echo "limits in the wait"
 reset_usage
 usage u1 work 1000 1000000 10 "$HOUR" 10 "$WEEK"
