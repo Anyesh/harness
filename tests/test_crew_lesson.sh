@@ -30,6 +30,8 @@ REPO="$TMP_DIR/repo"
 git init -q "$REPO"
 CREW="$REPO/.claude/crew"
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 STORE=$CREW_MEMORY_DIR
 MEM=$STORE/repos/repo
 mkdir -p "$CREW"

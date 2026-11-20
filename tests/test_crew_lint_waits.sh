@@ -25,6 +25,8 @@ TMP_DIR=$(cd "$(mktemp -d)" && pwd -P)
 trap 'command rm -rf "$TMP_DIR"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 unset CREW_MEM
 
 REPO=$TMP_DIR/repo

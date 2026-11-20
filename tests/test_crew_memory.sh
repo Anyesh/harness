@@ -28,6 +28,8 @@ export HOME="$TMP_DIR/home"
 mkdir -p "$HOME"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
 . "$BIN/crew-lib.sh"
@@ -76,6 +78,7 @@ mkdir -p "$crew/live"
 printf '%s %s\n' "$live" "$(crew_pid_start "$live")" >"$crew/live/sweep.$live"
 out=$(mem "$TMP_DIR/a/Wardrobe" ensure)
 assert "a live sweep file keeps ensure from moving anything" '[[ $out == *"MEMORY pending"* && -f $crew/check ]]'
+assert "the caller's own live file does not count" '! crew_mem_busy "$crew" "$crew/live/sweep.$live" >/dev/null'
 kill "$live"
 wait "$live" 2>/dev/null || true
 assert "a dead sweep file does not count as live" '! crew_mem_busy "$crew" >/dev/null'
@@ -166,8 +169,8 @@ assert "the lock file is not committed" '! git -C "$CREW_MEMORY_DIR" ls-files --
 assert "a .tmp file is ignored" 'touch "$store_repo/.tmp-check" && [[ -z $(git -C "$CREW_MEMORY_DIR" status --porcelain --untracked-files=all -- "repos/wardrobe/.tmp-check") ]]'
 
 echo "remote from the env file"
-mkdir -p "$HOME/.config/harness"
-echo "CREW_MEMORY_REMOTE=$TMP_DIR/remote.git" >"$HOME/.config/harness/crew-memory.env"
+mkdir -p "$XDG_CONFIG_HOME/harness"
+echo "CREW_MEMORY_REMOTE=$TMP_DIR/remote.git" >"$XDG_CONFIG_HOME/harness/crew-memory.env"
 out=$(cd "$TMP_DIR/a/Wardrobe" && CREW_MEMORY_DIR="$TMP_DIR/store3" "$BIN/crew-memory" ensure)
 assert "ensure clones the store from the remote in the env file" '[[ -f $TMP_DIR/store3/repos/wardrobe/origin && $(git -C "$TMP_DIR/store3" rev-parse HEAD) == $(git -C "$TMP_DIR/remote.git" rev-parse main) ]]'
 

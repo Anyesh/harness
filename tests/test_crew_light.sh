@@ -34,6 +34,8 @@ cleanup() {
 trap cleanup EXIT
 export CREW_LIGHT_POLL=0.2
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 unset CREW_MERGE_GATE
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh

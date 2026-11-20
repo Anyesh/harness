@@ -31,6 +31,8 @@ cleanup() {
 trap cleanup EXIT
 export CREW_HEAVY_POLL=0.2
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 
 MAIN="$TMP_DIR/repo"
 git init -q "$MAIN"

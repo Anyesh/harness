@@ -29,6 +29,8 @@ mkdir -p "$TMP_DIR/bin"
 command cp "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh" "$TMP_DIR/bin/"
 export PATH="$TMP_DIR/bin:$PATH"
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 
 new_repo() {
   git init -q "$1"

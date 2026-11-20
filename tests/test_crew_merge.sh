@@ -39,6 +39,8 @@ export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_MERGE_POLL=0.2
 STORE="$TMP_DIR/store"
 export CREW_MEMORY_DIR="$STORE"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
 . "$REPO_ROOT/configs/claude-code/bin/crew-lib.sh"

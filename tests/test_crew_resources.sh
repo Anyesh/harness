@@ -32,6 +32,8 @@ CREW="$REPO/.claude/crew"
 mkdir -p "$CREW"
 export CREW_RUNS_DIR="$TMP_DIR/runs"
 export CREW_MEMORY_DIR="$TMP_DIR/store"
+export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
+unset CREW_MEMORY_REMOTE
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN"
 DF_LOG="$TMP_DIR/df.log"
