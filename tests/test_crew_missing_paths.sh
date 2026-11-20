@@ -91,8 +91,21 @@ git init -q "$TMP/repo"
 mkdir -p "$TMP/repo/.claude/crew" "$TMP/repo/sub"
 printf 'see %s\n' "$TMP/repo-missing" >"$TMP/repo/.claude/crew/brief.md"
 RC=0
-OUT=$(cd "$TMP/repo/sub" && "$CMP" 2>&1) || RC=$?
+OUT=$(cd "$TMP/repo/sub" && CREW_MEMORY_DIR="$TMP/nostore" "$CMP" 2>&1) || RC=$?
 assert "with no argument it checks the repo's crew dir" '[[ $OUT == "missing: $TMP/repo-missing" && $RC -eq 0 ]]'
+
+echo "memory store"
+STORE="$TMP/store"
+mkdir -p "$STORE/repos/repo/runs/r1"
+printf 'see %s\n' "$TMP/store-missing" >"$STORE/repos/repo/lead-notes.md"
+printf 'see %s\n' "$TMP/index-skip" >"$STORE/repos/repo/index.md"
+printf 'see %s\n' "$TMP/run-skip" >"$STORE/repos/repo/runs/r1/summary.md"
+printf 'see %s\n' "$TMP/crew-leftover" >"$TMP/repo/.claude/crew/lead-notes.md"
+RC=0
+OUT=$(cd "$TMP/repo/sub" && CREW_MEMORY_DIR="$STORE" "$CMP" 2>&1) || RC=$?
+exp_store=$(printf 'missing: %s\n' "$TMP/crew-leftover" "$TMP/repo-missing" "$TMP/store-missing" | LC_ALL=C sort)
+assert "with a store entry it checks the store's files and the crew dir's" '[[ $OUT == "$exp_store" && $RC -eq 0 ]]'
+assert "the store's index and runs are skipped" '! grep -q -e index-skip -e run-skip <<<"$OUT"'
 
 if command -v zsh >/dev/null; then
   RC=0

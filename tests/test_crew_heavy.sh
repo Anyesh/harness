@@ -30,6 +30,7 @@ cleanup() {
 }
 trap cleanup EXIT
 export CREW_HEAVY_POLL=0.2
+export CREW_MEMORY_DIR="$TMP_DIR/store"
 
 MAIN="$TMP_DIR/repo"
 git init -q "$MAIN"
@@ -330,6 +331,23 @@ heavy acquire merge-z "merge gate" 0
 assert "a merge goes ahead of an old-format ticket" '[[ $RC -eq 0 && $(holder_field 1) == merge-z && -e $old ]]'
 heavy release merge-z
 rm "$old"
+
+echo "persistent files in the memory store"
+rm -rf "$CREW/items" "$CREW/heavy-slots"
+mkdir -p "$CREW_MEMORY_DIR/repos/repo"
+marker x queued
+heavy acquire 2 suite 0
+assert "with a store entry and no heavy-slots there, a marker holds no one back" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+printf '1\n' >"$CREW_MEMORY_DIR/repos/repo/heavy-slots"
+heavy acquire 2 suite 1
+assert "heavy-slots in the store turns the slot count on" '[[ $RC -ne 0 && $OUT == *"1 ahead"* ]]'
+printf '1\n' >"$CREW/heavy-slots"
+rm "$CREW_MEMORY_DIR/repos/repo/heavy-slots"
+heavy acquire 2 suite 0
+assert "a heavy-slots file left in the crew dir is ignored once the store has an entry" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+rm -rf "$CREW/items" "$CREW/heavy-slots" "$CREW_MEMORY_DIR"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

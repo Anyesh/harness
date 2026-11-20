@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Usage: crew-light <command...>
 #
-# Runs the command under one of the light slots set in <crew dir>/light-slots,
+# Runs the command under one of the light slots set in light-slots of the crew
+# memory dir (crew_mem: the repo's store entry, else the crew dir),
 # or at once when that file is missing. The file holds `N` or `N G`: N slots in
 # all, of which slots 1..G (G defaults to 0) stay open to workers while a live
 # crew-merge gate (`merge-<id>`) holds the heavy slot. The gate's own runs
@@ -23,24 +24,25 @@ die() {
 
 (($#)) || die "usage: crew-light <command...>"
 crew=$(crew_dir) || die "not inside a git repository"
-[[ -e $crew/light-slots ]] || exec "$@"
-[[ -r $crew/light-slots ]] || die "cannot read $crew/light-slots"
-read -r -d '' -a fields <"$crew/light-slots" || true
+mem=$(crew_mem) || die "not inside a git repository"
+[[ -e $mem/light-slots ]] || exec "$@"
+[[ -r $mem/light-slots ]] || die "cannot read $mem/light-slots"
+read -r -d '' -a fields <"$mem/light-slots" || true
 ((${#fields[@]} == 1 || ${#fields[@]} == 2)) && [[ ${fields[0]} =~ ^[1-9][0-9]*$ && ${fields[1]:-0} =~ ^(0|[1-9][0-9]*)$ ]] ||
-  die "$crew/light-slots must contain N or N G: whole numbers, N at least 1"
+  die "$mem/light-slots must contain N or N G: whole numbers, N at least 1"
 slots=${fields[0]}
 gate_slots=${fields[1]:-0}
-((gate_slots <= slots)) || die "$crew/light-slots keeps $gate_slots slots for workers under a gate but has only $slots"
+((gate_slots <= slots)) || die "$mem/light-slots keeps $gate_slots slots for workers under a gate but has only $slots"
 dir=$crew/light.slots
 poll=${CREW_LIGHT_POLL:-5}
 ticket=
 mkdir -p "$dir"
 
 noted=$dir/.no-heavy-slots-noted
-if [[ -e $crew/heavy-slots ]]; then
+if [[ -e $mem/heavy-slots ]]; then
   rm -f "$noted"
 elif [[ ! -e $noted ]]; then
-  echo "crew-light: $crew/heavy-slots is not set, so merge gates take no heavy slot and never pause light commands" >&2
+  echo "crew-light: $mem/heavy-slots is not set, so merge gates take no heavy slot and never pause light commands" >&2
   : >"$noted"
 fi
 

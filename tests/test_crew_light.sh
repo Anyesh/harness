@@ -33,6 +33,7 @@ cleanup() {
 }
 trap cleanup EXIT
 export CREW_LIGHT_POLL=0.2
+export CREW_MEMORY_DIR="$TMP_DIR/store"
 unset CREW_MERGE_GATE
 
 # shellcheck source=../configs/claude-code/bin/crew-lib.sh
@@ -192,6 +193,22 @@ stop_command w1
 assert "the waiter takes the worker slot once it frees" 'wait_for "started w2"'
 for n in m w1 w2; do stop_command "$n"; done
 for p in "$m" "$w1" "$w2"; do wait "$p" 2>/dev/null || true; done
+
+echo "persistent files in the memory store"
+rm -rf "$CREW/light-slots" "$CREW/heavy-slots" "$CREW/heavy.lock" "$CREW/items" "$CREW/light.slots/.no-heavy-slots-noted"
+mkdir -p "$CREW_MEMORY_DIR/repos/repo"
+printf '3\n' >"$CREW/light-slots"
+light bash -c 'echo ran'
+assert "a light-slots file in the crew dir is ignored once the store has an entry" '[[ $RC -eq 0 && $OUT == ran ]]'
+printf '0\n' >"$CREW_MEMORY_DIR/repos/repo/light-slots"
+light true
+assert "light-slots in the store is validated" '[[ $RC -ne 0 && $OUT == *light-slots* ]]'
+printf '2\n' >"$CREW_MEMORY_DIR/repos/repo/light-slots"
+light bash -c 'exit 7'
+assert "light-slots in the store sets the slots and the heavy-slots note names the store" '[[ $RC -eq 7 && $OUT == *"$CREW_MEMORY_DIR/repos/repo/heavy-slots"* ]]'
+rm -rf "$CREW_MEMORY_DIR" "$CREW/light.slots/.no-heavy-slots-noted"
+light bash -c 'echo ran'
+assert "without a store entry light-slots is read from the crew dir again" '[[ $RC -eq 0 && $OUT == *"$CREW/heavy-slots"* ]]'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
