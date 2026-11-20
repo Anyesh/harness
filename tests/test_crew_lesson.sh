@@ -29,11 +29,11 @@ trap 'command rm -rf "$TMP_DIR"' EXIT
 REPO="$TMP_DIR/repo"
 git init -q "$REPO"
 CREW="$REPO/.claude/crew"
-export CREW_MEMORY_DIR="$TMP_DIR/store"
-export XDG_CONFIG_HOME="$CREW_MEMORY_DIR.xdg"
-unset CREW_MEMORY_REMOTE
-STORE=$CREW_MEMORY_DIR
-MEM=$STORE/repos/repo
+export HOME="$TMP_DIR/home"
+mkdir -p "$HOME"
+export WIKI_VAULT="$TMP_DIR/vault"
+unset HARNESS_WORK
+MEM=$WIKI_VAULT/wiki/projects/repo/crew
 mkdir -p "$CREW"
 BRIEF="$CREW/brief.md"
 TODAY=$(date +%F)
@@ -120,7 +120,7 @@ cl add "Keep screenshots out of git"
 assert "add creates brief.md when it is missing" '[[ $RC -eq 0 && $(lessons) == "- Keep screenshots out of git ($TODAY)" ]]'
 
 echo "memory store"
-mkdir -p "$MEM" "$STORE/rules"
+mkdir -p "$MEM"
 command rm -f "$BRIEF"
 cl add "Keep screenshots out of version control"
 assert "with a store entry the worker lesson goes to the store's brief.md" '[[ $RC -eq 0 && ! -e $BRIEF ]] && grep -qx -- "- Keep screenshots out of version control ($TODAY)" "$MEM/brief.md"'
@@ -155,28 +155,27 @@ assert "--lead creates lead-notes.md when it is missing" '[[ $RC -eq 0 && -f $LE
 assert "worker lessons are untouched by --lead" '[[ $(grep -c "^- " "$MEM/brief.md") -eq 1 ]]'
 
 echo "all crews"
-PROPOSED=$STORE/rules/proposed.md
+PROPOSED=$WIKI_VAULT/wiki/projects/harness/crew/proposed.md
 cl add --all "Never run two migrations that claim the same alembic head in one batch"
-assert "--all appends to rules/proposed.md tagged with the date and key" '[[ $RC -eq 0 && $(tail -n 1 "$PROPOSED") == "- Never run two migrations that claim the same alembic head in one batch ($TODAY, repo)" ]]'
+assert "--all appends to the harness crew folder's proposed.md tagged with the date and key" '[[ $RC -eq 0 && $(tail -n 1 "$PROPOSED") == "- Never run two migrations that claim the same alembic head in one batch ($TODAY, repo)" ]]'
 command cp -f "$PROPOSED" "$TMP_DIR/prop-before"
 cl add --all "Never run two migrations claiming the same alembic head in a batch"
 assert "--all refuses a repeat" '[[ $RC -eq 1 && $OUT == *repeats* ]] && cmp -s "$PROPOSED" "$TMP_DIR/prop-before"'
 cl add --all "Keep screenshots out of version control (2026-10-01, other)"
 assert "--all keeps a tag the rule already carries" '[[ $RC -eq 0 && $(tail -n 1 "$PROPOSED") == "- Keep screenshots out of version control (2026-10-01, other)" ]]'
-head -c 8200 /dev/zero | tr '\0' x >>"$PROPOSED"
+head -c 20000 /dev/zero | tr '\0' x >>"$PROPOSED"
 printf '\n' >>"$PROPOSED"
 cl add --all "Name the worktree path in every report so the lead can find leftovers"
-assert "--all refuses a line past the 8192 cap" '[[ $RC -eq 1 && $OUT == *"merge or retire"* ]]'
+assert "--all has no size cap" '[[ $RC -eq 0 && $(tail -n 1 "$PROPOSED") == "- Name the worktree path in every report so the lead can find leftovers ($TODAY, repo)" ]]'
 cl size --all
-assert "size --all reports against 8192 and fails when over" '[[ $RC -eq 1 && $OUT == */8192\ bytes* ]]'
-command rm -rf "$STORE/rules"
+assert "size --all prints the file size with no cap" '[[ $RC -eq 0 && $OUT =~ ^[0-9]+\ bytes$ ]]'
+command rm -rf "$WIKI_VAULT/wiki/projects/harness"
 cl add --all "Name the worktree path in every report so the lead can find leftovers"
-assert "--all creates rules/proposed.md when the store has none" '[[ $RC -eq 0 && -f $PROPOSED ]]'
+assert "--all creates the harness crew folder and proposed.md when there are none" '[[ $RC -eq 0 && -f $PROPOSED ]]'
 cl add --lead --all "x y z w"
 assert "two targets together are a usage error" '[[ $RC -eq 2 ]]'
-command rm -rf "$STORE"
-cl add --all "Keep screenshots out of version control"
-assert "--all with no store is refused" '[[ $RC -eq 1 && $OUT == *store* ]]'
+OUT=$(cd "$REPO" && WIKI_VAULT= "$CL" add --all "Keep screenshots out of version control" 2>&1) && RC=0 || RC=$?
+assert "--all with no vault is refused" '[[ $RC -eq 1 && $OUT == *vault* ]]'
 
 echo "usage"
 write_brief

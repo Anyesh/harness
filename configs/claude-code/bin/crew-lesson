@@ -6,15 +6,15 @@
 # The lead's way to add one line to crew memory. The target is, by default, the
 # ## Lessons section of brief.md in the crew memory dir (cap
 # CREW_LESSONS_MAX_BYTES, default 8192, since every worker reads it whole); with
-# --lead the whole of lead-notes.md there (no cap); with --all the store's
-# rules/proposed.md, shared by every crew (cap 8192), where each line is tagged
-# `(<date>, <repo key>)`. Every other line gets today's date unless it already
-# ends in one. add prints the existing lines nearest the rule, refuses a rule
-# whose words overlap one line by CREW_LESSON_DUP_PCT (default 60) or more, and
-# refuses one that would take the target past its cap, so a new lesson is merged
-# into older ones or replaces them instead of piling up. Overlap is the share of
-# distinct words of four or more letters the two lines have in common out of all
-# the words either has. The caps and CREW_LESSON_DUP_PCT may also be set in the
+# --lead the whole of lead-notes.md there (no cap); with --all proposed.md in the
+# harness project's crew wiki folder, shared by every crew (no cap), where each
+# line is tagged `(<date>, <repo key>)`. Every other line gets today's date
+# unless it already ends in one. add prints the existing lines nearest the rule,
+# refuses a rule whose words overlap one line by CREW_LESSON_DUP_PCT (default
+# 60) or more, and refuses a worker lesson that would take Lessons past its cap,
+# so a new lesson is merged into older ones or replaces them instead of piling
+# up. Overlap is the share of distinct words of four or more letters the two
+# lines have in common out of all the words either has. The caps and CREW_LESSON_DUP_PCT may also be set in the
 # thresholds file of the crew memory dir.
 set -euo pipefail
 
@@ -48,9 +48,9 @@ select_target() {
       max_bytes=
       ;;
     all)
-      [[ -d $(crew_memory_dir) ]] || die "no crew memory store at $(crew_memory_dir); run crew-memory ensure"
-      brief=$(crew_memory_dir)/rules/proposed.md
-      max_bytes=8192
+      brief=$(crew_proposals_dir) || die "no wiki vault: set WIKI_VAULT in ~/.harness.env"
+      brief=$brief/proposed.md
+      max_bytes=
       key=$(crew_mem_key) || die "not inside a git repository"
       ;;
   esac
