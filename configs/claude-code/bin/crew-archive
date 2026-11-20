@@ -4,22 +4,21 @@
 #
 # Archives a finished crew run, which Start step 4 of the crew skill used to do
 # with a hand-written mv list. It runs `crew-memory ensure` first, so a repo's
-# first archive already lands in the store. It moves the run files of the crew
+# first archive already lands in the wiki crew folder. It moves the run files of the crew
 # dir (board.tsv, items/, rulings.md, reflections.md, plan.md, summary.md,
 # handover.md, .sweep-seen, .sweep-resources, .sweep-limits, .sweep-leftovers,
 # heavy-priority, dagr-run, dagr-events.jsonl, dagr.log) into
 # <crew dir>/done-<run id>/, where the run id is the date and time, YYYY-MM-DD-HHMMSS.
 # The durable text is copied into <memory dir>/runs/<run id>/: summary.md,
-# rulings.md, reflections.md, plan.md, board.tsv and, per item, spec.md,
-# report.md, notes.md, review.md and handoff.md, skipping files over 200 KB.
-# One line, `<run id> <done>/<total> items <first line of summary.md>`, is
-# appended to <memory dir>/index.md unless the run id is already there, and the
-# store is synced. Where the repo is not in the store yet (ensure printed
-# `MEMORY pending`) the memory dir is the crew dir.
+# rulings.md, reflections.md, plan.md and board.tsv, skipping files over
+# 200 KB; item specs and reports stay in the done dir. One line, `<run id>
+# <done>/<total> items <first line of summary.md>`, is appended to <memory
+# dir>/index.md unless the run id is already there. Where the memory has not
+# moved into the wiki yet (ensure printed `MEMORY pending` or `MEMORY
+# no-vault`) the memory dir is the crew dir.
 # --import does only the copy and the index line for an existing done-<run id>
 # dir, which it leaves in place. Nothing to archive is not an error, and
-# running again never repeats an index line. The exit status is that of the
-# sync, whose MEMORY lines are printed.
+# running again never repeats an index line.
 set -euo pipefail
 
 # shellcheck source=crew-lib.sh
@@ -62,16 +61,9 @@ copy_small() {
 }
 
 copy_run() {
-  local from=$1 to=$2 f item
+  local from=$1 to=$2 f
   for f in summary.md rulings.md reflections.md plan.md board.tsv; do
     copy_small "$from/$f" "$to/$f"
-  done
-  for item in "$from"/items/*/; do
-    [[ -d $item ]] || continue
-    item=${item%/}
-    for f in spec report notes review handoff; do
-      copy_small "$item/$f.md" "$to/items/${item##*/}/$f.md"
-    done
   done
 }
 
@@ -119,13 +111,9 @@ if [[ -n $import ]]; then
   [[ $base == done-* ]] || die "$import is not a done-<run id> directory"
   id=${base#done-}
   record "$import" "$id"
-  msg="import $id"
 elif id=$(move_run); then
   record "$crew/done-$id" "$id"
-  msg="archive $id"
 else
   echo "crew-archive: no run files in $crew, nothing to archive"
   exit 0
 fi
-
-"$here/crew-memory" sync "$msg"
