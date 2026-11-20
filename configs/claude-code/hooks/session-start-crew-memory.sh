@@ -9,12 +9,9 @@ lib=$(command -v crew-lib.sh) || exit 0
 
 cwd=$(jq -r '.cwd // empty' <<<"$input" 2>/dev/null)
 main=$(crew_main "${cwd:-.}") || exit 0
-store=$(crew_memory_dir)
 lines=()
 
-key=$(crew_mem_key "$main") || exit 0
-entry="$store/repos/$key"
-if [[ -d $entry ]]; then
+if entry=$(crew_mem_root "$main") && [[ -d $entry ]]; then
   runs=0
   for d in "$entry"/runs/*/; do
     [[ -d $d ]] && runs=$((runs + 1))
@@ -22,8 +19,9 @@ if [[ -d $entry ]]; then
   lines+=("CREW-MEMORY: $entry, $runs runs")
 fi
 
-if [[ -f $main/install.sh && -f $main/configs/shared/skills/crew/SKILL.md && -f $store/rules/proposed.md ]]; then
-  pending=$(grep -c '^- ' "$store/rules/proposed.md")
+if [[ -f $main/install.sh && -f $main/configs/shared/skills/crew/SKILL.md ]] &&
+  proposed=$(crew_proposals_dir)/proposed.md && [[ -f $proposed ]]; then
+  pending=$(grep -c '^- ' "$proposed")
   ((pending > 0)) && lines+=("CREW-PROPOSALS: $pending pending")
 fi
 
