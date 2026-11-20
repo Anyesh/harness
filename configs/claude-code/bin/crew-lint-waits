@@ -14,8 +14,15 @@
 # Exits 0 when nothing matches, 1 on matches, 2 when it cannot run.
 set -euo pipefail
 
+# A gate snapshot runs a plain copy of this script from preflight.d, away from
+# the bin dir that holds crew-lib.sh, so fall back to the one on PATH.
+lib="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+[[ -f $lib ]] || lib=$(command -v crew-lib.sh) || {
+  echo "crew-lint-waits: cannot find crew-lib.sh" >&2
+  exit 2
+}
 # shellcheck source=crew-lib.sh
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
+. "$lib"
 
 die() {
   printf 'crew-lint-waits: %s\n' "$*" >&2

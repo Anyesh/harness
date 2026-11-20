@@ -112,5 +112,14 @@ RC=0
 OUT=$(cd "$REPO" && env -u CREW_PREFLIGHT_BASE "$LINT" 2>&1) || RC=$?
 assert "without CREW_PREFLIGHT_BASE it fails and says so" '[[ $RC -eq 2 && $OUT == *CREW_PREFLIGHT_BASE* ]]'
 
+mkdir -p "$TMP_DIR/snap/preflight.d"
+command cp -f "$LINT" "$TMP_DIR/snap/preflight.d/20-lint-waits"
+reset_item
+printf 'def test_new(client):\n    assert client.get("/")\n' >"$REPO/tests/test_new.py"
+commit_all copied
+RC=0
+OUT=$(cd "$REPO" && env CREW_PREFLIGHT_BASE="$BASE" PATH="$(dirname "$LINT"):$PATH" "$TMP_DIR/snap/preflight.d/20-lint-waits" 2>&1) || RC=$?
+assert "a copy outside the bin dir, as a gate snapshot holds it, finds crew-lib.sh on PATH" '[[ $RC -eq 0 ]]'
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 ((FAIL == 0))
