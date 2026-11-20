@@ -97,7 +97,7 @@ run_merge() { (cd "$(wt_of "$1")" && exec "$CM" "$1"); }
 
 no_leftover() {
   ! git -C "$MAIN" worktree list --porcelain | grep -qF "worktree $RUNS/merge-" &&
-    ! compgen -G "$RUNS/merge-*" >/dev/null
+    ! compgen -G "$RUNS/merge-*/" >/dev/null
 }
 
 refuses() {
@@ -333,8 +333,7 @@ wait "$p21" || rc=$?
 assert "the waiting merge lands once the slot is released and frees it" '[[ $rc -eq 0 && -f "$CREW/items/33/merged" && ! -e $HLOCK ]]'
 
 n=34
-for sig in HUP:129 TERM:143; do
-  want=${sig#*:} sig=${sig%:*}
+for sig in HUP TERM; do
   new_item "$n"
   command rm -f "$TMP_DIR/started"
   set_check "touch '$TMP_DIR/started'; sleep 2"
@@ -348,7 +347,7 @@ for sig in HUP:129 TERM:143; do
   kill -"$sig" "$pid"
   rc=0
   wait "$pid" || rc=$?
-  assert "$sig during check frees the slot and lands nothing" '[[ $rc -eq $want && ! -e $HLOCK && $(git -C "$MAIN" rev-parse main) == "$before" && ! -e "$CREW/items/$n/merged" ]] && no_leftover'
+  assert "$sig to the leader during check is deferred until its item lands, and frees the slot" '[[ $rc -eq 0 && ! -e $HLOCK && $(git -C "$MAIN" rev-parse main^1) == "$before" && -f "$CREW/items/$n/merged" ]] && grep -q "deferred" "$TMP_DIR/out" && no_leftover'
   n=$((n + 1))
 done
 
@@ -731,8 +730,8 @@ kill "$HOLDER"
 wait_for '[[ -e $TMP_DIR/started ]]'
 kill -TERM "${QP[0]}"
 wait_queued
-assert "a batch leader stopped by TERM lands nothing and its follower lands in the next batch" '[[ ${RCS[0]} -eq 143 && ${RCS[1]} -eq 0 && ! -e $CREW/items/55/merged && -f $CREW/items/56/merged ]]'
-assert "the follower's next batch holds only itself" '[[ $(tr -d "\n" <"$TMP_DIR/gates") == "55 56 56 " ]] && no_markers 55 56 && no_leftover'
+assert "a TERM to a batch leader during check is deferred until the whole batch lands" '[[ ${RCS[*]} == "0 0" && -f $CREW/items/55/merged && -f $CREW/items/56/merged ]]'
+assert "the deferred batch is gated once" '[[ $(tr -d "\n" <"$TMP_DIR/gates") == "55 56 " ]] && no_markers 55 56 && no_leftover'
 
 new_item 57
 new_item 58
@@ -798,7 +797,7 @@ kill -TERM "${QP[0]}"
 wait_queued
 assert "a leader whose item landed early in a bisect keeps its marker while it gates the rest" 'grep -qx "RUNNING 63" "$TMP_DIR/status.snap"'
 assert "a leader stopped after its own item landed exits 0 with its merge commit" '[[ ${RCS[0]} -eq 0 && $(tail -n 1 "$TMP_DIR/out63") == "$(merged_sha 63)" && -n $(merged_sha 63) ]]'
-assert "the rest of that batch lands or is cut in the next batch" '[[ ${RCS[*]} == "0 0 1 0" && -f $CREW/items/66/merged && ! -e $CREW/items/65/merged ]] && no_markers 63 64 65 66 && no_leftover'
+assert "the rest of that batch lands or is cut before the deferred TERM ends the leader" '[[ ${RCS[*]} == "0 0 1 0" && -f $CREW/items/66/merged && ! -e $CREW/items/65/merged ]] && no_markers 63 64 65 66 && no_leftover'
 set_check 'exit 0'
 
 : >"$TMP_DIR/gates"
@@ -1137,6 +1136,104 @@ kill "$HOLDER"
 wait_queued
 assert "a batch skips a queued item that shares commits with a claimed one or is related to one by board deps" '[[ ${RCS[*]} == "0 0 0 0 0" && $(sed -n 1p "$TMP_DIR/gates") == "140 142 " ]]'
 assert "the skipped items land in later batches, together only when unrelated, even through a chain of deps" '[[ $(sed -n 2p "$TMP_DIR/gates") == "141 143 " && $(sed -n 3p "$TMP_DIR/gates") == "145 " && -f $CREW/items/141/merged && -f $CREW/items/145/merged ]] && no_markers 140 141 142 143 145'
+
+SG="$TMP_DIR/slowgit"
+mkdir -p "$SG"
+cat >"$SG/git" <<EOF
+#!/usr/bin/env bash
+if [[ \${4:-} == '$RUNS'/merge-* && \${5:-} == merge && ! -e '$TMP_DIR/building' ]]; then
+  : >'$TMP_DIR/building'
+  sleep 2
+fi
+exec "\$REAL_GIT" "\$@"
+EOF
+chmod +x "$SG/git"
+leader_gone() {
+  local i
+  for ((i = 0; i < 300; i++)); do
+    kill -0 "$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  return 1
+}
+echo 1 >"$CREW/heavy-slots"
+new_item 150
+new_item 151
+: >"$TMP_DIR/gates"
+: >"$TMP_DIR/checks"
+: >"$TMP_DIR/status.snaps"
+command rm -f "$TMP_DIR/building" "$TMP_DIR/checking"
+set_check "$(gate_items 150 151)
+'$CM' --status >>'$TMP_DIR/status.snaps'
+perl -e 'print defined \$SIG{PIPE} ? \$SIG{PIPE} : q(DEFAULT), qq(\n)' >'$TMP_DIR/pipe.snap'
+if [[ ! -e '$TMP_DIR/checking' ]]; then touch '$TMP_DIR/checking'; sleep 2; fi
+echo checked >>'$TMP_DIR/checks'
+if [[ -e f-151 ]]; then echo bad-151; exit 1; fi"
+(cd "$MAIN" && "$HEAVY" acquire 7 stack >/dev/null)
+hold_lock
+(cd "$(wt_of 150)" && exec perl -e 'setpgrp; exec @ARGV' bash -c '
+  trap "echo term >>\"$1.sigs\"" TERM
+  PATH="$2:$PATH" "$3" 150 | cat >"$1"
+  echo "${PIPESTATUS[0]}" >"$1.rc"' _ "$TMP_DIR/out150" "$SG" "$CM") &
+CALLER=$!
+PIDS+=("$CALLER")
+wait_for "grep -q '^queued ' '$(marker 150)' 2>/dev/null"
+start_merge 151 "$TMP_DIR/out151"
+p151=$BG
+wait_for "grep -q '^queued ' '$(marker 151)' 2>/dev/null"
+leader=$(marker_pid 150)
+kills=0
+kill "$HOLDER"
+wait_for '[[ -e $TMP_DIR/building ]]'
+if kill -TERM -- "-$CALLER"; then kills=$((kills + 1)); fi
+wait_for '[[ $(heavy_tickets) -ge 1 ]]'
+sleep 0.5
+if kill -TERM -- "-$CALLER"; then kills=$((kills + 1)); fi
+status_wait=$(cd "$MAIN" && "$CM" --status)
+rc=0
+run_merge 150 >"$TMP_DIR/out" 2>&1 || rc=$?
+assert "a rerun of an item whose batch is gating exits 3" '[[ $rc -eq 3 ]] && grep -q "already merging" "$TMP_DIR/out"'
+rc=0
+(cd "$MAIN" && "$CM" --cancel 150) >"$TMP_DIR/outc" 2>&1 || rc=$?
+assert "--cancel refuses a RUNNING run and says why" '[[ $rc -eq 3 ]] && grep -q "RUNNING" "$TMP_DIR/outc" && kill -0 "$leader"'
+(cd "$MAIN" && "$HEAVY" release 7 >/dev/null)
+wait_for '[[ -e $TMP_DIR/checking ]]'
+if kill -TERM -- "-$CALLER"; then kills=$((kills + 1)); fi
+leader_gone "$leader" || true
+wait_for '[[ -s $TMP_DIR/out150.rc ]]' || true
+r151=0
+wait "$p151" || r151=$?
+assert "the caller's group was killed three times while the leader gated" '[[ $kills -eq 3 ]] && grep -q term "$TMP_DIR/out150.sigs"'
+assert "a gate whose caller's process group is killed during build, a heavy-slot wait and check still bisects and lands" '[[ $(<"$TMP_DIR/out150.rc") == 0 && $r151 -eq 1 && -f $CREW/items/150/merged && ! -e $CREW/items/151/merged ]] && grep -q bad-151 "$TMP_DIR/out151"'
+assert "none of the leader's children were killed with the caller's group" '[[ $(tr "\n" "|" <"$TMP_DIR/gates") == "150 151 |150 |" && $(grep -c checked "$TMP_DIR/checks") -eq 2 ]]'
+assert "check runs with the default SIGPIPE" '[[ $(<"$TMP_DIR/pipe.snap") == DEFAULT ]]'
+assert "--status showed both members running during the heavy-slot wait" 'grep -q "^RUNNING 150" <<<"$status_wait" && grep -q "^RUNNING 151" <<<"$status_wait"'
+assert "the leader's output, merged sha last, is in merge-<id>.out after its caller's pipe closed" '[[ $(tail -n 1 "$RUNS/merge-150.out") == "$(merged_sha 150)" ]] && grep -q "check red on 150 151" "$RUNS/merge-150.out"'
+assert "the stopped gate leaves no marker, no merge worktree and a free slot" 'no_markers 150 151 && no_leftover && [[ ! -e $HLOCK ]]'
+command rm -f "$CREW/heavy-slots"
+set_check 'exit 0'
+
+new_item 152
+hold_lock
+start_merge 152 "$TMP_DIR/out152"
+p152=$BG
+wait_for "grep -q '^queued ' '$(marker 152)' 2>/dev/null"
+rc=0
+(cd "$MAIN" && "$CM" --cancel 152) >"$TMP_DIR/outc" 2>&1 || rc=$?
+r152=0
+wait "$p152" || r152=$?
+assert "--cancel stops a QUEUED run and removes its marker" '[[ $rc -eq 0 && $r152 -eq 143 && ! -e $(marker 152) && ! -e $CREW/items/152/merged ]] && grep -q "cancelled" "$TMP_DIR/outc"'
+rc=0
+(cd "$MAIN" && "$CM" --cancel 152) >"$TMP_DIR/outc" 2>&1 || rc=$?
+assert "--cancel of an item with no merge run fails and says so" '[[ $rc -eq 1 ]] && grep -q "no merge marker" "$TMP_DIR/outc"'
+kill "$HOLDER"
+
+new_item 153
+(cd "$(wt_of 153)" && exec perl -e 'setpgrp; exec @ARGV' "$CM" 153) >"$TMP_DIR/out153" 2>&1 &
+p153=$!
+rc=0
+wait "$p153" || rc=$?
+assert "a run that already leads its process group lands and warns of nothing" '[[ $rc -eq 0 && $(tail -n 1 "$TMP_DIR/out153") == "$(merged_sha 153)" ]] && ! grep -q "process group" "$TMP_DIR/out153"'
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -4,6 +4,8 @@
 #                                   STALE <id> per merge marker; nothing when idle
 #        crew-merge --settle <item> clear the marker a dead run left, writing the
 #                                   merged file when its fast-forward had landed
+#        crew-merge --cancel <item> stop a run while it is QUEUED; a RUNNING
+#                                   one is refused with exit 3
 #
 # An item lands only with a crew-red record in items/<id>/red.log or a reason
 # in items/<id>/no-test.
@@ -19,6 +21,12 @@
 # together again; an item that conflicts with an earlier one in the batch is
 # queued again for the next batch. Each claimed run waits for the outcome the
 # leader writes to items/<id>/merge-outcome.
+#
+# The leader moves into its own process group, so stopping the caller (a
+# process-group kill) never reaches the gate, and it copies its output, the
+# merged sha last on stdout, to merge-<id>.out in the crew-runs dir. A HUP,
+# INT or TERM sent to the leader waits until every member has landed or been
+# cut; only KILL stops a gate.
 #
 # Exit status: 0 done, 1 refused or failed, 2 usage, 3 another run is merging
 # the item.
@@ -42,7 +50,7 @@ busy() {
 }
 
 usage() {
-  echo "usage: crew-merge <item> | --status | --settle <item>" >&2
+  echo "usage: crew-merge <item> | --status | --settle <item> | --cancel <item>" >&2
   exit 2
 }
 
@@ -160,9 +168,32 @@ settle() {
   esac
 }
 
+cancel() {
+  local state pid lstart i
+  item=$crew/items/$id
+  [[ -e $item/merging ]] || die "nothing to cancel: $id has no merge marker"
+  lock_marker "$item"
+  state=$(crew_merge_state "$item/merging") || die "nothing to cancel: $id has no merge marker"
+  case $state in
+  queued) ;;
+  running) busy "$id is RUNNING: its batch gate has started, and a started gate is never stopped; wait for it to land or be cut" ;;
+  *) die "$id has no live merge run ($state); see crew-merge --settle $id" ;;
+  esac
+  pid=$(field "$item/merging" pid)
+  lstart=$(field "$item/merging" start)
+  kill -TERM "$pid" || die "cannot signal pid $pid, the queued run of $id"
+  unlock_marker
+  for ((i = 0; i < 100; i++)); do
+    [[ $(crew_pid_start "$pid" 2>/dev/null) == "$lstart" ]] || break
+    sleep 0.1
+  done
+  ((i < 100)) || die "the queued run of $id (pid $pid) did not exit after TERM"
+  echo "cancelled the queued merge of $id (pid $pid)"
+}
+
 case ${1:-} in
 --status) (($# == 1)) || usage ;;
---settle) (($# == 2)) || usage ;;
+--settle | --cancel) (($# == 2)) || usage ;;
 *) (($# == 1)) || usage ;;
 esac
 crew=$(crew_dir) || die "not inside a git repository"
@@ -173,39 +204,18 @@ elif [[ $1 == --settle ]]; then
   id=$2
   settle
   exit 0
+elif [[ $1 == --cancel ]]; then
+  id=$2
+  cancel
+  exit 0
 fi
 
 id=$1
-[[ $queue_wait =~ ^[0-9]+$ ]] || die "CREW_MERGE_QUEUE_WAIT must be a whole number of seconds"
-mem=$(crew_mem) || die "cannot find the crew memory of this repository"
-heavy_slots=$(crew_heavy_slots "$mem") || die "$mem/heavy-slots must contain 1, the only slot count supported"
 common=$(g rev-parse --path-format=absolute --git-common-dir)
 runs=${CREW_RUNS_DIR:-$HOME/.cache/crew-runs}/$(crew_slug)
 mkdir -p "$runs"
 runs=$(cd "$runs" && pwd -P)
 item=$crew/items/$id
-
-board_row || die "item $id is not on the board"
-tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
-start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
-mkdir -p "$item"
-
-if [[ -f $mem/check ]] && head -n 1 "$mem/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
-  syntax=$(bash -n "$mem/check" 2>&1) || die "check at $mem/check has a syntax error: $syntax"
-fi
-
-holds_heavy_msg() {
-  if ((heavy_slots)) && "$heavy" holds "$1"; then
-    echo "$1 holds the heavy slot, so its merge gate would wait on itself; run crew-heavy release $1 first"
-    return 0
-  fi
-  return 1
-}
-refuse_own_hold() {
-  local msg
-  if msg=$(holds_heavy_msg "$id"); then die "$msg"; fi
-}
-refuse_own_hold
 
 tmp=
 ptmp=
@@ -226,6 +236,43 @@ m_result=()
 m_msg=()
 m_log=()
 m_commits=()
+tee_pids=()
+deferred=
+
+# Set only on the re-exec of a run that took the merge lock (become_leader): it
+# carries the queue state, so the run neither queues again nor rereads a tip.
+if [[ -n ${CREW_MERGE_LEADER:-} ]]; then
+  IFS=$'\037' read -r lock ticket tip start branch into mem heavy_slots snap passed_preflight <<<"$CREW_MERGE_LEADER"
+  unset CREW_MERGE_LEADER
+  resuming=1
+  wrote_marker=1
+else
+  resuming=
+  [[ $queue_wait =~ ^[0-9]+$ ]] || die "CREW_MERGE_QUEUE_WAIT must be a whole number of seconds"
+  mem=$(crew_mem) || die "cannot find the crew memory of this repository"
+  heavy_slots=$(crew_heavy_slots "$mem") || die "$mem/heavy-slots must contain 1, the only slot count supported"
+  board_row || die "item $id is not on the board"
+  tip=$(g rev-parse -q --verify "refs/heads/$branch^{commit}") || die "no branch $branch"
+  start=$(crew_pid_start "$$") || die "cannot read the start time of pid $$"
+  mkdir -p "$item"
+  if [[ -f $mem/check ]] && head -n 1 "$mem/check" | grep -Eq '^#![[:space:]]*([^[:space:]]*/)?(env[[:space:]]+(-S[[:space:]]+)?)?(ba)?sh([[:space:]]|$)'; then
+    syntax=$(bash -n "$mem/check" 2>&1) || die "check at $mem/check has a syntax error: $syntax"
+  fi
+fi
+
+holds_heavy_msg() {
+  if ((heavy_slots)) && "$heavy" holds "$1"; then
+    echo "$1 holds the heavy slot, so its merge gate would wait on itself; run crew-heavy release $1 first"
+    return 0
+  fi
+  return 1
+}
+refuse_own_hold() {
+  local msg
+  if msg=$(holds_heavy_msg "$id"); then die "$msg"; fi
+}
+[[ -n $resuming ]] || refuse_own_hold
+
 heavy_release() {
   local out
   [[ -n $heavy_held ]] || return 0
@@ -275,16 +322,49 @@ cleanup() {
   if ((rc != 0)) && [[ -n $leading && ${m_result[0]:-} == landed ]]; then
     printf 'crew-merge: %s landed before the rest of its batch was resolved\n' "$id" >&2
     printf '%s\n' "${m_merged[0]}"
+    close_output
     exit 0
   fi
+  close_output
+}
+
+# A caller that reads the output file once this run exits needs the tees done
+# writing it; a descendant still holding the pipe only delays the exit by 5 s.
+close_output() {
+  local p i
+  ((${#tee_pids[@]})) || return 0
+  exec >/dev/null 2>&1
+  for p in "${tee_pids[@]}"; do
+    for ((i = 0; i < 50; i++)); do
+      kill -0 "$p" 2>/dev/null || break
+      sleep 0.1
+    done
+  done
+  tee_pids=()
 }
 on_signal() {
   if [[ -n $napper ]]; then kill "$napper" 2>/dev/null || true; fi
   exit "$1"
 }
+stop_on_signals() {
+  trap 'on_signal 129' HUP
+  trap 'on_signal 130' INT
+  trap 'on_signal 143' TERM
+}
+defer_signal() {
+  deferred=${deferred:-$1}
+  echo "crew-merge: signal deferred until every item of the batch has landed or been cut" >&2
+}
 trap cleanup EXIT
-trap 'on_signal 129' HUP
-trap 'on_signal 143' TERM
+# A leader stopped mid-gate throws away the gate of every member it claimed, so
+# it defers stop signals until resolve is done; KILL is the deliberate stop.
+if [[ -n $resuming ]]; then
+  trap 'defer_signal 129' HUP
+  trap 'defer_signal 130' INT
+  trap 'defer_signal 143' TERM
+else
+  stop_on_signals
+fi
 
 unset_env=(-u HARNESS_UNATTENDED -u HARNESS_NOTIFY)
 for v in $(compgen -e); do
@@ -447,29 +527,32 @@ refuse_merging() {
   esac
 }
 
-# Checked before the preflight too, so a rerun of a merging item exits 3 at once
-# instead of running the hook against the items queued behind it.
-lock_marker "$item"
-refuse_merging
-unlock_marker
-if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
-take_snap
-preflight
+enter_queue() {
+  local msg
+  # Checked before the preflight too, so a rerun of a merging item exits 3 at
+  # once instead of running the hook against the items queued behind it.
+  lock_marker "$item"
+  refuse_merging
+  unlock_marker
+  if msg=$(refusal_of "$id" "$item" "$branch" "$tip"); then die "$msg"; fi
+  take_snap
+  preflight
 
-lock_marker "$item"
-refuse_merging
-rm -f "$item/merge-outcome"
+  lock_marker "$item"
+  refuse_merging
+  rm -f "$item/merge-outcome"
 
-# The ticket lock makes every marker visible before a later ticket is drawn,
-# so a run that sees no older queued marker is the head of the queue.
-exec {ticket_lock}>"$common/crew-merge.ticket.lock"
-flock -w 10 "$ticket_lock" || die "cannot lock $common/crew-merge.ticket.lock"
-ticket=${EPOCHREALTIME//[!0-9]/}
-queued_marker "$$" "$start" "$tip" "$ticket" | write_marker "$item"
-wrote_marker=1
-exec {ticket_lock}>&-
-unlock_marker
-exec {lock}>"$common/crew-merge.lock"
+  # The ticket lock makes every marker visible before a later ticket is drawn,
+  # so a run that sees no older queued marker is the head of the queue.
+  exec {ticket_lock}>"$common/crew-merge.ticket.lock"
+  flock -w 10 "$ticket_lock" || die "cannot lock $common/crew-merge.ticket.lock"
+  ticket=${EPOCHREALTIME//[!0-9]/}
+  queued_marker "$$" "$start" "$tip" "$ticket" | write_marker "$item"
+  wrote_marker=1
+  exec {ticket_lock}>&-
+  unlock_marker
+  exec {lock}>"$common/crew-merge.lock"
+}
 
 # Bash defers a trap until its foreground child returns, so the sleep runs in
 # the background where a signal can interrupt it.
@@ -783,7 +866,7 @@ gate() {
   fi
   t0=$EPOCHSECONDS
   grc=0
-  (cd "$tmp" && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 CREW_GATE_PID=$BASHPID CREW_MEM="$snap" "$snap/check") >"$glog" 2>&1 {lock}>&- || grc=$?
+  (cd "$tmp" && trap - PIPE && exec env "${unset_env[@]}" CREW_MERGE_GATE=1 CREW_GATE_PID=$BASHPID CREW_MEM="$snap" "$snap/check") >"$glog" 2>&1 {lock}>&- || grc=$?
   heavy_release
   if ((grc)); then
     printf 'crew-merge: check red on %safter %d s\n' "$ids" $((EPOCHSECONDS - t0)) >&2
@@ -795,7 +878,7 @@ gate() {
 # Fast-forwards the target to the merge of the last of members $@, after
 # recording each member's merge in its marker for --settle.
 land() {
-  local i f settle_hint last=${*: -1}
+  local i f settle_hint last=${*: -1} traps
   target_ok
   [[ $(g -C "$target" rev-parse HEAD) == "$base" ]] || die "$into moved during check; $into unchanged, rerun"
   for i in "$@"; do
@@ -804,13 +887,13 @@ land() {
     { cat "$f" && printf 'merged %s\n' "${m_merged[i]}"; } | write_marker "${m_dir[i]}"
     unlock_marker
   done
-  trap '' HUP TERM
+  traps=$(trap -p HUP INT TERM)
+  trap '' HUP INT TERM
   settle_hint="run crew-merge --settle for each of: $(for i in "$@"; do printf '%s ' "${m_id[i]}"; done)"
   g -C "$target" merge -q --ff-only --no-autostash "${m_merged[last]}" || die "the fast-forward of $into to ${m_merged[last]} failed; $settle_hint"
   [[ $(g rev-parse "refs/heads/$into") == "${m_merged[last]}" ]] || die "refs/heads/$into is not ${m_merged[last]} after the fast-forward; $settle_hint"
   for i in "$@"; do settle_member "$i" landed "" "$glog"; done
-  trap 'on_signal 129' HUP
-  trap 'on_signal 143' TERM
+  eval "$traps"
 }
 
 # Names the log and the last line of the failing gate of an item that passed
@@ -858,7 +941,38 @@ resolve() {
   done
 }
 
-wait_turn
+become_leader() {
+  local self
+  self=$(readlink -f "${BASH_SOURCE[0]}")
+  printf -v CREW_MERGE_LEADER '%s\037' "$lock" "$ticket" "$tip" "$start" "$branch" "$into" "$mem" "$heavy_slots" "$snap" "$passed_preflight"
+  export CREW_MERGE_LEADER
+  exec perl -e 'setpgrp; exec @ARGV or die "crew-merge: cannot re-exec as leader: $!\n"' "$self" "$id" </dev/null
+}
+
+# Runs once the leader is in its own group; with SIGPIPE ignored and a tee per
+# stream, a caller that dies or closes its pipe costs the leader nothing.
+lead_alone() {
+  local out=$runs/merge-$id.out pgid
+  flock -n "$lock" || die "the re-exec as leader lost the merge lock"
+  trap '' PIPE
+  : >"$out"
+  exec > >(tee -p -a "$out")
+  tee_pids+=("$!")
+  exec 2> >(tee -p -a "$out" >&2)
+  tee_pids+=("$!")
+  pgid=$(ps -o pgid= -p "$$")
+  pgid=${pgid//[!0-9]/}
+  if [[ $pgid != "$$" ]]; then
+    echo "crew-merge: could not leave the caller's process group ($pgid); stopping the caller can stop this gate" >&2
+  fi
+}
+
+if [[ -z $resuming ]]; then
+  enter_queue
+  wait_turn
+  become_leader
+fi
+lead_alone
 
 g worktree prune
 mapfile -t worktrees < <(g worktree list --porcelain | sed -n 's/^worktree //p')
@@ -892,6 +1006,7 @@ for ((i = 0; i < ${#m_id[@]}; i++)); do
   [[ -n ${m_result[i]} ]] || members+=("$i")
 done
 resolve "${members[@]}"
+stop_on_signals
 
 case ${m_result[0]} in
 landed)
@@ -900,6 +1015,7 @@ landed)
   ;;
 *)
   if [[ -n ${m_log[0]} && -f ${m_log[0]} ]]; then tail -n 20 "${m_log[0]}" >&2; fi
-  die "${m_msg[0]:-$id did not land}"
+  printf 'crew-merge: %s\n' "${m_msg[0]:-$id did not land}" >&2
+  exit "${deferred:-1}"
   ;;
 esac
