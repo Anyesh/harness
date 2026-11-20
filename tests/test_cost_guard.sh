@@ -75,6 +75,74 @@ assert "allows a commit message that quotes a big tail" '[ "$RC" -eq 0 ]'
 run_hook 'cat notes.txt > run.log'
 assert "allows cat redirected into a log" '[ "$RC" -eq 0 ]'
 
+echo "=== cost-guard: crew worker rules ==="
+
+WTMP=$(mktemp -d)
+trap 'command rm -rf "$WTMP"' EXIT
+seq 1 900 >"$WTMP/long.txt"
+seq 1 100 >"$WTMP/short.txt"
+head -c 70000 /dev/zero | tr '\0' 'a' >"$WTMP/wide.txt"
+head -c 70000 /dev/zero >"$WTMP/shot.png"
+
+run_read() {
+  local payload
+  payload=$(jq -n --arg p "$1" --argjson l "${2:-null}" \
+    '{hook_event_name: "PreToolUse", tool_name: "Read", tool_input: ({file_path: $p} + (if $l == null then {} else {limit: $l} end))}')
+  RC=0
+  ERR=$(printf '%s' "$payload" | bash "$HOOK" 2>&1 >/dev/null) || RC=$?
+}
+worker_hook() {
+  HARNESS_UNATTENDED=1 run_hook "$1"
+}
+
+run_read "$WTMP/long.txt"
+assert "a non-worker may read a long file whole" '[ "$RC" -eq 0 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/long.txt"
+assert "a worker is blocked reading a long file with no limit" '[ "$RC" -eq 2 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/long.txt" 200
+assert "a worker may read a long file with a limit" '[ "$RC" -eq 0 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/wide.txt"
+assert "a worker is blocked reading a file over 60 KB with no limit" '[ "$RC" -eq 2 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/short.txt"
+assert "a worker may read a short file whole" '[ "$RC" -eq 0 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/shot.png"
+assert "a worker may read an image of any size" '[ "$RC" -eq 0 ]'
+HARNESS_UNATTENDED=1 run_read "$WTMP/missing.txt"
+assert "a worker may read a missing path" '[ "$RC" -eq 0 ]'
+
+run_hook 'pytest tests/'
+assert "a non-worker may run pytest unfiltered" '[ "$RC" -eq 0 ]'
+
+for runner in 'pytest tests/' 'uv run pytest -x' 'python3 -m pytest' 'npx jest' 'npx vitest run' 'go test ./...' 'cargo test' 'npm test' 'npm run test' 'pnpm test' 'yarn test' 'make test' 'crew-light pytest -q' 'cd app && uv run pytest'; do
+  worker_hook "$runner"
+  assert "a worker is blocked running: $runner" '[ "$RC" -eq 2 ]'
+  worker_hook "$runner 2>&1 | tail -n 40"
+  assert "a worker may run piped to tail: $runner" '[ "$RC" -eq 0 ]'
+  worker_hook "$runner | grep -E 'FAILED|passed'"
+  assert "a worker may run piped to grep: $runner" '[ "$RC" -eq 0 ]'
+  worker_hook "$runner > /tmp/t.log 2>&1"
+  assert "a worker may run redirected to a file: $runner" '[ "$RC" -eq 0 ]'
+done
+
+worker_hook 'pytest tests/ 2>&1 | head -50'
+assert "a worker may pipe a test run to head" '[ "$RC" -eq 0 ]'
+worker_hook 'pytest tests/ 2>&1'
+assert "2>&1 alone does not bound a test run" '[ "$RC" -eq 2 ]'
+worker_hook 'pytest tests/ 2>/dev/null'
+assert "silencing stderr alone does not bound a test run" '[ "$RC" -eq 2 ]'
+worker_hook 'crew-red A pytest tests/test_x.py'
+assert "crew-red keeps only an output tail and is exempt" '[ "$RC" -eq 0 ]'
+worker_hook 'git commit -m "run pytest and npm test before pushing"'
+assert "a worker may commit a message that names a test runner" '[ "$RC" -eq 0 ]'
+worker_hook $'cat > notes.md <<\'E\'\nrun pytest tests/\nE'
+assert "a worker may write a heredoc that names a test runner" '[ "$RC" -eq 0 ]'
+worker_hook 'grep -rn "pytest" docs | head'
+assert "a worker may grep for a test runner name" '[ "$RC" -eq 0 ]'
+worker_hook 'pip install pytest'
+assert "installing a test runner is not running it" '[ "$RC" -eq 0 ]'
+worker_hook 'make test-data'
+assert "a make target that merely starts with test is not a test run" '[ "$RC" -eq 0 ]'
+
 echo ""
 echo "Passed: $PASS  Failed: $FAIL"
 [[ $FAIL -eq 0 ]]

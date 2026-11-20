@@ -13,7 +13,7 @@ INPUT=$(cat)
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 case "$TOOL_NAME" in
-  Read|Bash|Shell) ;;
+  Read | Bash | Shell) ;;
   *) exit 0 ;;
 esac
 
@@ -43,12 +43,30 @@ if [[ "$TOOL_NAME" == "Read" ]]; then
   [[ -z "$FILE_PATH" || ! -f "$FILE_PATH" ]] && exit 0
 
   FILE_SIZE=$(stat -c%s "$FILE_PATH" 2>/dev/null || stat -f%z "$FILE_PATH" 2>/dev/null || echo 0)
-  LINE_COUNT=$(wc -l < "$FILE_PATH" 2>/dev/null || echo 0)
+  LINE_COUNT=$(wc -l <"$FILE_PATH" 2>/dev/null || echo 0)
+
+  if [[ "${HARNESS_UNATTENDED:-}" == 1 ]]; then
+    HAS_LIMIT=$(printf '%s' "$INPUT" | jq -r '.tool_input.limit // empty' 2>/dev/null)
+    case "$FILE_PATH" in
+      *.png | *.jpg | *.jpeg | *.gif | *.webp | *.pdf) ;;
+      *)
+        if [[ -z "$HAS_LIMIT" && ($FILE_SIZE -gt 61440 || $LINE_COUNT -gt 800) ]]; then
+          cat >&2 <<EOF
+[hook:cost-guard] BLOCKED: unbounded read of a large file (${FILE_SIZE} bytes, ${LINE_COUNT} lines)
+File: $FILE_PATH
+
+COST RULE: A crew worker's context is not refilled. Read the part you need with offset and limit, or grep for it first.
+EOF
+          exit 2
+        fi
+        ;;
+    esac
+  fi
 
   # Only block large files that are logs/output (not source code being edited)
   if [[ $FILE_SIZE -gt 102400 || $LINE_COUNT -gt 2000 ]]; then
     case "$FILE_PATH" in
-      *.log|*.jsonl|*transcript*|*/debug/*|*/logs/*|*/output/*|*.out|*.csv)
+      *.log | *.jsonl | *transcript* | */debug/* | */logs/* | */output/* | *.out | *.csv)
         cat >&2 <<EOF
 [hook:cost-guard] BLOCKED: Large log/output file (${FILE_SIZE} bytes, ${LINE_COUNT} lines)
 File: $FILE_PATH
@@ -73,9 +91,18 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   CODE=$(printf '%s\n' "$COMMAND" | shell_code keep)
   at="$SHELL_CMD_START"
 
+  if [[ "${HARNESS_UNATTENDED:-}" == 1 ]]; then
+    runner="${at}(uv\s+run\s+(-\S+\s+)*|crew-light\s+|npx\s+|python[0-9.]*\s+-m\s+)?(pytest|jest|vitest|go\s+test|cargo\s+test|(npm|pnpm|yarn)\s+(run\s+)?test|make\s+test)(\s|;|&|\||\$)"
+    if printf '%s\n' "$CODE" | grep -qE "$runner" &&
+      ! printf '%s\n' "$CODE" | grep -qE '\|\s*(tail|grep|head)\b' &&
+      ! printf '%s\n' "$CODE" | grep -qE '(^|\s)(1?>>?|&>>?)\s*[^&[:space:]]'; then
+      block_with_message "Unbounded test output in a crew worker (pipe to tail -n 40 or grep, or redirect to a file and read the tail)" "$COMMAND"
+    fi
+  fi
+
   # Safe: command is piped to something that limits output
   # Match: | head, | tail (without huge -n), | wc, | grep, | sort | head, | cut
-  if printf '%s\n' "$CODE" | grep -qE '\|\s*(head|wc|grep|cut|awk|sort\s*\|)' ; then
+  if printf '%s\n' "$CODE" | grep -qE '\|\s*(head|wc|grep|cut|awk|sort\s*\|)'; then
     exit 0
   fi
   # tail with small number is fine
@@ -110,14 +137,14 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   # Now check for dangerous patterns (unbounded output)
 
   # docker/kubectl logs without --tail
-  if printf '%s\n' "$CODE" | grep -qEi "${at}(docker|kubectl)\s+logs" ; then
+  if printf '%s\n' "$CODE" | grep -qEi "${at}(docker|kubectl)\s+logs"; then
     if ! printf '%s\n' "$CODE" | grep -qE -- '--tail'; then
       block_with_message "Unbounded container logs (add --tail N)" "$COMMAND"
     fi
   fi
 
   # journalctl without -n or --lines limit
-  if printf '%s\n' "$CODE" | grep -qE "${at}journalctl" ; then
+  if printf '%s\n' "$CODE" | grep -qE "${at}journalctl"; then
     if ! printf '%s\n' "$CODE" | grep -qE '(-n\s*[0-9]|--lines)'; then
       block_with_message "Unbounded journalctl (add -n N)" "$COMMAND"
     fi
@@ -134,7 +161,7 @@ if [[ "$TOOL_NAME" == "Bash" || "$TOOL_NAME" == "Shell" ]]; then
   fi
 
   # find from root (/) without pipe
-  if printf '%s\n' "$CODE" | grep -qE '\bfind\s+/\s' ; then
+  if printf '%s\n' "$CODE" | grep -qE '\bfind\s+/\s'; then
     block_with_message "find from / produces massive output (scope to specific dir)" "$COMMAND"
   fi
 
