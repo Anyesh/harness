@@ -1045,6 +1045,43 @@ refuses "a gate script that cannot be copied" 126 "cannot copy"
 assert "a refused snapshot leaves no gate directory" 'no_gate_dirs 126'
 command rm -rf "$STORE"
 
+mkdir -p "$CREW/preflight.d"
+add_pf_d() {
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n%s\n' "$2" >"$CREW/preflight.d/$1"
+  chmod +x "$CREW/preflight.d/$1"
+}
+set_check 'exit 0'
+: >"$TMP_DIR/pfd"
+add_pf_d 20-second "echo second >>'$TMP_DIR/pfd'"
+add_pf_d 10-first "echo \"first \$CREW_PREFLIGHT_ITEM \$(basename \"\$CREW_MEM\" | cut -c1-5)\" >>'$TMP_DIR/pfd'"
+printf '#!/usr/bin/env bash\necho not-run >>'"'$TMP_DIR/pfd'"'\n' >"$CREW/preflight.d/30-off"
+new_item 130
+run_merge 130 >"$TMP_DIR/out" 2>&1 || true
+assert "preflight.d scripts run in sorted order on every item, without a preflight, skipping non-executables" '[[ -f $CREW/items/130/merged && $(<"$TMP_DIR/pfd") == "first 130 gate-"$'"'\n'"'"second" ]]'
+
+add_pf_d 15-bad 'echo bad-thing; exit 1'
+new_item 131
+refuses "an item that a preflight.d script refuses" 131 "bad-thing"
+assert "the refusal names the failing preflight.d script" 'grep -q "preflight.d/15-bad refused 131" "$TMP_DIR/out"'
+command rm -f "$CREW/preflight.d/15-bad"
+
+add_pf_d 15-slow 'sleep 30'
+export CREW_PREFLIGHT_TIMEOUT=1
+refuses "a preflight.d script that runs past its timeout" 131 "preflight.d/15-slow timed out after 1 s"
+unset CREW_PREFLIGHT_TIMEOUT
+command rm -f "$CREW/preflight.d/15-slow"
+
+set_preflight 'exit 0'
+new_item 132
+new_item 133
+set_check "if [[ -e f-132 ]]; then echo noise; echo red-line-132; echo; exit 1; fi"
+hold_lock
+queue_merges 132 133
+kill "$HOLDER"
+wait_queued
+assert "an item bisect cuts after it passed preflight gets a gate-escape file with the log and the last red line" '[[ ${RCS[*]} == "1 0" && $(sed -n "s/^log //p" "$CREW/items/132/gate-escape") == "$RUNS"/check-132.log && $(sed -n "s/^red //p" "$CREW/items/132/gate-escape") == red-line-132 && ! -e $CREW/items/133/gate-escape ]]'
+command rm -f "$CREW/preflight" "$CREW/preflight.d"/*
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

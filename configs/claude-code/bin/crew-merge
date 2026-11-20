@@ -209,6 +209,7 @@ refuse_own_hold
 tmp=
 ptmp=
 snap=
+passed_preflight=
 wrote_marker=
 napper=
 heavy_held=
@@ -359,10 +360,19 @@ take_snap() {
 # with the batch ahead is refused before the item takes a queue ticket. It runs
 # before any lock, since the hook can take minutes.
 preflight() {
-  local hook=$snap/preflight limit=${CREW_PREFLIGHT_TIMEOUT:-3600} stale t fid row qbranch qtip base log prc=0 t0 i
-  local -a qids=() qbranches=() qtips=() clashes=()
-  [[ -e $hook ]] || return 0
-  [[ -x $hook ]] || die "preflight at $hook is not executable"
+  local hook=$snap/preflight limit=${CREW_PREFLIGHT_TIMEOUT:-3600} stale t fid row qbranch qtip base log prc=0 t0 i f
+  local -a qids=() qbranches=() qtips=() clashes=() hooks=() labels=()
+  if [[ -e $hook ]]; then
+    [[ -x $hook ]] || die "preflight at $hook is not executable"
+    hooks+=("$hook")
+    labels+=(preflight)
+  fi
+  for f in "$snap"/preflight.d/*; do
+    [[ -f $f && -x $f ]] || continue
+    hooks+=("$f")
+    labels+=("preflight.d/${f##*/}")
+  done
+  ((${#hooks[@]})) || return 0
   [[ $limit =~ ^[1-9][0-9]*$ ]] || die "CREW_PREFLIGHT_TIMEOUT must be a whole number of seconds"
   g rev-parse -q --verify "refs/heads/$into^{commit}" >/dev/null || die "no branch $into"
   if g merge-base --is-ancestor "$tip" "refs/heads/$into"; then return 0; fi
@@ -401,16 +411,22 @@ preflight() {
   log=$runs/preflight-$id.log
   printf 'crew-merge: preflight on %s%s (log: %s)\n' "$id" "${qids:+ after queued ${qids[*]}}" "$log" >&2
   t0=$EPOCHSECONDS
-  (cd "$ptmp" && exec env "${unset_env[@]}" CREW_PREFLIGHT=1 CREW_PREFLIGHT_ITEM="$id" CREW_PREFLIGHT_BASE="$base" \
-    CREW_PREFLIGHT_TARGET="$into" CREW_PREFLIGHT_QUEUED="${qids[*]}" CREW_MEM="$snap" timeout -k 10 "$limit" "$hook") >"$log" 2>&1 || prc=$?
+  : >"$log"
+  for i in "${!hooks[@]}"; do
+    prc=0
+    (cd "$ptmp" && exec env "${unset_env[@]}" CREW_PREFLIGHT=1 CREW_PREFLIGHT_ITEM="$id" CREW_PREFLIGHT_BASE="$base" \
+      CREW_PREFLIGHT_TARGET="$into" CREW_PREFLIGHT_QUEUED="${qids[*]}" CREW_MEM="$snap" timeout -k 10 "$limit" "${hooks[i]}") >>"$log" 2>&1 || prc=$?
+    ((prc == 0)) || break
+  done
   drop_trial
   if ((prc == 124)); then
     tail -n 40 "$log" >&2
-    die "preflight timed out after $limit s (log: $log)"
+    die "${labels[i]} timed out after $limit s (log: $log)"
   elif ((prc)); then
     tail -n 40 "$log" >&2
-    die "preflight refused $id (log: $log)"
+    die "${labels[i]} refused $id (log: $log)"
   fi
+  passed_preflight=1
   printf 'crew-merge: preflight passed on %s after %d s\n' "$id" $((EPOCHSECONDS - t0)) >&2
 }
 
@@ -755,6 +771,12 @@ land() {
   trap 'on_signal 143' TERM
 }
 
+# Names the log and the last line of the failing gate of an item that passed
+# preflight, for crew-sweep to report.
+record_escape() {
+  printf 'log %s\nred %s\n' "$2" "$(grep -v '^[[:space:]]*$' "$2" | tail -n 1)" | write_file "${m_dir[$1]}/gate-escape"
+}
+
 # resolve <member>...: gates the members merged together and lands them on
 # green. On red it bisects for the first failing member, landing each passing
 # first half on the way; once the half before an untested rest has landed,
@@ -789,6 +811,7 @@ resolve() {
         red_log=$glog
       fi
     done
+    [[ -z $passed_preflight ]] || record_escape "${lo[0]}" "$red_log"
     settle_member "${lo[0]}" failed "check failed on ${m_branch[lo[0]]} merged into $into; $into unchanged (log: $red_log)" "$red_log"
   done
 }
