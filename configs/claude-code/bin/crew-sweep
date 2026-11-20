@@ -1168,16 +1168,6 @@ sync_memory() {
   return 0
 }
 
-# crew_mem_busy as the lib has it, except that this sweep's own live file does
-# not count; the lib has no way to leave one out.
-busy_beside_me() {
-  (
-    eval "lib_$(declare -f crew_live_alive)"
-    crew_live_alive() { [[ $1 != "$live" ]] && lib_crew_live_alive "$1"; }
-    crew_mem_busy "$crew"
-  )
-}
-
 memory_lines=()
 memory_at=0
 check_memory() {
@@ -1186,7 +1176,7 @@ check_memory() {
   memory_lines=()
   [[ -x $here/crew-memory ]] || return 0
   if [[ $mem == "$crew" ]]; then
-    if [[ -d $(crew_memory_dir)/.git ]] && reason=$(busy_beside_me); then
+    if [[ -d $(crew_memory_dir)/.git ]] && reason=$(crew_mem_busy "$crew" "$live"); then
       memory_lines+=("MEMORY pending $reason")
     fi
   else

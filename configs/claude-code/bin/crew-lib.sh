@@ -474,9 +474,10 @@ crew_live_alive() {
 }
 
 # Prints why something may be reading crew $1's persistent files and succeeds:
-# an assigned board row, a live merge marker or a live sweep.
+# an assigned board row, a live merge marker or a live sweep other than the
+# caller's own live file $2.
 crew_mem_busy() {
-  local crew=$1 f
+  local crew=$1 self=${2:-} f
   if [[ -f $crew/board.tsv ]] && awk -F'\t' '$2 == "assigned" { found = 1; exit } END { exit !found }' "$crew/board.tsv"; then
     echo "the board has assigned rows"
     return 0
@@ -492,7 +493,7 @@ crew_mem_busy() {
     esac
   done
   for f in "$crew"/live/sweep.*; do
-    if crew_live_alive "$f"; then
+    if [[ $f != "$self" ]] && crew_live_alive "$f"; then
       echo "a sweep is running (${f##*/})"
       return 0
     fi
