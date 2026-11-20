@@ -180,8 +180,9 @@ crew_profile_usage() {
 
 crew_threshold_keys=(CREW_DISK_MIN_GB CREW_MEM_MIN_MB CREW_LOAD_PER_CPU CREW_IO_FULL_PCT
   CREW_SESSION_SOFT_PCT CREW_SESSION_HARD_PCT CREW_WEEK_SOFT_PCT CREW_WEEK_HARD_PCT
-  CREW_CONTEXT_K CREW_OPENCODE_CONTEXT_K CREW_WORKERS_PER_PROFILE CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT)
-crew_threshold_whole=" CREW_SESSION_SOFT_PCT CREW_SESSION_HARD_PCT CREW_WEEK_SOFT_PCT CREW_WEEK_HARD_PCT CREW_CONTEXT_K CREW_OPENCODE_CONTEXT_K CREW_WORKERS_PER_PROFILE CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT "
+  CREW_CONTEXT_K CREW_OPENCODE_CONTEXT_K CREW_WORKERS_PER_PROFILE CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT
+  CREW_LEAD_NOTES_MAX_BYTES)
+crew_threshold_whole=" CREW_SESSION_SOFT_PCT CREW_SESSION_HARD_PCT CREW_WEEK_SOFT_PCT CREW_WEEK_HARD_PCT CREW_CONTEXT_K CREW_OPENCODE_CONTEXT_K CREW_WORKERS_PER_PROFILE CREW_LESSONS_MAX_BYTES CREW_LESSON_DUP_PCT CREW_LEAD_NOTES_MAX_BYTES "
 declare -gA crew_threshold_file=()
 crew_threshold_errors=()
 
@@ -387,4 +388,114 @@ crew_slug() {
   [[ $base == [a-z]* ]] || base="r-$base"
   hash=$(printf %s "$main" | sha1sum | cut -c1-4)
   printf '%s-%s\n' "${base:0:21}" "$hash"
+}
+
+crew_memory_dir() {
+  printf '%s\n' "${CREW_MEMORY_DIR:-$HOME/.local/share/crew-memory}"
+}
+
+# Files of a crew that outlive its runs; they live in the memory store once the
+# repo has an entry there, and in the crew dir until then.
+# shellcheck disable=SC2034
+crew_mem_files=(brief.md lead-notes.md check preflight preflight.d sweep-check
+  thresholds watch-paths heavy-slots light-slots wait-patterns)
+
+# The origin of repo $1 as lowercase host/path with no scheme, user or .git, so
+# ssh and https clones of one repo agree; none when there is no origin.
+crew_origin_norm() {
+  local url
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || {
+    echo none
+    return 0
+  }
+  url=${url,,}
+  url=${url%/}
+  url=${url%.git}
+  case $url in
+    *://*)
+      url=${url#*://}
+      url=${url#*@}
+      ;;
+    *@*:*)
+      url=${url#*@}
+      url=${url/://}
+      ;;
+  esac
+  printf '%s\n' "$url"
+}
+
+# The store key of the repo holding dir $1: the entry whose origin file matches
+# this repo's origin, else the lowercase basename of the main checkout, with 4
+# hex of the origin added when that name belongs to another origin. crew_slug
+# hashes the local path, which differs per machine, so it cannot be the key.
+crew_mem_key() {
+  local main origin store o base
+  main=$(crew_main "${1:-.}") || return 1
+  origin=$(crew_origin_norm "$main")
+  store=$(crew_memory_dir)
+  if [[ $origin != none ]]; then
+    for o in "$store"/repos/*/origin; do
+      if [[ -f $o && $(<"$o") == "$origin" ]]; then
+        o=${o%/origin}
+        printf '%s\n' "${o##*/}"
+        return 0
+      fi
+    done
+  fi
+  base=$(printf %s "${main##*/}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_.-' '-')
+  [[ $base != .* ]] || base="r$base"
+  if [[ -f $store/repos/$base/origin && $(<"$store/repos/$base/origin") != "$origin" ]]; then
+    [[ $origin != none ]] || origin=$main
+    base="$base-$(printf %s "$origin" | sha1sum | cut -c1-4)"
+  fi
+  printf '%s\n' "$base"
+}
+
+# Where the persistent files of the repo holding dir $1 live: its store entry
+# when one exists, else the crew dir.
+crew_mem() {
+  local key dir
+  key=$(crew_mem_key "${1:-.}") || return 1
+  dir="$(crew_memory_dir)/repos/$key"
+  if [[ -d $dir ]]; then
+    printf '%s\n' "$dir"
+  else
+    crew_dir "${1:-.}"
+  fi
+}
+
+# True while live file $1 (`<pid> <start>`) names a running process that has
+# that start time.
+crew_live_alive() {
+  local pid start
+  [[ -f $1 ]] || return 1
+  read -r pid start <"$1" || [[ -n ${pid:-} ]] || return 1
+  [[ $pid =~ ^[0-9]+$ && $start =~ ^[0-9]+$ && $(crew_pid_start "$pid") == "$start" ]]
+}
+
+# Prints why something may be reading crew $1's persistent files and succeeds:
+# an assigned board row, a live merge marker or a live sweep.
+crew_mem_busy() {
+  local crew=$1 f
+  if [[ -f $crew/board.tsv ]] && awk -F'\t' '$2 == "assigned" { found = 1; exit } END { exit !found }' "$crew/board.tsv"; then
+    echo "the board has assigned rows"
+    return 0
+  fi
+  for f in "$crew"/items/*/merging; do
+    [[ -f $f ]] || continue
+    case $(crew_merge_state "$f") in
+      running | queued)
+        f=${f%/merging}
+        echo "item ${f##*/} is merging"
+        return 0
+        ;;
+    esac
+  done
+  for f in "$crew"/live/sweep.*; do
+    if crew_live_alive "$f"; then
+      echo "a sweep is running (${f##*/})"
+      return 0
+    fi
+  done
+  return 1
 }
