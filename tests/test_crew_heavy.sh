@@ -332,6 +332,45 @@ assert "a merge goes ahead of an old-format ticket" '[[ $RC -eq 0 && $(holder_fi
 heavy release merge-z
 rm "$old"
 
+echo "a gate that released the slot"
+printf '1\n' >"$CREW/heavy-slots"
+RECORD=$CREW/heavy.gate-released
+sleep 300 &
+GATE=$!
+PIDS+=("$GATE")
+GSTART=$(crew_pid_start "$GATE")
+marker lead running
+mkdir -p "$CREW/items/fol"
+printf 'pid %s\nstart %s\ntip %s\nticket t\nowner o\nleader lead\n' "$MERGER" "$MSTART" "$SHA" >"$CREW/items/fol/merging"
+marker que queued
+heavy acquire merge-lead "merge gate" 0
+heavy release merge-lead
+assert "release without CREW_GATE_PID records nothing" '[[ $RC -eq 0 && ! -e $RECORD ]]'
+heavy acquire merge-lead "merge gate" 0
+CREW_GATE_PID=$GATE heavy release merge-lead
+assert "release with CREW_GATE_PID records the holder, pid and start" '[[ $RC -eq 0 && $(cat "$RECORD") == "merge-lead $GATE $GSTART" && ! -e $LOCK ]]'
+heavy acquire 2 suite 0
+assert "a normal waiter gets in while the gate runs, despite a leader, a follower and a queued item" '[[ $RC -eq 0 && $(holder_field 1) == 2 ]]'
+heavy release 2
+marker other running
+heavy acquire 2 suite 3
+assert "another running merge that is not part of the gate still holds a waiter back" '[[ $RC -ne 0 && $OUT == *"1 ahead"* ]]'
+rm -rf "$CREW/items/other"
+heavy acquire merge-lead "merge gate" 0
+assert "the gate taking the slot back deletes the record" '[[ $RC -eq 0 && ! -e $RECORD ]]'
+heavy release merge-lead
+CREW_GATE_PID=$GATE heavy acquire merge-lead "merge gate" 0
+CREW_GATE_PID=$GATE heavy release merge-lead
+kill "$GATE"
+wait "$GATE" 2>/dev/null || true
+heavy acquire 2 suite 3
+assert "once the gate's pid is gone the waiter yields again" '[[ $RC -ne 0 && ! -e $LOCK && $OUT == *"ahead"* ]]'
+assert "the dead record is deleted on sight" '[[ ! -e $RECORD ]]'
+printf 'merge-lead %s %s\n' "$MERGER" "$((MSTART + 1))" >"$RECORD"
+heavy acquire 2 suite 3
+assert "a record whose pid has another start time counts as dead" '[[ $RC -ne 0 && ! -e $RECORD ]]'
+rm -rf "$CREW/items"
+
 echo "persistent files in the memory store"
 rm -rf "$CREW/items" "$CREW/heavy-slots"
 mkdir -p "$CREW_MEMORY_DIR/repos/repo"

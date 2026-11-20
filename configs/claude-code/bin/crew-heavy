@@ -12,8 +12,16 @@
 # while no live ticket is ahead of it. Merge gates (`merge-<id>`), holders listed
 # in <crew dir>/heavy-priority and tickets older than CREW_HEAVY_AGE seconds
 # (default 3600) go first, oldest first, then everyone else oldest first. With
-# heavy-slots set in the crew memory dir (crew_mem), a normal waiter also stays behind every live crew-merge
-# marker whose merge has neither the slot nor a ticket yet.
+# heavy-slots set in the crew memory dir (crew_mem), a normal waiter also stays
+# behind every live crew-merge marker whose merge has neither the slot nor a
+# ticket yet.
+# A merge gate's check may give the slot back while it keeps running: release
+# merge-<id> called with CREW_GATE_PID set (crew-merge starts check with it, as
+# check's own pid) records <crew dir>/heavy.gate-released as
+# `merge-<id> <pid> <start>`. While that process lives, that merge, the items
+# batched under it and every queued marker no longer hold a normal waiter back,
+# since none of them can gate before the merge lock frees. A dead record is
+# deleted on sight, and so is one when merge-<id> acquires the slot again.
 set -euo pipefail
 # shellcheck source=crew-lib.sh
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/crew-lib.sh"
@@ -27,6 +35,7 @@ crew=$(crew_dir) || die "not inside a git repository"
 mem=$(crew_mem) || die "not inside a git repository"
 slots=$(crew_heavy_slots "$mem") || die "$mem/heavy-slots must contain 1, the only slot count supported"
 lock=$crew/heavy.lock
+gate_record=$crew/heavy.gate-released
 queue=$crew/heavy.queue
 ticket=
 poll=${CREW_HEAVY_POLL:-15}
@@ -39,18 +48,38 @@ current_holder() {
   crew_heavy_hold "$crew" | cut -f1
 }
 
+# Prints the id of the merge whose gate released the slot while its check still
+# runs, and fails with no output otherwise, deleting a dead record.
+released_gate() {
+  local holder pid start
+  [[ -f $gate_record ]] || return 1
+  read -r holder pid start <"$gate_record" || true
+  if [[ ${pid:-} =~ ^[0-9]+$ && ${start:-} =~ ^[0-9]+$ && $(crew_pid_start "$pid") == "$start" ]]; then
+    echo "${holder#merge-}"
+    return 0
+  fi
+  rm -f "$gate_record"
+  return 1
+}
+
 # crew-merge takes its ticket only after it holds crew-merge.lock and has
 # prepared the merge, so between two merges the slot would sit free with no
 # priority ticket in the queue.
 merges_without_ticket() {
-  local m id n=0 hold
+  local m id n=0 hold gate state leader
   hold=$(current_holder)
+  gate=$(released_gate || true)
   for m in "$crew"/items/*/merging; do
     [[ -f $m ]] || continue
     id=${m%/merging}
     id=${id##*/}
     [[ $hold != "merge-$id" && " $1 " != *" merge-$id "* ]] || continue
-    case $(crew_merge_state "$m") in
+    state=$(crew_merge_state "$m")
+    if [[ -n $gate ]]; then
+      leader=$(awk '$1 == "leader" { l = $2 } END { print l }' "$m")
+      [[ $id != "$gate" && $leader != "$gate" && $state != queued ]] || continue
+    fi
+    case $state in
     queued | running) n=$((n + 1)) ;;
     esac
   done
@@ -110,6 +139,7 @@ acquire() {
     wait "$!"
   done
   printf '%s\t%s\t%s\n' "$holder" "$purpose" "$EPOCHSECONDS" >"$lock/holder"
+  [[ $(cut -d' ' -f1 "$gate_record" 2>/dev/null) != "$holder" ]] || rm -f "$gate_record"
   drop_ticket
   trap - EXIT HUP INT TERM
   echo "crew-heavy: acquired by $holder for $purpose"
@@ -125,6 +155,10 @@ release() {
   [[ $current == "$holder" ]] || die "slot is held by ${current:-unknown}, not $holder"
   rm -f "$lock/holder"
   rmdir "$lock"
+  if [[ ${CREW_GATE_PID:-} =~ ^[0-9]+$ && $holder == merge-* ]]; then
+    printf '%s %s %s\n' "$holder" "$CREW_GATE_PID" "$(crew_pid_start "$CREW_GATE_PID")" >"$gate_record.$$"
+    mv -f "$gate_record.$$" "$gate_record"
+  fi
   echo "crew-heavy: released by $holder"
 }
 
